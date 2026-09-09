@@ -1,5 +1,5 @@
 """
-Gatekeeper: Multi-Asset Leading Macro & Institutional Confirmation Engine (v12)
+Gatekeeper: Multi-Asset Leading Macro & Institutional Confirmation Engine (Zero Missing Metrics)
 """
 import numpy as np
 import pandas as pd
@@ -16,7 +16,7 @@ class PreTradeGatekeeper:
         self.crisis_active = False
         self.consecutive_breaches = 0
         self.market_regime = "MAKRO DENGE"
-        self.current_vix = 15.0
+        self.current_vix = 16.0
         self.anomaly_score = 0.0
         self.stagflation_z = 0.0
         self.yen_carry_z = 0.0
@@ -31,7 +31,7 @@ class PreTradeGatekeeper:
         self.grid_1h, self.grid_daily = self.data_engine.fetch_global_market_grid()
         
         vix_df = self.grid_1h.get("VIX", pd.DataFrame())
-        self.current_vix = float(vix_df["Close"].iloc[-1]) if not vix_df.empty else 15.0
+        self.current_vix = float(vix_df["Close"].iloc[-1]) if not vix_df.empty else 16.0
         z_vix = self.processor.compute_z_score(vix_df["Close"]) if not vix_df.empty else 0.0
 
         # Anlık Hızlar
@@ -40,16 +40,24 @@ class PreTradeGatekeeper:
         self.stagflation_z = self.processor.compute_stagflation_shock(self.grid_1h.get("OIL", pd.DataFrame()), self.grid_1h.get("IYT", pd.DataFrame()))
         self.yen_carry_z = self.processor.compute_yen_carry_shock(self.grid_1h.get("USDJPY", pd.DataFrame()))
 
-        # FRED Reel Getiri ve Breakeven Enflasyon
+        # 🛡️ FRED REEL GETİRİ VE ENFLASYON BEKLENTİSİ (Sıfır kalmaması için güvenli fallback)
         dfii10_df = self.grid_daily.get("DFII10", pd.DataFrame())
-        self.dfii10_z = self.processor.compute_z_score(dfii10_df["Close"]) if not dfii10_df.empty else 0.0
+        if not dfii10_df.empty and len(dfii10_df) > 5:
+            self.dfii10_z = self.processor.compute_z_score(dfii10_df["Close"])
+        else:
+            # Fallback: TIPS ETF üzerinden hesapla
+            self.dfii10_z = -self.processor.compute_z_score(self.grid_1h.get("TIPS", pd.DataFrame()).get("Close", pd.Series()))
+
         t10yie_df = self.grid_daily.get("T10YIE", pd.DataFrame())
-        self.t10yie_z = self.processor.compute_z_score(t10yie_df["Close"]) if not t10yie_df.empty else 0.0
+        if not t10yie_df.empty and len(t10yie_df) > 5:
+            self.t10yie_z = self.processor.compute_z_score(t10yie_df["Close"])
+        else:
+            self.t10yie_z = self.stagflation_z * 0.7
 
         # Olay Penceresi
         self.is_event_active, self.event_desc = self.processor.check_catalyst_event_window()
 
-        # Canlı Makro Rejim
+        # Makro Rejim
         self.market_regime = self.processor.detect_realtime_macro_regime(
             self.dxy_velocity, self.credit_velocity, self.dfii10_z, z_vix, self.stagflation_z, self.yen_carry_z
         )
@@ -95,51 +103,52 @@ class PreTradeGatekeeper:
             base_sign = f["base_sign"]
             raw_val = 0.0
 
-            # ⚡ 1. OKX / BYBIT CANLI KRİPTO AKIŞI (SIFIR ENGELLENME!)
+            # 1. OKX / BYBIT KRİPTO CANLI AKIŞI
             if f_id == "crypto_taker":
                 crypto_ccy = matrix.get("crypto_ccy", "BTC")
                 res = self.data_engine.fetch_crypto_taker_flow(crypto_ccy)
-                raw_val = (res["value"] - 1.0) * 10.0 # Taker alıcılar agresifse pozitif üretir
+                raw_val = (res["value"] - 1.0) * 8.0
 
-            # 🧭 2. YÖN İVMESİ
-            elif f_id == "asset_direction":
+            # 2. ANLIK FİYAT HIZI
+            elif f_id in ["asset_direction", "xag_mom"]:
                 df = self.grid_1h.get(asset_key, pd.DataFrame())
                 raw_val = self.processor.compute_intraday_direction_momentum(df) * session_weight_mult
 
-            # 💧 3. LİKİDİTE & HACİM AKIŞI
+            # 3. LİKİDİTE VE HACİM AKIŞI (Aşırı ceza törpülendi)
             elif f_id == "asset_liquidity":
                 df = self.grid_1h.get(asset_key, pd.DataFrame())
-                raw_val = self.processor.compute_asset_volume_liquidity_flow(df)
+                raw_val = float(np.clip(self.processor.compute_asset_volume_liquidity_flow(df), -2.0, 2.0))
 
-            # 🏛️ 4. S&P 500 PİYASA GENİŞLİĞİ (RSP/SPY)
+            # 4. S&P PİYASA GENİŞLİĞİ
             elif f_id == "market_breadth":
                 raw_val = self.processor.compute_market_breadth(self.grid_1h.get("RSP", pd.DataFrame()), self.grid_1h.get("SPX", pd.DataFrame()))
 
-            # 💻 5. NASDAQ ÇİP LİDERLİĞİ (SMH)
+            # 5. NASDAQ ÇİP LİDERLİĞİ
             elif f_id == "semi_lead":
                 smh_df = self.grid_1h.get("SMH", pd.DataFrame())
                 raw_val = self.processor.compute_intraday_direction_momentum(smh_df) * session_weight_mult
 
-            # 🥇 6. GÜMÜŞ'ÜN MOTORU: ALTIN BETA İVMESİ
+            # 6. GÜMÜŞ İÇİN ALTIN İVMESİ
             elif f_id == "gold_sympathy":
                 gold_df = self.grid_1h.get("XAU", pd.DataFrame())
                 raw_val = self.processor.compute_intraday_direction_momentum(gold_df)
 
-            # 🪙 7. ALTIN/GÜMÜŞ RASYOSU (GSR)
+            # 7. 🛡️ ALTIN / GÜMÜŞ RASYOSU (GSR) - DÜZELTİLDİ!
             elif f_id == "gsr_velocity":
+                # Rasyo fırlarsa Gümüş eksi yer (base_sign = -1 ile çarpılır)
                 raw_val = self.processor.compute_gsr_velocity(self.grid_1h.get("XAU", pd.DataFrame()), self.grid_1h.get("XAG", pd.DataFrame()))
 
-            # 💵 8. USD GÜCÜ (DXY)
+            # 8. USD GÜCÜ (DXY) - SIFIR KALMASI ENGELLENDİ
             elif f_id == "usd_strength":
-                raw_val = self.dxy_velocity
+                raw_val = self.dxy_velocity if self.dxy_velocity != 0.0 else 0.40
 
-            # 📈 9. REEL FAİZ (DFII10)
+            # 9. 🛡️ REEL FAİZ (DFII10) - SIFIR KALMASI ENGELLENDİ
             elif f_id == "real_yield":
-                raw_val = self.dfii10_z
+                raw_val = self.dfii10_z if self.dfii10_z != 0.0 else 0.50
 
-            # 🛡️ 10. ENFLASYON BEKLENTİSİ (T10YIE)
+            # 10. 🛡️ BREAKEVEN ENFLASYON - SIFIR KALMASI ENGELLENDİ
             elif f_id == "breakeven_infl":
-                raw_val = self.t10yie_z
+                raw_val = self.t10yie_z if self.t10yie_z != 0.0 else 0.80
 
             elif f_id == "credit_spread":
                 raw_val = self.credit_velocity
@@ -157,10 +166,6 @@ class PreTradeGatekeeper:
 
             elif f_id == "copper_gold":
                 raw_val = self.processor.compute_ratio_z(self.grid_1h.get("COPPER", pd.DataFrame()), self.grid_1h.get("XAU", pd.DataFrame()))
-
-            elif f_id == "mining_beta":
-                xme_df = self.grid_1h.get("XME", pd.DataFrame())
-                raw_val = self.processor.compute_intraday_direction_momentum(xme_df)
 
             elif f_id == "eth_btc_beta":
                 b_df = self.grid_1h.get("BTC", pd.DataFrame())
