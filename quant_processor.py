@@ -134,6 +134,79 @@ class RobustQuantProcessor:
         return float(np.clip(roc * 2.0, -1.5, 1.5))
 
     @staticmethod
+    def compute_defensive_flight(xlu_df, benchmark_df, window=24):
+        if xlu_df.empty or benchmark_df.empty:
+            return 0.0
+        s1 = xlu_df["Close"]
+        s2 = benchmark_df["Close"]
+        aligned = pd.concat([s1, s2], axis=1, join="inner").dropna()
+        if len(aligned) < 2:
+            return 0.0
+        ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
+        w = min(window, len(ratio) - 1)
+        roc = ((ratio.iloc[-1] - ratio.iloc[-w - 1]) / (ratio.iloc[-w - 1] + 1e-9)) * 100.0
+        return float(np.clip(roc * 2.0, -1.8, 1.8))
+
+    @staticmethod
+    def compute_consumer_confidence(xly_df, xlp_df, window=24):
+        if xly_df.empty or xlp_df.empty:
+            return 0.0
+        s1 = xly_df["Close"]
+        s2 = xlp_df["Close"]
+        aligned = pd.concat([s1, s2], axis=1, join="inner").dropna()
+        if len(aligned) < 2:
+            return 0.0
+        ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
+        w = min(window, len(ratio) - 1)
+        roc = ((ratio.iloc[-1] - ratio.iloc[-w - 1]) / (ratio.iloc[-w - 1] + 1e-9)) * 100.0
+        return float(np.clip(roc * 2.0, -1.8, 1.8))
+
+    @staticmethod
+    def compute_vix_term_structure(vix_df, vix3m_df):
+        if vix_df.empty:
+            return 0.0
+        cur_vix = float(vix_df["Close"].iloc[-1])
+        if not vix3m_df.empty:
+            cur_vix3m = float(vix3m_df["Close"].iloc[-1])
+            ratio = cur_vix / (cur_vix3m + 1e-9)
+            stress = (ratio - 1.0) * 8.0
+            return float(np.clip(stress, -2.0, 2.0))
+        return float(np.clip((cur_vix - 16.0) / 4.0, -1.8, 1.8))
+
+    @staticmethod
+    def compute_crypto_funding_stress(funding_rate):
+        stress = float(np.clip(funding_rate * 5000.0, -2.0, 2.0))
+        return stress
+
+    @staticmethod
+    def compute_gold_oil_ratio(gold_df, oil_df, window=24):
+        if gold_df.empty or oil_df.empty:
+            return 0.0
+        s1 = gold_df["Close"]
+        s2 = oil_df["Close"]
+        aligned = pd.concat([s1, s2], axis=1, join="inner").dropna()
+        if len(aligned) < 2:
+            return 0.0
+        ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
+        w = min(window, len(ratio) - 1)
+        roc = ((ratio.iloc[-1] - ratio.iloc[-w - 1]) / (ratio.iloc[-w - 1] + 1e-9)) * 100.0
+        return float(np.clip(roc * 1.5, -1.8, 1.8))
+
+    @staticmethod
+    def compute_silver_copper_ratio(silver_df, copper_df, window=24):
+        if silver_df.empty or copper_df.empty:
+            return 0.0
+        s1 = silver_df["Close"]
+        s2 = copper_df["Close"]
+        aligned = pd.concat([s1, s2], axis=1, join="inner").dropna()
+        if len(aligned) < 2:
+            return 0.0
+        ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
+        w = min(window, len(ratio) - 1)
+        roc = ((ratio.iloc[-1] - ratio.iloc[-w - 1]) / (ratio.iloc[-w - 1] + 1e-9)) * 100.0
+        return float(np.clip(roc * 1.8, -1.8, 1.8))
+
+    @staticmethod
     def compute_credit_intraday_velocity(hyg_df, lqd_df, window=4):
         if hyg_df.empty or lqd_df.empty:
             return 0.0

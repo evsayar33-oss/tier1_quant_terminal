@@ -1,5 +1,5 @@
 """
-Gatekeeper: Multi-Asset Engine with Strict Barra Risk-Parity Normalization & FRED Integration (v18)
+Gatekeeper: Multi-Asset Engine with Strict Barra Risk-Parity Normalization & FRED Integration (v21 Ultra-Comprehensive)
 """
 import numpy as np
 import pandas as pd
@@ -105,7 +105,9 @@ class PreTradeGatekeeper:
 
             val = 0.0
 
-            # Dinamik Faktör Hesaplamaları
+            # -------------------------------------------------------------
+            # DİNAMİK 360 DERECE KURUMSAL RİSK HESAPLAMALARI
+            # -------------------------------------------------------------
             if f_id == "asset_direction":
                 symbol = matrix.get("benchmark_symbol", "SPY")
                 df_ast = self.grid_1h.get(symbol, pd.DataFrame())
@@ -114,9 +116,17 @@ class PreTradeGatekeeper:
             elif f_id == "crypto_taker":
                 ccy = matrix.get("crypto_ccy", "BTC")
                 flow = self.data_engine.fetch_crypto_taker_flow(ccy)
-                # Taker oranını (1.0 civarı) logaritmik tanh filtresinden geçirerek aşırılığı törpüle
                 raw_ratio = flow.get("value", 1.0)
                 val = float(np.tanh(np.log(raw_ratio + 1e-6) * 2.0) * 1.5)
+            elif f_id == "funding_stress":
+                ccy = matrix.get("crypto_ccy", "BTC")
+                fr = self.data_engine.fetch_crypto_funding_rate(ccy)
+                val = self.processor.compute_crypto_funding_stress(fr.get("rate", 0.0001))
+            elif f_id == "btc_dominance":
+                val = self.processor.compute_ratio_z(
+                    self.grid_1h.get("BTC-USD", pd.DataFrame()),
+                    self.grid_1h.get("ETH-USD", pd.DataFrame())
+                )
             elif f_id == "semi_lead":
                 val = self.processor.compute_ratio_z(
                     self.grid_1h.get("SMH", pd.DataFrame()),
@@ -127,6 +137,27 @@ class PreTradeGatekeeper:
                     self.grid_1h.get("RSP", pd.DataFrame()),
                     self.grid_1h.get("SPY", pd.DataFrame())
                 )
+            elif f_id == "defensive_flight":
+                bench_sym = "QQQ" if asset_key == "NQ" else "SPY"
+                val = self.processor.compute_defensive_flight(
+                    self.grid_1h.get("XLU", pd.DataFrame()),
+                    self.grid_1h.get(bench_sym, pd.DataFrame())
+                )
+            elif f_id == "consumer_demand":
+                val = self.processor.compute_consumer_confidence(
+                    self.grid_1h.get("XLY", pd.DataFrame()),
+                    self.grid_1h.get("XLP", pd.DataFrame())
+                )
+            elif f_id == "speculative_beta":
+                val = self.processor.compute_ratio_z(
+                    self.grid_1h.get("ARKK", pd.DataFrame()),
+                    self.grid_1h.get("QQQ", pd.DataFrame())
+                )
+            elif f_id == "vix_term":
+                val = self.processor.compute_vix_term_structure(
+                    self.grid_1h.get("VIX", pd.DataFrame()),
+                    self.grid_1h.get("VIX3M", pd.DataFrame())
+                )
             elif f_id == "copper_gold":
                 val = self.processor.compute_ratio_z(
                     self.grid_1h.get("HG=F", pd.DataFrame()),
@@ -136,6 +167,16 @@ class PreTradeGatekeeper:
                 val = self.processor.compute_gsr_velocity(
                     self.grid_1h.get("GC=F", pd.DataFrame()),
                     self.grid_1h.get("SI=F", pd.DataFrame())
+                )
+            elif f_id == "gold_oil_ratio":
+                val = self.processor.compute_gold_oil_ratio(
+                    self.grid_1h.get("GC=F", pd.DataFrame()),
+                    self.grid_1h.get("USO", pd.DataFrame())
+                )
+            elif f_id == "silver_copper":
+                val = self.processor.compute_silver_copper_ratio(
+                    self.grid_1h.get("SI=F", pd.DataFrame()),
+                    self.grid_1h.get("HG=F", pd.DataFrame())
                 )
             elif f_id == "gold_sympathy":
                 df_gc = self.grid_1h.get("GC=F", pd.DataFrame())

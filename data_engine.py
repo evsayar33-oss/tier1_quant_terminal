@@ -1,5 +1,5 @@
 """
-Resilient Data Engine: Official FRED API + OKX/Bybit Live Crypto + 100% Live ETF Grid (v18)
+Resilient Data Engine: Official FRED API + OKX/Bybit Live Crypto + 100% Live ETF Grid (v21)
 """
 import requests
 import pandas as pd
@@ -51,6 +51,34 @@ class ResilientDataEngine:
 
         return {"value": 1.0, "confidence": 0.5}
 
+    def fetch_crypto_funding_rate(self, ccy="BTC"):
+        """OKX veya Bybit üzerinden canlı vadeli fonlama oranını (Funding Rate) çeker."""
+        # 1. OKX Funding Rate API
+        okx_url = f"https://www.okx.com/api/v5/public/funding-rate?instId={ccy}-USDT-SWAP"
+        try:
+            res = self.session.get(okx_url, timeout=4)
+            if res.status_code == 200:
+                data = res.json().get("data", [])
+                if data and len(data) > 0:
+                    rate = float(data[0].get("fundingRate", 0.0001))
+                    return {"rate": rate, "confidence": 1.0}
+        except Exception:
+            pass
+
+        # 2. Bybit Fallback
+        bybit_url = f"https://api.bybit.com/v5/market/tickers?category=linear&symbol={ccy}USDT"
+        try:
+            res = self.session.get(bybit_url, timeout=4)
+            if res.status_code == 200:
+                list_data = res.json().get("result", {}).get("list", [])
+                if list_data and len(list_data) > 0:
+                    rate = float(list_data[0].get("fundingRate", 0.0001))
+                    return {"rate": rate, "confidence": 0.85}
+        except Exception:
+            pass
+
+        return {"rate": 0.0001, "confidence": 0.5}
+
     def fetch_single_ticker_1h(self, symbol, period="5d"):
         try:
             df = yf.download(symbol, period=period, interval="1h", progress=False, timeout=6)
@@ -69,13 +97,14 @@ class ResilientDataEngine:
 
     def fetch_global_market_grid(self):
         tickers = [
-            "SPY", "QQQ", "SMH", "RSP", "HYG", "LQD", "^VIX",
+            "SPY", "QQQ", "SMH", "RSP", "HYG", "LQD", "^VIX", "^VIX3M",
+            "XLU", "XLP", "XLY", "ARKK",
             "USO", "IYT", "DX-Y.NYB", "TIP", "IEF", "USDJPY=X",
             "GC=F", "SI=F", "HG=F", "BTC-USD", "ETH-USD"
         ]
 
         results = {}
-        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
             futures = {executor.submit(self.fetch_single_ticker_1h, sym): sym for sym in tickers}
             for fut in concurrent.futures.as_completed(futures):
                 sym, data = fut.result()
