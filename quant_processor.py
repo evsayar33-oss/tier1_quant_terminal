@@ -1,27 +1,25 @@
 """
-Robust Quant Processor: Session Clock, Catalyst Windows & Volatility Parity
+Robust Quant Processor: Volume Flow, Intraday Velocity & Hysteresis State Transition
 """
 import numpy as np
 import pandas as pd
 from datetime import datetime, timezone
-from config import CRISIS_CONFIG, ASSET_CLOCKS, CATALYST_WINDOWS_UTC
+from config import CRISIS_CONFIG, ASSET_CLOCKS, CATALYST_WINDOWS_UTC, SIGNAL_THRESHOLDS
 
 class RobustQuantProcessor:
     @staticmethod
     def get_asset_session_status(asset_key):
-        """Varlığın seans durumunu anlık tespit eder (CANLI, SEANS_ÖNCESİ, KAPALI)."""
         clock = ASSET_CLOCKS.get(asset_key, {})
         if not clock:
             return "CANLI", 1.0
 
         now = datetime.now(timezone.utc)
         current_hour = now.hour + (now.minute / 60.0)
-        current_day = now.weekday() # 0 = Pazartesi, 6 = Pazar
+        current_day = now.weekday()
 
         if clock["market"] == "CRYPTO":
             return "CANLI (24/7)", 1.0
 
-        # Hafta sonu kontrolü
         if current_day not in clock.get("days", [0, 1, 2, 3, 4]):
             return "HAFTA SONU (KAPALI)", 0.4
 
@@ -31,26 +29,29 @@ class RobustQuantProcessor:
         if open_h <= current_hour <= close_h:
             return "CANLI SEANS", 1.0
         elif (open_h - 4.0) <= current_hour < open_h:
-            # Seans öncesi (Pre-market): İntraday momentum ağırlığı %50 kısılır, makro korunur
             return "SEANS ÖNCESİ (PRE-MARKET)", 0.6
         else:
             return "KAPALI (SEANS DIŞI)", 0.5
 
     @staticmethod
     def check_catalyst_event_window():
-        """Kritik ABD veri veya Fed saati penceresinde miyiz kontrol eder."""
         now = datetime.now(timezone.utc)
         current_hour = now.hour + (now.minute / 60.0)
         current_day = now.weekday()
 
-        if current_day in [0, 1, 2, 3, 4]: # Hafta içi
+        if current_day in [0, 1, 2, 3, 4]:
             for w in CATALYST_WINDOWS_UTC:
                 if w["start"] <= current_hour <= w["end"]:
                     return True, w["desc"]
         return False, "Sakin Veri Dönemi"
 
     @staticmethod
-    def compute_intraday_momentum(df_1h, fast_window=4, slow_window=24):
+    def compute_intraday_direction_momentum(df_1h, fast_window=4, slow_window=24):
+        """
+        🧭 1. SÜTUN: VARLIĞA ÖZEL YÖN İVMESİ
+        4 saatlik anlık yön (%60) ile 24 saatlik yapısal yönü (%40) harmanlayarak
+        gürültüyü süzer ama yön kırılımını kaçırmaz.
+        """
         if df_1h.empty or len(df_1h) < 2:
             return 0.0
         close = df_1h["Close"]
@@ -58,17 +59,97 @@ class RobustQuantProcessor:
         roc_4h = ((close.iloc[-1] - close.iloc[-w_fast - 1]) / (close.iloc[-w_fast - 1] + 1e-9)) * 100.0
         w_slow = min(slow_window, len(close) - 1)
         roc_24h = ((close.iloc[-1] - close.iloc[-w_slow - 1]) / (close.iloc[-w_slow - 1] + 1e-9)) * 100.0
-        blended = (roc_4h * 1.5) + (roc_24h * 0.5)
+
+        blended = (roc_4h * 1.2) + (roc_24h * 0.4)
         return float(np.clip(blended * 1.2, -3.5, 3.5))
 
     @staticmethod
-    def compute_dxy_intraday_velocity(dxy_df_1h, window=4):
+    def compute_asset_volume_liquidity_flow(df_1h, window=24):
+        """
+        💧 2. SÜTUN: VARLIĞA ÖZEL LİKİDİTE VE HACİM AKIŞI
+        RVOL (Göreceli Hacim) + CLV (Kapanış Gücü) = Kurumsal Para Giriş/Çıkışı.
+        """
+        if df_1h.empty or len(df_1h) < 4 or "Volume" not in df_1h.columns:
+            return 0.0
+        
+        close = df_1h["Close"]
+        high = df_1h["High"]
+        low = df_1h["Low"]
+        vol = df_1h["Volume"]
+
+        # 1. Kapanış Lokasyon Değeri (CLV): Mumun tepesinde mi kapattı dibinde mi?
+        range_span = high.iloc[-1] - low.iloc[-1]
+        clv = ((close.iloc[-1] - low.iloc[-1]) - (high.iloc[-1] - close.iloc[-1])) / (range_span + 1e-9)
+
+        # 2. Göreceli Hacim (RVOL): Son saatlerin hacmi ortalamanın kaç katı?
+        w = min(window, len(vol) - 1)
+        mean_vol = vol.tail(w).mean() + 1e-9
+        rvol = vol.iloc[-1] / mean_vol
+
+        # 3. Akış Puanı = CLV * RVOL
+        flow_score = clv * min(max(rvol, 0.5), 3.0) * 2.0
+        return float(np.clip(flow_score, -3.0, 3.0))
+
+    @staticmethod
+    def compute_usd_strength_impulse(dxy_df_1h, window=4):
+        """
+        💵 3. SÜTUN: USD GÜCÜ & DOLAR LİKİDİTE BASKISI
+        Doların son 4 saatlik ve 24 saatlik ivmesini ölçer.
+        """
         if dxy_df_1h.empty or len(dxy_df_1h) < 2:
             return 0.0
         close = dxy_df_1h["Close"]
         w = min(window, len(close) - 1)
         roc_4h = ((close.iloc[-1] - close.iloc[-w - 1]) / (close.iloc[-w - 1] + 1e-9)) * 100.0
         return float(np.clip(roc_4h * 5.0, -3.0, 3.0))
+
+    @staticmethod
+    def resolve_signal_with_hysteresis(current_score, previous_signal="NÖTR (BEKLE)", bull_clusters=0, bear_clusters=0):
+        """
+        🛡️ SİNYAL TİTREŞİMİNİ (WHIPSAW) ÖNLEYEN HİSTEREZİS (SCHMITT TRIGGER) MOTORU:
+        Sinyal küçük dalgalanmalarda değişmez; yön değişimi için net bir eşik kırılımı gerekir.
+        """
+        t = SIGNAL_THRESHOLDS
+        prev = previous_signal if previous_signal else "NÖTR (BEKLE)"
+
+        # 1. GÜÇLÜ AL KONTROLÜ
+        if prev == "GÜÇLÜ AL":
+            if current_score >= t["strong_buy_exit"]:
+                return "GÜÇLÜ AL", "green", "🟢🟢"
+        else:
+            if current_score >= t["strong_buy_enter"] and bull_clusters >= 3:
+                return "GÜÇLÜ AL", "green", "🟢🟢"
+
+        # 2. AL KONTROLÜ
+        if prev in ["AL", "GÜÇLÜ AL"]:
+            # AL'a girdikten sonra puan 0.50'nin altına düşmedikçe NÖTR'e dönmez!
+            if current_score >= t["buy_exit"]:
+                return "AL", "lightgreen", "🟢"
+        else:
+            # Yeni AL sinyali için en az 1.20 aşılmalıdır
+            if current_score >= t["buy_enter"]:
+                return "AL", "lightgreen", "🟢"
+
+        # 3. GÜÇLÜ SAT KONTROLÜ
+        if prev == "GÜÇLÜ SAT":
+            if current_score <= t["strong_sell_exit"]:
+                return "GÜÇLÜ SAT", "darkred", "🔴🔴"
+        else:
+            if current_score <= t["strong_sell_enter"] and bear_clusters >= 3:
+                return "GÜÇLÜ SAT", "darkred", "🔴🔴"
+
+        # 4. SAT KONTROLÜ
+        if prev in ["SAT", "GÜÇLÜ SAT"]:
+            # SAT'a girdikten sonra puan -0.50'nin üstüne çıkmadıkça NÖTR'e dönmez!
+            if current_score <= t["sell_exit"]:
+                return "SAT", "red", "🔴"
+        else:
+            # Yeni SAT için en az -1.20 kırılmalıdır
+            if current_score <= t["sell_enter"]:
+                return "SAT", "red", "🔴"
+
+        # 5. NÖTR (Ölü Bant)
+        return "NÖTR (BEKLE)", "gray", "⚪"
 
     @staticmethod
     def compute_credit_intraday_velocity(hyg_df, lqd_df, window=4):
