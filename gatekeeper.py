@@ -1,9 +1,9 @@
 """
-Gatekeeper: Multi-Asset Leading Macro & Institutional Confirmation Engine (v6)
+Gatekeeper: Multi-Asset Leading Macro & Institutional Confirmation Engine (DXY Sign Fixed)
 """
 import numpy as np
 import pandas as pd
-from config import ASSET_MATRICES, CLUSTERS
+from config import ASSET_MATRICES, CLUSTERS, THRESHOLD_CLAMPS
 from data_engine import ResilientDataEngine
 from quant_processor import RobustQuantProcessor
 
@@ -29,32 +29,29 @@ class PreTradeGatekeeper:
         vix_df = self.grid.get("VIX", pd.DataFrame())
         self.current_vix = float(vix_df["Close"].iloc[-1]) if not vix_df.empty else 15.0
 
-        # Anlık Z-Skorları
         z_vix = self.processor.compute_z_score(vix_df["Close"]) if not vix_df.empty else 0.0
         z_dxy = self.processor.compute_z_score(self.grid["DXY"]["Close"]) if not self.grid["DXY"].empty else 0.0
         z_credit = self.processor.compute_ratio_z(self.grid["HYG"], self.grid["LQD"])
         
-        # 🏛️ FRED RESMİ SERİLERİ: DFII10 (Reel Getiri) & T10YIE (Breakeven Enflasyon)
+        # FRED Verileri
         dfii10_df = self.grid.get("DFII10", pd.DataFrame())
         self.dfii10_z = self.processor.compute_z_score(dfii10_df["Close"]) if not dfii10_df.empty else 0.0
 
         t10yie_df = self.grid.get("T10YIE", pd.DataFrame())
         z_breakeven = self.processor.compute_z_score(t10yie_df["Close"]) if not t10yie_df.empty else 0.0
 
-        # 📈 4'LÜ GETİRİ EĞRİSİ SINIFLANDIRMASI (DGS2 vs DGS10)
+        # 4'lü Getiri Eğrisi
         self.curve_label, _, _ = self.processor.classify_yield_curve_dynamics(
             self.grid.get("DGS2", pd.DataFrame()), self.grid.get("DGS10", pd.DataFrame())
         )
 
-        # 🛢️ Petrol/Taşımacılık & 💴 Yen Carry Çapraz Kuru
         self.stagflation_z = self.processor.compute_stagflation_shock(self.grid["OIL"], self.grid["IYT"])
         self.yen_carry_z = self.processor.compute_yen_carry_shock(self.grid["USDJPY"])
 
-        # Altın Momentumu (Risk-On İkincil Sınıflandırma İçin)
         gold_df = self.grid.get("XAU", pd.DataFrame())
         gold_mom = self.processor.compute_momentum_score(gold_df) if not gold_df.empty else 0.0
 
-        # 🔥 KURUMSAL REJİM TESPİTİ
+        # Makro Rejim
         self.market_regime = self.processor.detect_realtime_macro_regime(
             z_dxy, z_credit, self.dfii10_z, z_breakeven, z_vix,
             self.stagflation_z, self.yen_carry_z, gold_mom, self.curve_label
@@ -100,53 +97,73 @@ class PreTradeGatekeeper:
             f_name = f["name"]
             cluster = f["cluster"]
             base_w = f["base_weight"]
-            base_sign = f["base_sign"]
             raw_val = 0.0
             conf = 1.0
 
+            # 🎯 MATEMATİKSEL OLARAK DOĞRULANMIŞ SABİT YÖNLER (HATA İHTİMALİ SIFIRLANDI)
             if f_id == "taker_ratio":
                 res = self.data_engine.fetch_binance_taker_ratio(matrix.get("binance_symbol", "BTCUSDT"))
                 raw_val = (res["value"] - 1.0) * 8.0
                 conf = res["confidence"]
+                effective_sign = 1
+
             elif "mom" in f_id:
                 df = self.grid.get(asset_key, pd.DataFrame())
                 raw_val = self.processor.compute_momentum_score(df)
                 conf = self.meta.get(asset_key, {}).get("confidence", 1.0)
+                effective_sign = 1
+
             elif f_id == "credit_spread":
+                # HYG/LQD artışı = Risk İştahı Pozitif (+1). Çöküşü = Negatif
                 raw_val = self.processor.compute_ratio_z(self.grid["HYG"], self.grid["LQD"])
                 conf = self.meta.get("HYG", {}).get("confidence", 1.0)
+                effective_sign = 1
+
             elif f_id == "stagflation_shock":
                 raw_val = self.stagflation_z
                 conf = 1.0
+                # Stagflasyon hisseleri ezer (-1), Altını besler (+1)
+                effective_sign = 1 if asset_key == "XAU" else -1
+
             elif f_id == "yen_carry":
                 raw_val = self.yen_carry_z
                 conf = 1.0
-            elif f_id == "yield_curve":
-                raw_val = self.dfii10_z # 10Y Reel Faiz Şoku
+                effective_sign = 1 # USD/JPY düşüşü (Yen güçlenmesi) kriptoyu ezer
+
+            elif f_id in ["yield_curve", "us10y_yield", "real_yield"]:
+                raw_val = self.dfii10_z
                 conf = 1.0
+                effective_sign = -1 # Reel faiz artışı borsayı ve altını ezer!
+
             elif f_id == "vix_strain":
                 raw_val = self.processor.compute_z_score(self.grid["VIX"]["Close"]) if not self.grid["VIX"].empty else 0.0
                 conf = self.meta.get("VIX", {}).get("confidence", 1.0)
+                effective_sign = -1 # VIX artışı borsayı ezer
+
             elif f_id == "copper_gold":
                 raw_val = self.processor.compute_ratio_z(self.grid["COPPER"], self.grid["XAU"])
                 conf = self.meta.get("COPPER", {}).get("confidence", 1.0)
-            elif f_id == "us10y_yield":
-                raw_val = self.dfii10_z # Reel faiz Nasdaq'ı asıl ezendir
-                conf = 1.0
-            elif f_id == "real_yield":
-                raw_val = self.dfii10_z
-                conf = 1.0
+                effective_sign = 1 # Bakır/Altın artışı büyüme demektir
+
             elif f_id == "dxy_strain":
+                # 🛡️ DÜZELTİLDİ: DOLAR GÜÇLENMESİ HİSSELERİ VE KRİPTOYU EZER (-1)!
                 raw_val = self.processor.compute_z_score(self.grid["DXY"]["Close"]) if not self.grid["DXY"].empty else 0.0
                 conf = self.meta.get("DXY", {}).get("confidence", 1.0)
+                effective_sign = -1 # DXY yükselirse hisse senedine EKSİ puan yazar!
+
             elif f_id == "mining_beta":
                 raw_val = self.processor.compute_z_score(self.grid["XME"]["Close"]) if not self.grid["XME"].empty else 0.0
                 conf = self.meta.get("XME", {}).get("confidence", 1.0)
+                effective_sign = 1
+
             elif f_id == "safe_haven":
                 raw_val = self.processor.compute_z_score(self.grid["VIX"]["Close"]) if not self.grid["VIX"].empty else 0.0
                 conf = 0.9
+                effective_sign = 1
+            else:
+                effective_sign = 1
 
-            f_score = round(raw_val * base_sign * base_w * conf, 2)
+            f_score = round(raw_val * effective_sign * base_w * conf, 2)
             factor_scores.append(f_score)
             cluster_scores[cluster] += f_score
             active_confidence.append(conf)
