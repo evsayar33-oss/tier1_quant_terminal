@@ -1,5 +1,5 @@
 """
-Tier-1 Quant Terminal - Headless Background Tracker (Reinforced v4)
+Tier-1 Quant Terminal - Headless Background Tracker (Direct Signals)
 """
 import os
 import json
@@ -24,7 +24,7 @@ def send_telegram_alert(message):
         print(f"⚠️ Telegram alert hatası: {e}")
 
 def run_background_cycle():
-    print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC] 🔄 Arka plan döngüsü başladı...")
+    print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC] 🔄 Arka plan yön taraması başladı...")
     
     state = {}
     if os.path.exists(STATE_FILE):
@@ -44,9 +44,7 @@ def run_background_cycle():
 
     verdicts = {}
     for asset_key in ASSET_MATRICES.keys():
-        eval_long = gk.evaluate_asset_gate(asset_key, "LONG")
-        eval_short = gk.evaluate_asset_gate(asset_key, "SHORT")
-        verdicts[asset_key] = {"LONG": eval_long, "SHORT": eval_short}
+        verdicts[asset_key] = gk.evaluate_asset_direction(asset_key)
 
     new_state = {
         "last_updated": datetime.now(timezone.utc).isoformat(),
@@ -80,14 +78,10 @@ def run_background_cycle():
     if gk.crisis_active and not prev_crisis:
         msg = "🚨 <b>ACİL DURUM: SİSTEMİK KRİZ KİLİDİ DEVREYE GİRDİ!</b>\n"
         msg += f"⚠️ Kredi ve Volatilite Anomalisi: <b>{gk.anomaly_score:.2f}</b> (VIX: {gk.current_vix:.1f})\n"
-        msg += "🛑 <i>Tüm piyasalarda yeni işlem açılışları onay kapısı tarafından DURDURULDU!</i>"
-        send_telegram_alert(msg)
-    elif not gk.crisis_active and prev_crisis:
-        msg = "✅ <b>PİYASA NORMALE DÖNDÜ: Kriz Kilidi Kaldırıldı.</b>\n"
-        msg += "🟢 <i>Temel onay kapısı normal doğrulama moduna geçti.</i>"
+        msg += "🛑 <i>Tüm piyasalarda yeni işlem açılışları DURDURULDU!</i>"
         send_telegram_alert(msg)
 
-    print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC] ✅ Döngü tamamlandı. (Rejim: {gk.market_regime} | VIX: {gk.current_vix:.1f} | Kriz: {gk.crisis_active})")
+    print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC] ✅ Yön taraması tamamlandı. (Rejim: {gk.market_regime})")
 
 if __name__ == "__main__":
     run_background_cycle()
