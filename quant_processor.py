@@ -69,7 +69,6 @@ class RobustQuantProcessor:
 
     @staticmethod
     def compute_intraday_direction_momentum(df_1h, fast_window=4, slow_window=24, vol_scale=1.0):
-        """Varlığın son 4 saatlik ve 24 saatlik getirisini hesaplar, volatilite ölçeğiyle normalize eder."""
         if df_1h.empty or len(df_1h) < 2:
             return 0.0
         close = df_1h["Close"]
@@ -79,7 +78,6 @@ class RobustQuantProcessor:
         roc_24h = ((close.iloc[-1] - close.iloc[-w_slow - 1]) / (close.iloc[-w_slow - 1] + 1e-9)) * 100.0
         blended = (roc_4h * 1.2) + (roc_24h * 0.4)
 
-        # 🛡️ Volatilite Ölçeklendirmesi (Kripto ve metallerdeki aşırı hareketleri dengeler, endeksleri sıkıştırmaz)
         scale = max(float(vol_scale), 0.5)
         norm_blended = (blended / scale) * 1.2
         return float(np.clip(norm_blended, -2.0, 2.0))
@@ -109,7 +107,6 @@ class RobustQuantProcessor:
 
     @staticmethod
     def compute_market_breadth(rsp_df, spy_df, window=24):
-        """RSP / SPY Rasyosu İvmesi (Piyasa Genişliği)"""
         if rsp_df.empty or spy_df.empty:
             return 0.0
         s1 = rsp_df["Close"]
@@ -124,7 +121,6 @@ class RobustQuantProcessor:
 
     @staticmethod
     def compute_gsr_velocity(xau_df, xag_df, window=24):
-        """Altın / Gümüş Rasyosu (GSR) İvmesi"""
         if xau_df.empty or xag_df.empty:
             return 0.0
         s1 = xau_df["Close"]
@@ -212,7 +208,6 @@ class RobustQuantProcessor:
 
     @staticmethod
     def evaluate_crisis_lock_with_hysteresis(credit_velocity, z_vix, z_real_rate, dxy_velocity, current_vix_val, current_state=False, consecutive_breaches=0):
-        """Kriz kilidi kontrolü: Aşırı volatilite ve likidite stresinde işlemleri korumaya alır."""
         cfg = CRISIS_CONFIG
         anomaly_score = float(np.linalg.norm([abs(credit_velocity), z_vix, z_real_rate, abs(dxy_velocity)]) / 2.0)
         is_vix_above_floor = (current_vix_val >= cfg.get("vix_absolute_floor", 20.0))
@@ -235,16 +230,9 @@ class RobustQuantProcessor:
 
     @staticmethod
     def resolve_signal_with_hysteresis(current_score, previous_signal="NÖTR (BEKLE)", bull_clusters=0, bear_clusters=0, min_clusters=2):
-        """
-        Histerezis (Schmitt Trigger) Mekanizması:
-        - Pozisyona giriş için net bir eşik (enter) aranır.
-        - Pozisyondan çıkış için daha gevşek bir eşik (exit) aranır (ölü bant koruması).
-        - Böylece sinyaller tek bir bar oynamasında anında nötre dönüp kilitlenmez.
-        """
         t = SIGNAL_THRESHOLDS
         prev = previous_signal if previous_signal else "NÖTR (BEKLE)"
 
-        # 1. GÜÇLÜ AL KONTROLÜ
         if prev == "GÜÇLÜ AL":
             if current_score >= t.get("strong_buy_exit", 1.1):
                 return "GÜÇLÜ AL", "green", "🟢🟢"
@@ -252,7 +240,6 @@ class RobustQuantProcessor:
             if current_score >= t.get("strong_buy_enter", 1.8) and bull_clusters >= min_clusters:
                 return "GÜÇLÜ AL", "green", "🟢🟢"
 
-        # 2. AL KONTROLÜ
         if prev in ["AL", "GÜÇLÜ AL"]:
             if current_score >= t.get("buy_exit", 0.25):
                 return "AL", "lightgreen", "🟢"
@@ -260,7 +247,6 @@ class RobustQuantProcessor:
             if current_score >= t.get("buy_enter", 0.70):
                 return "AL", "lightgreen", "🟢"
 
-        # 3. GÜÇLÜ SAT KONTROLÜ
         if prev == "GÜÇLÜ SAT":
             if current_score <= t.get("strong_sell_exit", -1.1):
                 return "GÜÇLÜ SAT", "darkred", "🔴🔴"
@@ -268,7 +254,6 @@ class RobustQuantProcessor:
             if current_score <= t.get("strong_sell_enter", -1.8) and bear_clusters >= min_clusters:
                 return "GÜÇLÜ SAT", "darkred", "🔴🔴"
 
-        # 4. SAT KONTROLÜ
         if prev in ["SAT", "GÜÇLÜ SAT"]:
             if current_score <= t.get("sell_exit", -0.25):
                 return "SAT", "red", "🔴"
@@ -276,5 +261,4 @@ class RobustQuantProcessor:
             if current_score <= t.get("sell_enter", -0.70):
                 return "SAT", "red", "🔴"
 
-        # 5. NÖTR (Denge / Ölü Bant)
         return "NÖTR (BEKLE)", "gray", "⚪"
