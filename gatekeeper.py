@@ -1,5 +1,5 @@
 """
-Gatekeeper: Multi-Asset Engine with Strict Barra Risk-Parity Normalization & FRED Integration (v22 Institutional Calibration)
+Gatekeeper: Multi-Asset Engine with Strict Barra Risk-Parity Normalization & FRED Integration (v23 Dual-Horizon Precision)
 """
 import numpy as np
 import pandas as pd
@@ -76,12 +76,29 @@ class PreTradeGatekeeper:
     def evaluate_asset_direction(self, asset_key, previous_signal="NÖTR (BEKLE)"):
         matrix = ASSET_MATRICES.get(asset_key, {})
         if not matrix:
-            return {"verdict": "NÖTR (BEKLE)", "score": 0.0, "details": []}
+            return {
+                "verdict": "NÖTR (BEKLE)",
+                "forecast_direction": "NÖTR (BEKLE)",
+                "current_direction": "⚪ YATAY (%0.00)",
+                "score": 0.0,
+                "details": []
+            }
+
+        symbol = matrix.get("benchmark_symbol", "SPY")
+        df_ast = self.grid_1h.get(symbol, pd.DataFrame())
+        current_dir, current_icon, current_color, current_roc = self.processor.compute_realtime_price_action(df_ast)
 
         # 1. Kriz Kilidi Kontrolü
         if self.crisis_active:
             return {
                 "verdict": "⛔ KRİZ KİLİDİ (BEKLE)",
+                "forecast_direction": "⛔ KRİZ KİLİDİ (BEKLE)",
+                "forecast_icon": "⛔",
+                "forecast_color": "red",
+                "current_direction": current_dir,
+                "current_icon": current_icon,
+                "current_color": current_color,
+                "current_roc": current_roc,
                 "icon": "⛔",
                 "color": "red",
                 "score": 0.0,
@@ -109,8 +126,6 @@ class PreTradeGatekeeper:
             # DİNAMİK 360 DERECE KURUMSAL RİSK HESAPLAMALARI
             # -------------------------------------------------------------
             if f_id == "asset_direction":
-                symbol = matrix.get("benchmark_symbol", "SPY")
-                df_ast = self.grid_1h.get(symbol, pd.DataFrame())
                 vol_scale = matrix.get("vol_scale", 1.0)
                 val = self.processor.compute_intraday_direction_momentum(df_ast, vol_scale=vol_scale)
             elif f_id == "crypto_taker":
@@ -216,7 +231,7 @@ class PreTradeGatekeeper:
             elif f_id == "stagflation_shock":
                 val = self.stagflation_z
 
-            # Barra normalizasyonu: faktör katkısını sınırla ve topla
+            # Barra normalizasyonu
             f_score = float(np.clip(val, -1.8, 1.8)) * sign * weight
             weighted_sum += f_score
             total_weights += weight
@@ -230,11 +245,8 @@ class PreTradeGatekeeper:
             })
 
         # ⚖️ BARRA AĞIRLIKLI ORTALAMA NORMALİZASYONU
-        # Ağırlıklı ortalamayı [-3.5, +3.5] aralığına ölçeklendir
         weighted_avg = weighted_sum / (total_weights + 1e-9)
         normalized_score = round(float(np.clip(weighted_avg * 1.5, -3.5, 3.5)), 2)
-        
-        # Seans durumu sinyali zayıflatmamalı; yön yön olarak kalmalı, seans likidite bilgisi UI'da gösterilmelidir
         final_score = normalized_score
 
         # Küme Konsensüsü
@@ -253,6 +265,13 @@ class PreTradeGatekeeper:
         )
 
         return {
+            "current_direction": current_dir,
+            "current_icon": current_icon,
+            "current_color": current_color,
+            "current_roc": current_roc,
+            "forecast_direction": verdict,
+            "forecast_icon": icon,
+            "forecast_color": color,
             "verdict": verdict,
             "icon": icon,
             "color": color,
@@ -263,10 +282,6 @@ class PreTradeGatekeeper:
         }
 
     def evaluate_all_assets_harmonized(self, previous_signals=None):
-        """
-        Tüm varlıkları değerlendirir. İkiz varlıklar (SPX-NQ, XAU-XAG, BTC-ETH) arasında senkronizasyon
-        sağlarken, güçlü/yükselen varlığın zayıf varlık tarafından haksız yere SAT'a çekilmesini engeller.
-        """
         if previous_signals is None:
             previous_signals = {}
         verdicts = {}
@@ -275,8 +290,12 @@ class PreTradeGatekeeper:
             verdicts[k] = self.evaluate_asset_direction(k, previous_signal=prev)
 
         # 🤝 İKİZ VARLIK KONSENSÜS KONTROLÜ
-        twin_pairs = [("SPX", "NQ"), ("XAU", "XAG"), ("BTC", "ETH")]
-        for a1, a2 in twin_pairs:
+        twin_pairs = [
+            ("SPX", "NQ", 0.35),
+            ("XAU", "XAG", 0.35),
+            ("BTC", "ETH", 0.50)  # Kripto ikiz toleransı genişletildi
+        ]
+        for a1, a2, tolerance in twin_pairs:
             v1 = verdicts.get(a1)
             v2 = verdicts.get(a2)
             if not v1 or not v2:
@@ -285,23 +304,26 @@ class PreTradeGatekeeper:
             sc2 = float(v2.get("score", 0.0))
             diff = abs(sc1 - sc2)
 
-            # Sadece her iki varlık da aynı kutupta (negatif veya pozitif) ve birbirine yakınsa senkronize et:
-            if diff <= 0.35:
-                # Negatif Bölge: Her ikisi de belirgin negatif (-0.45 altı) ise SAT teyidi
-                if sc1 <= -0.45 and sc2 <= -0.45:
+            if diff <= tolerance:
+                # İkisi de negatif bölgedeyse ve en az biri SAT ise
+                if sc1 <= -0.40 and sc2 <= -0.40:
                     if "SAT" in v1["verdict"] or "SAT" in v2["verdict"]:
                         for v in (v1, v2):
                             if "GÜÇLÜ SAT" not in v["verdict"]:
                                 v["verdict"] = "SAT"
+                                v["forecast_direction"] = "SAT"
                                 v["icon"] = "🔴"
+                                v["forecast_icon"] = "🔴"
                                 v["color"] = "red"
-                # Pozitif Bölge: Her ikisi de belirgin pozitif (+0.45 üstü) ise AL teyidi
-                elif sc1 >= 0.45 and sc2 >= 0.45:
+                # İkisi de pozitif bölgedeyse ve en az biri AL ise
+                elif sc1 >= 0.40 and sc2 >= 0.40:
                     if "AL" in v1["verdict"] or "AL" in v2["verdict"]:
                         for v in (v1, v2):
                             if "GÜÇLÜ AL" not in v["verdict"]:
                                 v["verdict"] = "AL"
+                                v["forecast_direction"] = "AL"
                                 v["icon"] = "🟢"
+                                v["forecast_icon"] = "🟢"
                                 v["color"] = "lightgreen"
 
         return verdicts

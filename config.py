@@ -1,5 +1,5 @@
 """
-Configuration: Asset Matrices, Risk Clusters & Barra Normalization Weights (v23 Institutional Precision)
+Configuration: Asset Matrices, Risk Clusters & Barra Normalization Weights (v24 Dual-Horizon Precision)
 """
 
 CLUSTERS = {
@@ -10,16 +10,16 @@ CLUSTERS = {
     "E": "Varlığa Özel İtici Güç & Riskler (Taker, Fonlama, Çip, Defansif Kaçış)"
 }
 
-# Kalibre Edilmiş Sinyal Eşikleri (±0.60 Kesin Eşikler)
+# Kalibre Edilmiş Sinyal Eşikleri (±0.60 Giriş, ±0.30 Çıkış)
 SIGNAL_THRESHOLDS = {
     "strong_buy_enter": 1.60,
     "strong_buy_exit": 1.00,
     "buy_enter": 0.60,
-    "buy_exit": 0.20,
+    "buy_exit": 0.30,
     "strong_sell_enter": -1.60,
     "strong_sell_exit": -1.00,
     "sell_enter": -0.60,
-    "sell_exit": -0.20
+    "sell_exit": -0.30
 }
 
 ASSET_MATRICES = {
@@ -102,11 +102,11 @@ ASSET_MATRICES = {
         "crypto_ccy": "BTC",
         "vol_scale": 2.0,
         "factors": [
-            {"id": "asset_direction", "name": "BTC 4H Anlık Fiyat İvmesi", "cluster": "E", "base_weight": 2.60, "base_sign": 1.0},
+            {"id": "asset_direction", "name": "BTC 4H Anlık Fiyat İvmesi", "cluster": "E", "base_weight": 2.70, "base_sign": 1.0},
             {"id": "crypto_taker", "name": "OKX/Bybit Spot & Vadeli Taker Akışı", "cluster": "E", "base_weight": 1.60, "base_sign": 1.0},
             {"id": "funding_stress", "name": "Türev Fonlama Oranı (Kaldıraç Riski)", "cluster": "E", "base_weight": 1.00, "base_sign": -1.0},
-            {"id": "btc_dominance", "name": "BTC Dominansı / Altcoin Rotasyonu", "cluster": "E", "base_weight": 0.95, "base_sign": 1.0},
-            {"id": "banking_stress", "name": "Geleneksel Bankacılık Kaçışı (KRE Ters)", "cluster": "C", "base_weight": 0.60, "base_sign": -1.0},
+            {"id": "btc_dominance", "name": "BTC Dominansı / Altcoin Rotasyonu", "cluster": "E", "base_weight": 0.50, "base_sign": 1.0},
+            {"id": "banking_stress", "name": "Geleneksel Bankacılık Kaçışı (KRE Ters)", "cluster": "C", "base_weight": 0.25, "base_sign": -1.0},
             {"id": "duration_risk", "name": "TLT Küresel Tahvil Likidite Baskısı", "cluster": "B", "base_weight": 0.65, "base_sign": 1.0},
             {"id": "credit_spread", "name": "Küresel Likidite İştahı (HYG/LQD)", "cluster": "C", "base_weight": 0.90, "base_sign": 1.0},
             {"id": "usd_strength", "name": "DXY Dolar Likidite Baskısı", "cluster": "A", "base_weight": 0.85, "base_sign": -1.0},
@@ -120,11 +120,11 @@ ASSET_MATRICES = {
         "crypto_ccy": "ETH",
         "vol_scale": 2.2,
         "factors": [
-            {"id": "asset_direction", "name": "ETH 4H Anlık Fiyat İvmesi", "cluster": "E", "base_weight": 2.50, "base_sign": 1.0},
+            {"id": "asset_direction", "name": "ETH 4H Anlık Fiyat İvmesi", "cluster": "E", "base_weight": 2.70, "base_sign": 1.0},
             {"id": "crypto_taker", "name": "OKX/Bybit ETH Taker Alış Akışı", "cluster": "E", "base_weight": 1.50, "base_sign": 1.0},
             {"id": "funding_stress", "name": "Canlı ETH Fonlama Oranı (Funding Riski)", "cluster": "E", "base_weight": 0.95, "base_sign": -1.0},
-            {"id": "btc_sympathy", "name": "⚡ Bitcoin İtici Gücü (BTC Beta)", "cluster": "E", "base_weight": 1.50, "base_sign": 1.0},
-            {"id": "eth_btc_beta", "name": "ETH/BTC Göreceli Güç (Risk İştahı)", "cluster": "E", "base_weight": 1.10, "base_sign": 1.0},
+            {"id": "btc_sympathy", "name": "⚡ Bitcoin İtici Gücü (BTC Beta)", "cluster": "E", "base_weight": 0.50, "base_sign": 1.0},
+            {"id": "eth_btc_beta", "name": "ETH/BTC Göreceli Güç (Risk İştahı)", "cluster": "E", "base_weight": 0.50, "base_sign": 1.0},
             {"id": "duration_risk", "name": "TLT Likidite Baskısı", "cluster": "B", "base_weight": 0.65, "base_sign": 1.0},
             {"id": "credit_spread", "name": "Kurumsal Kredi & Likidite", "cluster": "C", "base_weight": 0.85, "base_sign": 1.0},
             {"id": "usd_strength", "name": "DXY Dolar Likidite Baskısı", "cluster": "A", "base_weight": 0.80, "base_sign": -1.0},

@@ -208,17 +208,40 @@ st.subheader("📊 6 Varlık Canlı Yön Tablosu (Barra Normalleştirilmiş: [-3
 summary_rows = []
 for k in ASSET_MATRICES.keys():
     data = verdicts.get(k, {})
+    curr_dir = data.get("current_direction")
+    if not curr_dir:
+        details = data.get("details", [])
+        f_dir = next((d for d in details if "Fiyat Hızı" in d.get("faktör", "") or "Fiyat İvmesi" in d.get("faktör", "")), None)
+        if f_dir:
+            ham = float(f_dir.get("ham_deger", 0.0))
+            if ham >= 0.35:
+                curr_dir = f"🟢 YUKARI (%{ham:+.2f})"
+            elif ham <= -0.35:
+                curr_dir = f"🔴 AŞAĞI (%{ham:+.2f})"
+            else:
+                curr_dir = f"⚪ YATAY / NÖTR (%{ham:+.2f})"
+        else:
+            curr_dir = "⚪ YATAY / NÖTR (%0.00)"
+
+    fore_dir = f"{data.get('icon', '⚪')} {data.get('verdict', 'NÖTR (BEKLE)')}"
+
     summary_rows.append({
         "Varlık": k,
         "Ad": ASSET_MATRICES[k]["name"],
-        "Sinyal": f"{data.get('icon', '⚪')} {data.get('verdict', 'NÖTR (BEKLE)')}",
-        "Normal Skor": f"{float(data.get('score', 0.0)):+.2f}",
+        "📍 Şu Anki Yön (Canlı Fiyat)": curr_dir,
+        "🔮 Olası Gelecek Yön (Model)": fore_dir,
+        "Model Skoru": f"{float(data.get('score', 0.0)):+.2f}",
         "Seans Durumu": data.get("session_status", "CANLI"),
         "Küme Onayı": data.get("cluster_agreement", "-")
     })
 
 df_summary = pd.DataFrame(summary_rows)
 st.dataframe(df_summary, use_container_width=True, hide_index=True)
+
+st.caption(
+    "💡 **Çift Ufuk Kılavuzu:** **📍 Şu Anki Yön**, grafikte anlık gördüğünüz 4 saatlik fiyat hareketidir. "
+    "**🔮 Olası Gelecek Yön**, kurumsal likidite, fonlama, tahvil getirileri ve makro faktörlerin önümüzdeki seans/saatler için öngördüğü istatistiksel baskıdır."
+)
 
 st.divider()
 
@@ -242,18 +265,29 @@ score = float(res.get("score", 0.0))
 # Varlık Sinyal Kartı
 col_card1, col_card2 = st.columns([2, 1])
 with col_card1:
+    curr_dir = res.get("current_direction")
+    if not curr_dir:
+        details = res.get("details", [])
+        f_dir = next((d for d in details if "Fiyat Hızı" in d.get("faktör", "") or "Fiyat İvmesi" in d.get("faktör", "")), None)
+        if f_dir:
+            ham = float(f_dir.get("ham_deger", 0.0))
+            curr_dir = f"🟢 YUKARI (%{ham:+.2f})" if ham >= 0.35 else (f"🔴 AŞAĞI (%{ham:+.2f})" if ham <= -0.35 else f"⚪ YATAY / NÖTR (%{ham:+.2f})")
+        else:
+            curr_dir = "⚪ YATAY / NÖTR (%0.00)"
+
+    st.markdown(f"#### 📍 Şu Anki Fiyat Durumu: **{curr_dir}**")
     if "GÜÇLÜ AL" in verdict:
-        st.success(f"## {icon} {selected_asset} ── {verdict} (Kararlı Kurumsal Alış Akışı)")
+        st.success(f"### 🔮 Olası Gelecek Yön (Öncü Model): **{icon} {verdict}** (Kararlı Kurumsal Alış Akışı)")
     elif "AL" in verdict:
-        st.success(f"### {icon} {selected_asset} ── {verdict} (Pozitif İtici Güç)")
+        st.success(f"### 🔮 Olası Gelecek Yön (Öncü Model): **{icon} {verdict}** (Pozitif İtici Güç)")
     elif "GÜÇLÜ SAT" in verdict:
-        st.error(f"## {icon} {selected_asset} ── {verdict} (Kararlı Satış Baskısı)")
+        st.error(f"### 🔮 Olası Gelecek Yön (Öncü Model): **{icon} {verdict}** (Kararlı Satış Baskısı)")
     elif "SAT" in verdict:
-        st.error(f"### {icon} {selected_asset} ── {verdict} (Negatif Baskı)")
+        st.error(f"### 🔮 Olası Gelecek Yön (Öncü Model): **{icon} {verdict}** (Negatif Makro Baskı)")
     elif "KRİZ" in verdict:
-        st.error(f"### ⛔ {selected_asset} ── {verdict} (Piyasa Kilitli)")
+        st.error(f"### ⛔ Olası Gelecek Yön (Öncü Model): **{icon} {verdict}** (Piyasa Kilitli)")
     else:
-        st.info(f"### {icon} {selected_asset} ── {verdict} (Denge / Yönsüz Ölü Bant)")
+        st.info(f"### 🔮 Olası Gelecek Yön (Öncü Model): **{icon} {verdict}** (Denge / Yönsüz Ölü Bant)")
 
 with col_card2:
     st.metric(

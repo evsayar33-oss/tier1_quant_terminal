@@ -1,5 +1,5 @@
 """
-Robust Quant Processor: Real-Time ETF Metrics & Strict Barra Normalization (v19 Calibrated)
+Robust Quant Processor: Real-Time ETF Metrics & Strict Barra Normalization (v20 Calibrated)
 """
 import numpy as np
 import pandas as pd
@@ -15,15 +15,36 @@ except Exception:
     }
     SIGNAL_THRESHOLDS = {
         "strong_buy_enter": 1.6, "strong_buy_exit": 1.0,
-        "buy_enter": 0.6, "buy_exit": 0.20,
+        "buy_enter": 0.6, "buy_exit": 0.30,
         "strong_sell_enter": -1.6, "strong_sell_exit": -1.0,
-        "sell_enter": -0.6, "sell_exit": -0.20
+        "sell_enter": -0.6, "sell_exit": -0.30
     }
     ASSET_CLOCKS = {}
     CATALYST_WINDOWS_UTC = []
 
 
 class RobustQuantProcessor:
+    @staticmethod
+    def compute_realtime_price_action(df_1h, fast_window=4):
+        """
+        📍 Canlı / Şu Anki Fiyat Yönü (Real-Time Price Action):
+        Kullanıcının grafikte anlık gördüğü fiyat hareketini ve son 4 saatlik
+        yüzdesel değişimini objektif olarak ölçer.
+        """
+        if df_1h.empty or len(df_1h) < 2:
+            return "⚪ YATAY (%0.00)", "⚪", "gray", 0.0
+        close = df_1h["Close"]
+        w = min(fast_window, len(close) - 1)
+        roc_4h = ((close.iloc[-1] - close.iloc[-w - 1]) / (close.iloc[-w - 1] + 1e-9)) * 100.0
+        roc_val = round(float(roc_4h), 2)
+
+        if roc_val >= 0.35:
+            return f"🟢 YUKARI (%{roc_val:+.2f})", "🟢", "lightgreen", roc_val
+        elif roc_val <= -0.35:
+            return f"🔴 AŞAĞI (%{roc_val:+.2f})", "🔴", "red", roc_val
+        else:
+            return f"⚪ YATAY / NÖTR (%{roc_val:+.2f})", "⚪", "gray", roc_val
+
     @staticmethod
     def get_asset_session_status(asset_key):
         clocks = {
@@ -77,7 +98,6 @@ class RobustQuantProcessor:
         w_slow = min(slow_window, len(close) - 1)
         roc_24h = ((close.iloc[-1] - close.iloc[-w_slow - 1]) / (close.iloc[-w_slow - 1] + 1e-9)) * 100.0
         
-        # 4H anlık ivmeye öncelik vererek yön dönüşlerine duyarlılığı artırıyoruz
         blended = (roc_4h * 1.5) + (roc_24h * 0.5)
 
         scale = max(float(vol_scale), 0.5)
@@ -193,25 +213,15 @@ class RobustQuantProcessor:
 
     @staticmethod
     def compute_vix_stress(vix_df, window=48):
-        """
-        VIX Stresi: Hem mutlak seviye (17.5 altı sakin, 22 üstü stres)
-        hem de bağıl Z-skorunu harmanlar. VIX 16 seviyesindeyken yapay kriz üretmesini engeller.
-        """
         if vix_df.empty:
             return 0.0
         close = vix_df["Close"]
         cur_vix = float(close.iloc[-1])
-        
-        # Mutlak seviye çıpası (VIX 17.5 nötr seviyedir)
         abs_stress = (cur_vix - 17.5) / 5.0
-        
-        # Bağıl dinamik şok
         w = min(window, len(close))
         mean_val = close.rolling(w).mean().iloc[-1]
         std_val = close.rolling(w).std().iloc[-1] + 1e-9
         rel_z = (cur_vix - mean_val) / std_val
-        
-        # Mutlak seviye %60, bağıl şok %40 ağırlıkta harmanlanır
         blended = (abs_stress * 0.6) + (rel_z * 0.4)
         return float(np.clip(blended, -2.0, 2.0))
 
@@ -229,10 +239,6 @@ class RobustQuantProcessor:
 
     @staticmethod
     def compute_crypto_funding_stress(funding_rate):
-        """
-        0.0001 (0.01% per 8h) nötr kripto normudur.
-        0.0001 seviyesinde stres 0.0 olmalıdır; sadece aşırı kaldıraç (>0.0003) veya negatif fonlama stres üretir.
-        """
         excess_rate = funding_rate - 0.0001
         stress = float(np.clip(excess_rate * 5000.0, -2.0, 2.0))
         return stress
@@ -291,7 +297,6 @@ class RobustQuantProcessor:
         current_ratio = p_oil / (p_iyt + 1e-9)
         baseline_ratio = mean_oil / (mean_iyt + 1e-9)
         dev_pct = ((current_ratio - baseline_ratio) / (baseline_ratio + 1e-9)) * 100.0
-        # %8-10 sapma ~ 1.0 şok seviyesi olmalıdır, küçük günlük gürültülerde tetiklenmez
         return float(np.clip(dev_pct * 0.12, -2.0, 2.0))
 
     @staticmethod
@@ -343,8 +348,6 @@ class RobustQuantProcessor:
     @staticmethod
     def evaluate_crisis_lock_with_hysteresis(credit_velocity, z_vix, z_real_rate, dxy_velocity, current_vix_val, current_state=False, consecutive_breaches=0):
         cfg = CRISIS_CONFIG
-        
-        # Sadece stres yönündeki sapmalar kriz skoru üretir (Boğa genişlemesi kriz sayılamaz)
         credit_stress = max(-credit_velocity, 0.0)
         vix_stress = max(z_vix, 0.0) if current_vix_val >= cfg.get("vix_absolute_floor", 20.0) else 0.0
         dxy_stress = max(dxy_velocity, 0.0)
@@ -376,7 +379,7 @@ class RobustQuantProcessor:
 
         # 1. GÜÇLÜ AL KONTROLÜ
         if prev == "GÜÇLÜ AL":
-            if current_score >= t.get("strong_buy_exit", 1.0):
+            if current_score > t.get("strong_buy_exit", 1.0):
                 return "GÜÇLÜ AL", "green", "🟢🟢"
         else:
             if current_score >= t.get("strong_buy_enter", 1.6) and bull_clusters >= min_clusters:
@@ -384,7 +387,7 @@ class RobustQuantProcessor:
 
         # 2. AL KONTROLÜ
         if prev in ["AL", "GÜÇLÜ AL"]:
-            if current_score > t.get("buy_exit", 0.20):
+            if current_score > t.get("buy_exit", 0.30):
                 return "AL", "lightgreen", "🟢"
         else:
             if current_score >= t.get("buy_enter", 0.60):
@@ -394,7 +397,7 @@ class RobustQuantProcessor:
 
         # 3. GÜÇLÜ SAT KONTROLÜ
         if prev == "GÜÇLÜ SAT":
-            if current_score <= t.get("strong_sell_exit", -1.0):
+            if current_score < t.get("strong_sell_exit", -1.0):
                 return "GÜÇLÜ SAT", "darkred", "🔴🔴"
         else:
             if current_score <= t.get("strong_sell_enter", -1.6) and bear_clusters >= min_clusters:
@@ -402,7 +405,7 @@ class RobustQuantProcessor:
 
         # 4. SAT KONTROLÜ
         if prev in ["SAT", "GÜÇLÜ SAT"]:
-            if current_score < t.get("sell_exit", -0.20):
+            if current_score < t.get("sell_exit", -0.30):
                 return "SAT", "red", "🔴"
         else:
             if current_score <= t.get("sell_enter", -0.60):
