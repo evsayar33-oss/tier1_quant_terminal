@@ -1,11 +1,54 @@
 """
-Robust Quant Processor: Pre-Market Fallback & Balanced Shock Engine
+Robust Quant Processor: Session Clock, Catalyst Windows & Volatility Parity
 """
 import numpy as np
 import pandas as pd
-from config import CRISIS_CONFIG
+from datetime import datetime, timezone
+from config import CRISIS_CONFIG, ASSET_CLOCKS, CATALYST_WINDOWS_UTC
 
 class RobustQuantProcessor:
+    @staticmethod
+    def get_asset_session_status(asset_key):
+        """Varlığın seans durumunu anlık tespit eder (CANLI, SEANS_ÖNCESİ, KAPALI)."""
+        clock = ASSET_CLOCKS.get(asset_key, {})
+        if not clock:
+            return "CANLI", 1.0
+
+        now = datetime.now(timezone.utc)
+        current_hour = now.hour + (now.minute / 60.0)
+        current_day = now.weekday() # 0 = Pazartesi, 6 = Pazar
+
+        if clock["market"] == "CRYPTO":
+            return "CANLI (24/7)", 1.0
+
+        # Hafta sonu kontrolü
+        if current_day not in clock.get("days", [0, 1, 2, 3, 4]):
+            return "HAFTA SONU (KAPALI)", 0.4
+
+        open_h = clock["open_utc"]
+        close_h = clock["close_utc"]
+
+        if open_h <= current_hour <= close_h:
+            return "CANLI SEANS", 1.0
+        elif (open_h - 4.0) <= current_hour < open_h:
+            # Seans öncesi (Pre-market): İntraday momentum ağırlığı %50 kısılır, makro korunur
+            return "SEANS ÖNCESİ (PRE-MARKET)", 0.6
+        else:
+            return "KAPALI (SEANS DIŞI)", 0.5
+
+    @staticmethod
+    def check_catalyst_event_window():
+        """Kritik ABD veri veya Fed saati penceresinde miyiz kontrol eder."""
+        now = datetime.now(timezone.utc)
+        current_hour = now.hour + (now.minute / 60.0)
+        current_day = now.weekday()
+
+        if current_day in [0, 1, 2, 3, 4]: # Hafta içi
+            for w in CATALYST_WINDOWS_UTC:
+                if w["start"] <= current_hour <= w["end"]:
+                    return True, w["desc"]
+        return False, "Sakin Veri Dönemi"
+
     @staticmethod
     def compute_intraday_momentum(df_1h, fast_window=4, slow_window=24):
         if df_1h.empty or len(df_1h) < 2:
@@ -13,12 +56,10 @@ class RobustQuantProcessor:
         close = df_1h["Close"]
         w_fast = min(fast_window, len(close) - 1)
         roc_4h = ((close.iloc[-1] - close.iloc[-w_fast - 1]) / (close.iloc[-w_fast - 1] + 1e-9)) * 100.0
-
         w_slow = min(slow_window, len(close) - 1)
         roc_24h = ((close.iloc[-1] - close.iloc[-w_slow - 1]) / (close.iloc[-w_slow - 1] + 1e-9)) * 100.0
-
-        blended_roc = (roc_4h * 1.5) + (roc_24h * 0.5)
-        return float(np.clip(blended_roc * 1.2, -3.5, 3.5))
+        blended = (roc_4h * 1.5) + (roc_24h * 0.5)
+        return float(np.clip(blended * 1.2, -3.5, 3.5))
 
     @staticmethod
     def compute_dxy_intraday_velocity(dxy_df_1h, window=4):
@@ -45,26 +86,15 @@ class RobustQuantProcessor:
 
     @staticmethod
     def compute_stagflation_shock(oil_df, transport_df, window=24):
-        """
-        🛡️ PRE-MARKET DÜZELTMESİ:
-        Amerikan borsası açılmadan önce IYT'nin dünkü son barını baz alır; asla 0.00'a düşmez!
-        """
         if oil_df.empty or transport_df.empty:
             return 0.0
-        
-        # Son kapanış fiyatlarını kullanarak en güncel rasyoyu bul
         p_oil = float(oil_df["Close"].iloc[-1])
         p_iyt = float(transport_df["Close"].iloc[-1])
-        
-        # İki serinin son 20 barlık ortalama rasyosunu hesapla
         mean_oil = oil_df["Close"].tail(window).mean()
         mean_iyt = transport_df["Close"].tail(window).mean()
-        
         current_ratio = p_oil / (p_iyt + 1e-9)
         baseline_ratio = mean_oil / (mean_iyt + 1e-9)
-        
-        # Sapma yüzdesi
-        dev_pct = ((current_ratio - baseline_ratio) / baseline_ratio) * 100.0
+        dev_pct = ((current_ratio - baseline_ratio) / (baseline_ratio + 1e-9)) * 100.0
         return float(np.clip(dev_pct * 0.4, -3.0, 3.0))
 
     @staticmethod
