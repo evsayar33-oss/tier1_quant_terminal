@@ -12,13 +12,13 @@ CLUSTERS = {
 
 # Kalibre Edilmiş Sinyal Eşikleri (İkiz Varlık Uyumu & Aşırı Geniş Ölü Bant Düzeltmesi)
 SIGNAL_THRESHOLDS = {
-    "strong_buy_enter": 1.6,
-    "strong_buy_exit": 1.0,
-    "buy_enter": 0.55,
+    "strong_buy_enter": 1.60,
+    "strong_buy_exit": 1.00,
+    "buy_enter": 0.60,
     "buy_exit": 0.20,
-    "strong_sell_enter": -1.6,
-    "strong_sell_exit": -1.0,
-    "sell_enter": -0.55,
+    "strong_sell_enter": -1.60,
+    "strong_sell_exit": -1.00,
+    "sell_enter": -0.60,
     "sell_exit": -0.20
 }
 

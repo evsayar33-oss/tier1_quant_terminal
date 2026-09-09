@@ -246,10 +246,10 @@ class RobustQuantProcessor:
             if current_score >= t.get("buy_exit", 0.20):
                 return "AL", "lightgreen", "🟢"
         else:
-            if current_score >= t.get("buy_enter", 0.55):
+            if current_score >= t.get("buy_enter", 0.60):
                 return "AL", "lightgreen", "🟢"
             # Küme mutlak çoğunluğu (>=3) ve pozitif ivme varsa AL teyidi
-            if bull_clusters >= 3 and current_score >= 0.45:
+            if bull_clusters >= 3 and current_score >= 0.50:
                 return "AL", "lightgreen", "🟢"
 
         # 3. GÜÇLÜ SAT KONTROLÜ
@@ -265,10 +265,10 @@ class RobustQuantProcessor:
             if current_score <= t.get("sell_exit", -0.20):
                 return "SAT", "red", "🔴"
         else:
-            if current_score <= t.get("sell_enter", -0.55):
+            if current_score <= t.get("sell_enter", -0.60):
                 return "SAT", "red", "🔴"
             # Küme mutlak çoğunluğu (>=3) ve negatif ivme varsa SAT teyidi
-            if bear_clusters >= 3 and current_score <= -0.45:
+            if bear_clusters >= 3 and current_score <= -0.50:
                 return "SAT", "red", "🔴"
 
         return "NÖTR (BEKLE)", "gray", "⚪"
