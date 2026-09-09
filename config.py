@@ -1,5 +1,5 @@
 """
-Tier-1 Adaptive Quant Terminal - Standardized 3-Pillar Asset DNA & Hysteresis (v10)
+Tier-1 Adaptive Quant Terminal - Configuration & Asset Matrices (Full & Complete)
 """
 
 CLUSTERS = {
@@ -10,16 +10,15 @@ CLUSTERS = {
     "E": "Varlığa Özel Yön & Likidite Akışı (Momentum, Hacim/Taker)"
 }
 
-# 🛡️ SİNYAL TİTREŞİMİNİ ÖNLEYEN HİSTEREZİS (ÖLÜ BANT) EŞİKLERİ
 SIGNAL_THRESHOLDS = {
     "strong_buy_enter": 2.6,
     "strong_buy_exit": 1.8,
     "buy_enter": 1.2,
-    "buy_exit": 0.5,        # 0.5'in altına inmedikçe AL sinyali NÖTR'e düşmez!
+    "buy_exit": 0.5,
     "strong_sell_enter": -2.6,
     "strong_sell_exit": -1.8,
     "sell_enter": -1.2,
-    "sell_exit": -0.5       # -0.5'in üstüne çıkmadıkça SAT sinyali NÖTR'e dönmez!
+    "sell_exit": -0.5
 }
 
 ASSET_CLOCKS = {
@@ -33,10 +32,9 @@ ASSET_CLOCKS = {
 
 CATALYST_WINDOWS_UTC = [
     {"start": 12.5, "end": 13.5, "desc": "ABD Makro Veri Saati (TÜFE/İstihdam)"},
-    {"start": 18.0, "end": 19.5, "desc": "Fed / FOMC Karar & Konuşma Saati"}
+    {"start": 18.0, "end": 19.5, "desc": "Fed / FOMC Karar Saati"}
 ]
 
-# 🎯 HER VARLIKTA 3 STANDART SÜTUN: YÖN + LİKİDİTE AKIŞI + USD GÜCÜ + MAKRO ÇAPA
 ASSET_MATRICES = {
     "SPX": {
         "name": "S&P 500 Index",
