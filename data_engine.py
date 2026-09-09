@@ -1,5 +1,5 @@
 """
-Resilient Data Engine: Official FRED API + OKX/Bybit Live Crypto + 100% Live ETF Grid
+Resilient Data Engine: Official FRED API + OKX/Bybit Live Crypto + 100% Live ETF Grid (v18)
 """
 import requests
 import pandas as pd
@@ -8,17 +8,21 @@ import yfinance as yf
 import concurrent.futures
 import os
 
+
 class ResilientDataEngine:
     def __init__(self, fred_api_key=None):
         self.session = requests.Session()
-        self.session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+        self.session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        })
         self.fred_api_key = fred_api_key or os.environ.get("FRED_API_KEY", "")
+        self._cache = {}
 
     def fetch_crypto_taker_flow(self, ccy="BTC"):
         # 1. OKX Canlı Taker Hacmi
         okx_url = f"https://www.okx.com/api/v5/rubik/stat/taker-volume?ccy={ccy}&instType=CONTRACTS&period=1H"
         try:
-            res = self.session.get(okx_url, timeout=5)
+            res = self.session.get(okx_url, timeout=4)
             if res.status_code == 200:
                 data = res.json().get("data", [])
                 if data and len(data) > 0:
@@ -31,7 +35,7 @@ class ResilientDataEngine:
         # 2. Bybit Fallback
         bybit_url = f"https://api.bybit.com/v5/market/account-ratio?category=linear&symbol={ccy}USDT&period=15min&limit=2"
         try:
-            res = self.session.get(bybit_url, timeout=5)
+            res = self.session.get(bybit_url, timeout=4)
             if res.status_code == 200:
                 data = res.json().get("result", {}).get("list", [])
                 if data and len(data) > 0:
@@ -44,7 +48,7 @@ class ResilientDataEngine:
         return {"value": 1.0, "confidence": 0.5}
 
     def fetch_official_fred_data(self, series_id):
-        """Resmi FRED API üzerinden kesin veri çeker (API Key ile sıfır hata)."""
+        """Resmi FRED API üzerinden kesin veri çeker."""
         if not self.fred_api_key:
             return pd.DataFrame()
         url = f"https://api.stlouisfed.org/fred/series/observations?series_id={series_id}&api_key={self.fred_api_key}&file_type=json&sort_order=desc&limit=40"
@@ -66,13 +70,19 @@ class ResilientDataEngine:
 
     def fetch_yahoo_single(self, key, symbol, period="7d", interval="1h"):
         try:
-            ticker = yf.Ticker(symbol)
-            df = ticker.history(period=period, interval=interval)
+            ticker = yf.Ticker(symbol, session=self.session)
+            df = ticker.history(period=period, interval=interval, timeout=8)
             if not df.empty:
                 df.index = df.index.tz_localize(None) if df.index.tz is not None else df.index
+                self._cache[key] = df
                 return key, df
         except Exception:
             pass
+
+        # Hafızadaki son başarılı veriyi yedek olarak kullan
+        if key in self._cache and not self._cache[key].empty:
+            return key, self._cache[key]
+
         return key, pd.DataFrame()
 
     def fetch_global_market_grid(self):

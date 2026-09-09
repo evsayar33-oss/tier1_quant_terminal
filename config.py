@@ -1,5 +1,5 @@
 """
-Tier-1 Adaptive Quant Terminal - Harmonized S&P/NQ & Balanced Factors (v17)
+Tier-1 Adaptive Quant Terminal - Harmonized Multi-Asset & Balanced Barra Factors (v18)
 """
 
 CLUSTERS = {
@@ -11,14 +11,14 @@ CLUSTERS = {
 }
 
 SIGNAL_THRESHOLDS = {
-    "strong_buy_enter": 2.0,
-    "strong_buy_exit": 1.2,
-    "buy_enter": 0.8,
-    "buy_exit": 0.3,
-    "strong_sell_enter": -2.0,
-    "strong_sell_exit": -1.2,
-    "sell_enter": -0.8,
-    "sell_exit": -0.3
+    "strong_buy_enter": 1.8,
+    "strong_buy_exit": 1.1,
+    "buy_enter": 0.7,
+    "buy_exit": 0.25,
+    "strong_sell_enter": -1.8,
+    "strong_sell_exit": -1.1,
+    "sell_enter": -0.7,
+    "sell_exit": -0.25
 }
 
 ASSET_CLOCKS = {
@@ -35,7 +35,7 @@ CATALYST_WINDOWS_UTC = [
     {"start": 18.0, "end": 19.5, "desc": "Fed / FOMC Karar Saati"}
 ]
 
-# 🛡️ S&P VE NASDAQ ARASINDAKİ 15 PUANLIK UÇURUMU KAPATAN SİMETRİK MATRİS
+# 🛡️ 6 VARLIK İÇİN DENGELİ, VOLATİLİTE ÖLÇEKLİ BARRA MATRİSİ
 ASSET_MATRICES = {
     "SPX": {
         "name": "S&P 500 Index",
@@ -43,7 +43,7 @@ ASSET_MATRICES = {
         "vol_scale": 1.0,
         "factors": [
             {"id": "asset_direction",  "name": "SPY 4H Anlık Fiyat Hızı", "cluster": "E", "base_weight": 2.0, "base_sign": 1},
-            {"id": "semi_lead",        "name": "SMH Çip / AI Sektör İvmesi", "cluster": "E", "base_weight": 1.6, "base_sign": 1}, # 🛡️ S&P'ye de eklendi!
+            {"id": "semi_lead",        "name": "SMH Çip / AI Sektör İvmesi", "cluster": "E", "base_weight": 1.6, "base_sign": 1},
             {"id": "market_breadth",   "name": "RSP/SPY Piyasa Katılım Genişliği", "cluster": "E", "base_weight": 1.4, "base_sign": 1},
             {"id": "credit_spread",    "name": "HYG/LQD Kredi Gücü & İştahı", "cluster": "C", "base_weight": 1.6, "base_sign": 1},
             {"id": "vix_strain",       "name": "VIX Opsiyon Korku Primi", "cluster": "C", "base_weight": 1.6, "base_sign": -1},
@@ -59,10 +59,10 @@ ASSET_MATRICES = {
         "factors": [
             {"id": "asset_direction",  "name": "QQQ 4H Anlık Fiyat Hızı", "cluster": "E", "base_weight": 2.0, "base_sign": 1},
             {"id": "semi_lead",        "name": "SMH Çip / AI Sektör İvmesi", "cluster": "E", "base_weight": 2.0, "base_sign": 1},
-            {"id": "market_breadth",   "name": "RSP/SPY Piyasa Katılım Genişliği", "cluster": "E", "base_weight": 1.2, "base_sign": 1}, # 🛡️ NQ'ya da eklendi!
+            {"id": "market_breadth",   "name": "RSP/SPY Piyasa Katılım Genişliği", "cluster": "E", "base_weight": 1.2, "base_sign": 1},
             {"id": "credit_spread",    "name": "Kredi Piyasası Gücü", "cluster": "C", "base_weight": 1.5, "base_sign": 1},
             {"id": "vix_strain",       "name": "Teknoloji Volatilite Baskısı", "cluster": "C", "base_weight": 1.6, "base_sign": -1},
-            {"id": "stagflation_shock","name": "Petrol / Enerji Baskısı", "cluster": "D", "base_weight": 1.2, "base_sign": -1}, # 🛡️ NQ'ya da eklendi!
+            {"id": "stagflation_shock","name": "Petrol / Enerji Baskısı", "cluster": "D", "base_weight": 1.2, "base_sign": -1},
             {"id": "usd_strength",     "name": "DXY Dolar Likidite Sıkışması", "cluster": "A", "base_weight": 1.4, "base_sign": -1},
             {"id": "real_yield",       "name": "10Y Reel Faiz Baskısı (TIP)", "cluster": "B", "base_weight": 1.8, "base_sign": -1}
         ]
@@ -86,7 +86,7 @@ ASSET_MATRICES = {
         "vol_scale": 1.3,
         "factors": [
             {"id": "asset_direction",  "name": "Gümüş 4H Anlık Fiyat İvmesi", "cluster": "E", "base_weight": 2.2, "base_sign": 1},
-            {"id": "gold_sympathy",    "name": "🥇 Altın Güç İvmesi (Gold Beta)", "cluster": "E", "base_weight": 2.4, "base_sign": 1},
+            {"id": "gold_sympathy",    "name": "🥇 Altın Güç İvmesi (Gold Beta)", "cluster": "E", "base_weight": 2.2, "base_sign": 1},
             {"id": "real_yield",       "name": "10Y Reel Faiz Baskısı (TIP)", "cluster": "B", "base_weight": 1.8, "base_sign": -1},
             {"id": "breakeven_infl",   "name": "Enflasyon Beklenti Kalkanı", "cluster": "D", "base_weight": 1.6, "base_sign": 1},
             {"id": "usd_strength",     "name": "USD Gücü & Dolar Baskısı", "cluster": "A", "base_weight": 1.6, "base_sign": -1},
@@ -99,11 +99,11 @@ ASSET_MATRICES = {
         "crypto_ccy": "BTC",
         "vol_scale": 1.8,
         "factors": [
-            {"id": "crypto_taker",     "name": "⚡ OKX/Bybit Taker Alım Baskısı", "cluster": "E", "base_weight": 3.0, "base_sign": 1},
+            {"id": "crypto_taker",     "name": "⚡ OKX/Bybit Taker Alım Baskısı", "cluster": "E", "base_weight": 2.5, "base_sign": 1},
             {"id": "asset_direction",  "name": "BTC 4H Fiyat Hızı", "cluster": "E", "base_weight": 2.2, "base_sign": 1},
             {"id": "eth_btc_beta",     "name": "ETH/BTC Risk İştahı Rasyosu", "cluster": "E", "base_weight": 1.6, "base_sign": 1},
             {"id": "usd_strength",     "name": "DXY Küresel Dolar Likidite Baskısı", "cluster": "A", "base_weight": 1.6, "base_sign": -1},
-            {"id": "credit_spread",    "name": "Küresel Risk İştahı (HYG/LQD)", "cluster": "C", "base_weight": 1.4, "base_sign": 1}
+            {"id": "credit_spread",    "name": "Küresel Risk İştahı (HYG/LQD)", "cluster": "C", "base_weight": 1.5, "base_sign": 1}
         ]
     },
     "ETH": {
@@ -112,11 +112,12 @@ ASSET_MATRICES = {
         "crypto_ccy": "ETH",
         "vol_scale": 2.0,
         "factors": [
-            {"id": "crypto_taker",     "name": "⚡ OKX/Bybit Taker Alım Baskısı", "cluster": "E", "base_weight": 3.0, "base_sign": 1},
+            {"id": "crypto_taker",     "name": "⚡ OKX/Bybit Taker Alım Baskısı", "cluster": "E", "base_weight": 2.5, "base_sign": 1},
             {"id": "asset_direction",  "name": "ETH 4H Fiyat Hızı", "cluster": "E", "base_weight": 2.2, "base_sign": 1},
-            {"id": "eth_btc_beta",     "name": "ETH/BTC Liderlik Gücü", "cluster": "E", "base_weight": 2.0, "base_sign": 1},
+            {"id": "eth_btc_beta",     "name": "ETH/BTC Liderlik Gücü", "cluster": "E", "base_weight": 1.8, "base_sign": 1},
             {"id": "btc_sympathy",     "name": "BTC Ana Trend Teyidi", "cluster": "E", "base_weight": 1.8, "base_sign": 1},
-            {"id": "usd_strength",     "name": "DXY Küresel Dolar Baskısı", "cluster": "A", "base_weight": 1.6, "base_sign": -1}
+            {"id": "usd_strength",     "name": "DXY Küresel Dolar Baskısı", "cluster": "A", "base_weight": 1.6, "base_sign": -1},
+            {"id": "credit_spread",    "name": "Küresel Risk İştahı (HYG/LQD)", "cluster": "C", "base_weight": 1.5, "base_sign": 1}
         ]
     }
 }
