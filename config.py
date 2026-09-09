@@ -1,5 +1,5 @@
 """
-Tier-1 Adaptive Quant Terminal - Konfigürasyon ve Varlık Matrisleri
+Tier-1 Adaptive Quant Terminal - Konfigürasyon ve Varlık Matrisleri (v4)
 """
 
 # 4 Bağımsız Küme (Multicollinearity / Çoklu Bağlantı Önleme)
@@ -24,7 +24,7 @@ ASSET_MATRICES = {
     },
     "NQ": {
         "name": "NASDAQ 100",
-        "benchmark_symbol": "NQ=F",
+        "benchmark_symbol": "QQQ",
         "factors": [
             {"id": "nq_mom", "name": "Pure Momentum", "cluster": "D", "base_weight": 2.5, "base_sign": 1, "freq": "intraday"},
             {"id": "us10y_yield", "name": "10Y Yield Pressure (TNX)", "cluster": "B", "base_weight": 2.2, "base_sign": -1, "freq": "daily"},
@@ -76,14 +76,21 @@ ASSET_MATRICES = {
     }
 }
 
-# Kriz Kilidi ve Eşik Ayarları
+# 🛡️ GELİŞMİŞ KRİZ KİLİDİ VE MUTLAK VIX TABAN AYARLARI
 CRISIS_CONFIG = {
-    "upper_threshold": 2.2,    # Anomali bu eşiği aşarsa kilitlenir
-    "lower_threshold": 1.5,    # Hysteresis çıkış eşiği
+    "upper_threshold": 2.2,          # Anomali normu eşiği
+    "lower_threshold": 1.5,          # Hysteresis çıkış eşiği
     "enter_consecutive_bars": 3,
     "exit_consecutive_bars": 2,
     "vix_spike_threshold": 2.5,
-    "credit_spike_threshold": 1.8
+    "credit_spike_threshold": 1.8,
+    "vix_absolute_floor": 20.0       # 🛡️ VIX < 20 iken Z-Score kriz tetikleyemez (Düşük volatilite kalkanı)
+}
+
+# 🛡️ DİNAMİK EŞİK TABANI (UYUYAN PİYASA KALKANI)
+THRESHOLD_CLAMPS = {
+    "min_long_score": 2.0,           # Persentil ne kadar düşerse düşsün Long onayı için asgari skor
+    "max_short_score": -2.0          # Persentil ne kadar yükselirse yükselsin Short onayı için azami skor
 }
 
 # Veri Tazeliği Eşikleri (Saniye Cinsinden)
@@ -93,7 +100,7 @@ STALENESS_THRESHOLDS = {
     "weekly": 777600     # 9 gün
 }
 
-# Güven Çarpanları (Veri Kaynağı Kademesi)
+# Güven Çarpanları
 SOURCE_TIER_CONFIDENCE = {
     "primary": 1.0,
     "secondary": 0.7,
