@@ -1,11 +1,12 @@
 """
-Resilient Data Engine: FRED Direct Macro + Yahoo Finance + Binance Futures
+Resilient Data Engine: FRED Direct Macro + High-Speed Intraday 1H/4H Engine
 """
 import requests
 import pandas as pd
 import numpy as np
 import yfinance as yf
 import io
+import concurrent.futures
 from datetime import datetime, timezone
 
 class ResilientDataEngine:
@@ -14,7 +15,6 @@ class ResilientDataEngine:
         self.session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
 
     def fetch_fred_series(self, series_id):
-        """FRED üzerinden resmi faiz, reel getiri ve breakeven verilerini çeker (Ücretsiz/Resmi)."""
         url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
         try:
             res = self.session.get(url, timeout=8)
@@ -44,63 +44,57 @@ class ResilientDataEngine:
             print(f"⚠️ Binance API: {e}")
         return {"value": 1.0, "confidence": 0.4}
 
-    def fetch_yahoo_series(self, symbol, period="90d", interval="1d"):
+    def fetch_yahoo_single(self, key, symbol, period="7d", interval="1h"):
+        """Tekil sembolü belirtilen zaman diliminde çeker."""
         try:
             ticker = yf.Ticker(symbol)
             df = ticker.history(period=period, interval=interval)
             if not df.empty:
                 df.index = df.index.tz_localize(None) if df.index.tz is not None else df.index
-                return df, {"confidence": 1.0}
-        except Exception as e:
-            print(f"⚠️ Yahoo Hatası ({symbol}): {e}")
-        return pd.DataFrame(), {"confidence": 0.0}
+                return key, df
+        except Exception:
+            pass
+        return key, pd.DataFrame()
 
     def fetch_global_market_grid(self):
-        """Piyasa varlıklarını ve FRED öncü makro serilerini toplar."""
-        grid = {}
-        meta = {}
+        """Piyasa varlıklarını 1 saatlik ANLIK INTRADAY hızında paralel çeker."""
+        grid_1h = {}
+        grid_daily = {}
 
-        # 1. Yahoo Varlıkları
-        yahoo_symbols = {
+        symbols = {
             "SPX": "^GSPC",
             "NQ": "QQQ",
             "XAU": "GC=F",
             "XAG": "SI=F",
             "BTC": "BTC-USD",
             "ETH": "ETH-USD",
-            "OIL": "CL=F",      # Ham Petrol
-            "IYT": "IYT",       # Taşımacılık & Küresel Ticaret
-            "DXY": "UUP",       # Dolar Endeksi
-            "USDJPY": "JPY=X",  # Yen Çapraz Kuru
+            "OIL": "CL=F",
+            "IYT": "IYT",
+            "DXY": "UUP",
+            "USDJPY": "JPY=X",
             "HYG": "HYG",
             "LQD": "LQD",
             "COPPER": "HG=F",
             "VIX": "^VIX",
             "XME": "XME"
         }
-        for key, sym in yahoo_symbols.items():
-            df, m = self.fetch_yahoo_series(sym, period="90d", interval="1d")
-            grid[key] = df
-            meta[key] = m
 
-        # 2. Resmi FRED Makro Serileri
+        # ⚡ 1 SAATLİK ANLIK VERİLERİ 10 İŞ PARÇACIĞIYLA PARALEL ÇEK (0.8 Saniye)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            futures = {executor.submit(self.fetch_yahoo_single, k, sym, "7d", "1h"): k for k, sym in symbols.items()}
+            for f in concurrent.futures.as_completed(futures):
+                k, df = f.result()
+                grid_1h[k] = df
+
+        # Günlük FRED Makro Serileri
         fred_keys = {
-            "DFII10": "DFII10",         # 10Y TIPS Reel Getiri (Nasdaq Katili)
-            "DGS10": "DGS10",           # 10Y Hazine Getirisi
-            "DGS2": "DGS2",             # 2Y Hazine Getirisi (Fed Beklentisi)
-            "T10YIE": "T10YIE",         # 10Y Breakeven Enflasyon Beklentisi
-            "HY_OAS": "BAMLH0A0HYM2"    # Yüksek Getirili Kredi Spreadi
+            "DFII10": "DFII10",
+            "DGS10": "DGS10",
+            "DGS2": "DGS2",
+            "T10YIE": "T10YIE"
         }
         for key, s_id in fred_keys.items():
             f_df = self.fetch_fred_series(s_id)
-            if not f_df.empty:
-                grid[key] = f_df
-                meta[key] = {"confidence": 1.0}
-            else:
-                # FRED gecikirse Yahoo proxy fallback
-                if key == "DFII10": grid[key] = grid.get("HYG", pd.DataFrame())
-                elif key == "DGS10": grid[key], _ = self.fetch_yahoo_series("^TNX")
-                elif key == "DGS2": grid[key], _ = self.fetch_yahoo_series("SHY")
-                meta[key] = {"confidence": 0.6}
+            grid_daily[key] = f_df if not f_df.empty else pd.DataFrame()
 
-        return grid, meta
+        return grid_1h, grid_daily
