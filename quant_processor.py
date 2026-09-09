@@ -233,32 +233,42 @@ class RobustQuantProcessor:
         t = SIGNAL_THRESHOLDS
         prev = previous_signal if previous_signal else "NÖTR (BEKLE)"
 
+        # 1. GÜÇLÜ AL KONTROLÜ
         if prev == "GÜÇLÜ AL":
-            if current_score >= t.get("strong_buy_exit", 1.1):
+            if current_score >= t.get("strong_buy_exit", 1.0):
                 return "GÜÇLÜ AL", "green", "🟢🟢"
         else:
-            if current_score >= t.get("strong_buy_enter", 1.8) and bull_clusters >= min_clusters:
+            if current_score >= t.get("strong_buy_enter", 1.6) and bull_clusters >= min_clusters:
                 return "GÜÇLÜ AL", "green", "🟢🟢"
 
+        # 2. AL KONTROLÜ
         if prev in ["AL", "GÜÇLÜ AL"]:
-            if current_score >= t.get("buy_exit", 0.25):
+            if current_score >= t.get("buy_exit", 0.20):
                 return "AL", "lightgreen", "🟢"
         else:
-            if current_score >= t.get("buy_enter", 0.70):
+            if current_score >= t.get("buy_enter", 0.55):
+                return "AL", "lightgreen", "🟢"
+            # Küme mutlak çoğunluğu (>=3) ve pozitif ivme varsa AL teyidi
+            if bull_clusters >= 3 and current_score >= 0.45:
                 return "AL", "lightgreen", "🟢"
 
+        # 3. GÜÇLÜ SAT KONTROLÜ
         if prev == "GÜÇLÜ SAT":
-            if current_score <= t.get("strong_sell_exit", -1.1):
+            if current_score <= t.get("strong_sell_exit", -1.0):
                 return "GÜÇLÜ SAT", "darkred", "🔴🔴"
         else:
-            if current_score <= t.get("strong_sell_enter", -1.8) and bear_clusters >= min_clusters:
+            if current_score <= t.get("strong_sell_enter", -1.6) and bear_clusters >= min_clusters:
                 return "GÜÇLÜ SAT", "darkred", "🔴🔴"
 
+        # 4. SAT KONTROLÜ
         if prev in ["SAT", "GÜÇLÜ SAT"]:
-            if current_score <= t.get("sell_exit", -0.25):
+            if current_score <= t.get("sell_exit", -0.20):
                 return "SAT", "red", "🔴"
         else:
-            if current_score <= t.get("sell_enter", -0.70):
+            if current_score <= t.get("sell_enter", -0.55):
+                return "SAT", "red", "🔴"
+            # Küme mutlak çoğunluğu (>=3) ve negatif ivme varsa SAT teyidi
+            if bear_clusters >= 3 and current_score <= -0.45:
                 return "SAT", "red", "🔴"
 
         return "NÖTR (BEKLE)", "gray", "⚪"
