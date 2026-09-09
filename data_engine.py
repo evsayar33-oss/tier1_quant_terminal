@@ -1,5 +1,5 @@
 """
-Resilient Data Engine: Live High-Speed ETFs (No FRED Timeouts, Zero Zeroes!)
+Resilient Data Engine: 100% Live ETF Grid (Zero Timeouts, Zero Zeroes!)
 """
 import requests
 import pandas as pd
@@ -13,16 +13,15 @@ class ResilientDataEngine:
         self.session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
 
     def fetch_crypto_taker_flow(self, ccy="BTC"):
-        # 1. OKX Kurumsal Taker Hacmi
+        # 1. OKX Canlı Taker Hacmi
         okx_url = f"https://www.okx.com/api/v5/rubik/stat/taker-volume?ccy={ccy}&instType=CONTRACTS&period=1H"
         try:
             res = self.session.get(okx_url, timeout=5)
             if res.status_code == 200:
                 data = res.json().get("data", [])
                 if data and len(data) > 0:
-                    latest = data[-1]
-                    sell_vol = float(latest[1])
-                    buy_vol = float(latest[2])
+                    sell_vol = float(data[-1][1])
+                    buy_vol = float(data[-1][2])
                     return {"value": buy_vol / (sell_vol + 1e-9), "confidence": 1.0}
         except Exception:
             pass
@@ -56,28 +55,28 @@ class ResilientDataEngine:
     def fetch_global_market_grid(self):
         grid_1h = {}
 
-        # 🛡️ FRED YERİNE CANLI İŞLEM GÖREN RESMİ ETF'LER BAĞLANDI (SIFIR TIMEOUT!)
+        # 🛡️ TÜM GÖSTERGELER CANLI VE KESİNTİSİZ ETF'LERE BAĞLANDI (SIFIR ÇIKMAZ!)
         symbols = {
             "SPX": "SPY",       # S&P 500 ETF
             "NQ": "QQQ",        # Nasdaq 100 ETF
-            "XAU": "GC=F",      # Altın
-            "XAG": "SI=F",      # Gümüş
+            "XAU": "GC=F",      # Altın Vadeli
+            "XAG": "SI=F",      # Gümüş Vadeli
             "BTC": "BTC-USD",   # Bitcoin
             "ETH": "ETH-USD",   # Ethereum
-            "RSP": "RSP",       # Eşit Ağırlıklı S&P
-            "SMH": "SMH",       # Yarı İletken Çip ETF
+            "RSP": "RSP",       # S&P Eşit Ağırlıklı (Genişlik)
+            "SMH": "SMH",       # Yarı İletken Çip ETF (Nasdaq Motoru)
             "OIL": "CL=F",      # Ham Petrol
-            "IYT": "IYT",       # Taşımacılık / Ticaret
-            "DXY": "UUP",       # Dolar Endeksi
+            "IYT": "IYT",       # Taşımacılık / Küresel Ticaret
+            "DXY": "UUP",       # Dolar Endeksi ETF'si
             "USDJPY": "JPY=X",  # Yen Çapraz Kuru
-            "HYG": "HYG",       # Yüksek Getirili Şirket Tahvili
-            "LQD": "LQD",       # Sağlam Şirket Tahvili
+            "HYG": "HYG",       # Yüksek Getirili Şirket Tahvili (Kredi)
+            "LQD": "LQD",       # Yatırım Yapılabilir Şirket Tahvili
             "COPPER": "HG=F",   # Bakır
             "VIX": "^VIX",      # VIX
             "XME": "XME",       # Madencilik Hisseleri
-            "TIPS": "TIP",      # 🛡️ 10Y Reel Faiz ETF'si (DFII10 Yerine)
-            "SHY": "SHY",       # 🛡️ 1-3Y Kısa Hazine Tahvili (2Y Faiz Yerine)
-            "IEF": "IEF"        # 🛡️ 7-10Y Hazine Tahvili
+            "TIPS": "TIP",      # 🛡️ 10Y Reel Faiz ETF'si (Canlı!)
+            "IEF": "IEF",       # 🛡️ 7-10Y Hazine Tahvili ETF'si
+            "SHY": "SHY"        # 🛡️ 1-3Y Kısa Hazine Tahvili ETF'si
         }
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
