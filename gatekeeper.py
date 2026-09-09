@@ -1,5 +1,5 @@
 """
-Gatekeeper: Autonomous Market Direction Engine (Direct Buy/Sell Signals)
+Gatekeeper: Autonomous Market Direction & Real-Time Macro Shock Engine
 """
 import numpy as np
 import pandas as pd
@@ -15,25 +15,29 @@ class PreTradeGatekeeper:
         self.meta = {}
         self.crisis_active = False
         self.consecutive_breaches = 0
-        self.market_regime = "NEUTRAL"
+        self.market_regime = "MAKRO DENGE"
         self.current_vix = 15.0
         self.anomaly_score = 0.0
 
     def refresh_market(self):
         self.grid, self.meta = self.data_engine.fetch_global_market_grid()
         
-        spx_df = self.grid.get("SPX", pd.DataFrame())
-        self.market_regime = self.processor.detect_market_regime(spx_df)
-
         vix_df = self.grid.get("VIX", pd.DataFrame())
         self.current_vix = float(vix_df["Close"].iloc[-1]) if not vix_df.empty else 15.0
 
+        # Anlık Likidite, Kredi ve Faiz Z-Skorları (Fiyata değil, Paranın Kaynağına Bakar)
         z_vix = self.processor.compute_z_score(vix_df["Close"]) if not vix_df.empty else 0.0
         z_dxy = self.processor.compute_z_score(self.grid["DXY"]["Close"]) if not self.grid["DXY"].empty else 0.0
         z_rates = self.processor.compute_z_score(self.grid["TNX"]["Close"]) if not self.grid["TNX"].empty else 0.0
         z_credit = self.processor.compute_ratio_z(self.grid["HYG"], self.grid["LQD"])
+        z_copper_gold = self.processor.compute_ratio_z(self.grid["COPPER"], self.grid["XAU"])
 
-        if (z_vix > 2.0 and self.current_vix >= 20.0) or z_credit > 1.5:
+        # 🔥 GERÇEK ZAMANLI MAKRO ŞOK REJİMİ TESPİTİ (Ortalamasız!)
+        self.market_regime = self.processor.detect_realtime_macro_regime(
+            z_dxy, z_credit, z_rates, z_copper_gold, z_vix
+        )
+
+        if (z_vix > 2.0 and self.current_vix >= 20.0) or z_credit < -1.8:
             self.consecutive_breaches += 1
         else:
             self.consecutive_breaches = max(0, self.consecutive_breaches - 1)
@@ -43,17 +47,12 @@ class PreTradeGatekeeper:
         )
 
     def evaluate_asset_direction(self, asset_key):
-        """
-        Varlığı otonom olarak analiz eder ve doğrudan yön sinyali üretir:
-        GÜÇLÜ AL, AL, NÖTR, SAT, GÜÇLÜ SAT veya KRİZ-DUR
-        """
         if asset_key not in ASSET_MATRICES:
             return {"verdict": "HATA", "reason": "Bilinmeyen varlık"}
 
         matrix = ASSET_MATRICES[asset_key]
         factors = matrix["factors"]
 
-        # Kriz Kilidi
         if self.crisis_active and asset_key != "XAU":
             return {
                 "verdict": "KRİZ-DUR",
@@ -81,10 +80,8 @@ class PreTradeGatekeeper:
             raw_val = 0.0
             conf = 1.0
 
-            # 1. Ham Değerlerin Hesaplanması
             if f_id == "taker_ratio":
                 res = self.data_engine.fetch_binance_taker_ratio(matrix.get("binance_symbol", "BTCUSDT"))
-                # Taker oranı > 1.0 alıcı, < 1.0 satıcı
                 raw_val = (res["value"] - 1.0) * 8.0
                 conf = res["confidence"]
             elif "mom" in f_id:
@@ -92,11 +89,11 @@ class PreTradeGatekeeper:
                 raw_val = self.processor.compute_momentum_score(df)
                 conf = self.meta.get(asset_key, {}).get("confidence", 1.0)
             elif "credit" in f_id:
-                # HYG/LQD rasyosu artıyorsa kredi piyasası güçlüdür (Pozitif risk iştahı)
+                # HYG/LQD artışı = Kredi Güçlü (+1). Düşüşü = Kredi Baskısı (-1)
                 raw_val = self.processor.compute_ratio_z(self.grid["HYG"], self.grid["LQD"])
                 conf = self.meta.get("HYG", {}).get("confidence", 1.0)
+                base_sign = 1 # Düzeltildi: Kredi güçlüyse hisseye pozitif yansır!
             elif "vix" in f_id:
-                # VIX artıyorsa hisseler için negatif (ters işaretli)
                 raw_val = self.processor.compute_z_score(self.grid["VIX"]["Close"]) if not self.grid["VIX"].empty else 0.0
                 conf = self.meta.get("VIX", {}).get("confidence", 1.0)
             elif "copper_gold" in f_id:
@@ -112,7 +109,6 @@ class PreTradeGatekeeper:
                 raw_val = self.processor.compute_z_score(self.grid["VIX"]["Close"]) if not self.grid["VIX"].empty else 0.0
                 conf = 0.9
 
-            # Ağırlıklı Puan
             f_score = round(raw_val * base_sign * base_w * conf, 2)
             factor_scores.append(f_score)
             cluster_scores[cluster] += f_score
@@ -128,31 +124,19 @@ class PreTradeGatekeeper:
         total_score = float(np.sum(factor_scores))
         avg_confidence = float(np.mean(active_confidence)) if active_confidence else 1.0
 
-        # Küme Teyidi (Pozitif mi, Negatif mi?)
         bull_clusters = sum(1 for v in cluster_scores.values() if v > 0.3)
         bear_clusters = sum(1 for v in cluster_scores.values() if v < -0.3)
 
-        # 🎯 DOĞRUDAN SİNYAL ÜRETİMİ (GÜÇLÜ AL / AL / NÖTR / SAT / GÜÇLÜ SAT)
         if total_score >= 3.0 and bull_clusters >= 3:
-            verdict = "GÜÇLÜ AL"
-            color = "green"
-            icon = "🟢🟢"
+            verdict, color, icon = "GÜÇLÜ AL", "green", "🟢🟢"
         elif total_score >= 1.2:
-            verdict = "AL"
-            color = "lightgreen"
-            icon = "🟢"
+            verdict, color, icon = "AL", "lightgreen", "🟢"
         elif total_score <= -3.0 and bear_clusters >= 3:
-            verdict = "GÜÇLÜ SAT"
-            color = "darkred"
-            icon = "🔴🔴"
+            verdict, color, icon = "GÜÇLÜ SAT", "darkred", "🔴🔴"
         elif total_score <= -1.2:
-            verdict = "SAT"
-            color = "red"
-            icon = "🔴"
+            verdict, color, icon = "SAT", "red", "🔴"
         else:
-            verdict = "NÖTR (BEKLE)"
-            color = "gray"
-            icon = "⚪"
+            verdict, color, icon = "NÖTR (BEKLE)", "gray", "⚪"
 
         cluster_summary = f"{bull_clusters} Boğa / {bear_clusters} Ayı Kümesi"
 
