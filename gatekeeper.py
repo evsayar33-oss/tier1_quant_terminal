@@ -1,9 +1,9 @@
 """
-Gatekeeper: Autonomous Market Direction & Real-Time Macro Shock Engine
+Gatekeeper: Multi-Asset Leading Macro & Institutional Confirmation Engine
 """
 import numpy as np
 import pandas as pd
-from config import ASSET_MATRICES, CLUSTERS
+from config import ASSET_MATRICES, CLUSTERS, THRESHOLD_CLAMPS
 from data_engine import ResilientDataEngine
 from quant_processor import RobustQuantProcessor
 
@@ -25,16 +25,20 @@ class PreTradeGatekeeper:
         vix_df = self.grid.get("VIX", pd.DataFrame())
         self.current_vix = float(vix_df["Close"].iloc[-1]) if not vix_df.empty else 15.0
 
-        # Anlık Likidite, Kredi ve Faiz Z-Skorları (Fiyata değil, Paranın Kaynağına Bakar)
+        # Anlık Öncü Makro Değişkenler
         z_vix = self.processor.compute_z_score(vix_df["Close"]) if not vix_df.empty else 0.0
         z_dxy = self.processor.compute_z_score(self.grid["DXY"]["Close"]) if not self.grid["DXY"].empty else 0.0
         z_rates = self.processor.compute_z_score(self.grid["TNX"]["Close"]) if not self.grid["TNX"].empty else 0.0
         z_credit = self.processor.compute_ratio_z(self.grid["HYG"], self.grid["LQD"])
         z_copper_gold = self.processor.compute_ratio_z(self.grid["COPPER"], self.grid["XAU"])
+        
+        # 🛢️ Petrol/Taşımacılık ve 💴 Yen Carry Öncü Göstergeleri
+        self.stagflation_z = self.processor.compute_stagflation_shock(self.grid["OIL"], self.grid["IYT"])
+        self.yen_carry_z = self.processor.compute_yen_carry_shock(self.grid["USDJPY"])
 
-        # 🔥 GERÇEK ZAMANLI MAKRO ŞOK REJİMİ TESPİTİ (Ortalamasız!)
+        # 5 Boyutlu Makro Rejim Tespiti
         self.market_regime = self.processor.detect_realtime_macro_regime(
-            z_dxy, z_credit, z_rates, z_copper_gold, z_vix
+            z_dxy, z_credit, z_rates, z_copper_gold, z_vix, self.stagflation_z, self.yen_carry_z
         )
 
         if (z_vix > 2.0 and self.current_vix >= 20.0) or z_credit < -1.8:
@@ -57,6 +61,7 @@ class PreTradeGatekeeper:
             return {
                 "verdict": "KRİZ-DUR",
                 "color": "red",
+                "icon": "⛔",
                 "score": 0.0,
                 "cluster_agreement": "Kriz Sebebiyle Kapalı",
                 "confidence": 100.0,
@@ -67,7 +72,7 @@ class PreTradeGatekeeper:
             }
 
         factor_scores = []
-        cluster_scores = {"A": 0.0, "B": 0.0, "C": 0.0, "D": 0.0}
+        cluster_scores = {"A": 0.0, "B": 0.0, "C": 0.0, "D": 0.0, "E": 0.0}
         active_confidence = []
         details = []
 
@@ -80,6 +85,7 @@ class PreTradeGatekeeper:
             raw_val = 0.0
             conf = 1.0
 
+            # Öncü Gösterge Değer Atamaları
             if f_id == "taker_ratio":
                 res = self.data_engine.fetch_binance_taker_ratio(matrix.get("binance_symbol", "BTCUSDT"))
                 raw_val = (res["value"] - 1.0) * 8.0
@@ -88,24 +94,37 @@ class PreTradeGatekeeper:
                 df = self.grid.get(asset_key, pd.DataFrame())
                 raw_val = self.processor.compute_momentum_score(df)
                 conf = self.meta.get(asset_key, {}).get("confidence", 1.0)
-            elif "credit" in f_id:
-                # HYG/LQD artışı = Kredi Güçlü (+1). Düşüşü = Kredi Baskısı (-1)
+            elif f_id == "credit_spread":
                 raw_val = self.processor.compute_ratio_z(self.grid["HYG"], self.grid["LQD"])
                 conf = self.meta.get("HYG", {}).get("confidence", 1.0)
-                base_sign = 1 # Düzeltildi: Kredi güçlüyse hisseye pozitif yansır!
-            elif "vix" in f_id:
+            elif f_id == "stagflation_shock":
+                raw_val = self.stagflation_z # Petrol / Taşımacılık Rasyosu Z-skoru
+                conf = 1.0
+            elif f_id == "yen_carry":
+                raw_val = self.yen_carry_z # USD/JPY Carry İvmesi
+                conf = 1.0
+            elif f_id == "yield_curve":
+                raw_val = self.processor.compute_ratio_z(self.grid["TNX"], self.grid["SHY"])
+                conf = 1.0
+            elif f_id == "vix_strain":
                 raw_val = self.processor.compute_z_score(self.grid["VIX"]["Close"]) if not self.grid["VIX"].empty else 0.0
                 conf = self.meta.get("VIX", {}).get("confidence", 1.0)
-            elif "copper_gold" in f_id:
+            elif f_id == "copper_gold":
                 raw_val = self.processor.compute_ratio_z(self.grid["COPPER"], self.grid["XAU"])
                 conf = self.meta.get("COPPER", {}).get("confidence", 1.0)
-            elif "us10y" in f_id or "rates" in f_id:
+            elif f_id == "us10y_yield":
                 raw_val = self.processor.compute_z_score(self.grid["TNX"]["Close"]) if not self.grid["TNX"].empty else 0.0
                 conf = self.meta.get("TNX", {}).get("confidence", 1.0)
-            elif "dxy" in f_id:
+            elif f_id == "real_yield":
+                raw_val = self.processor.compute_z_score(self.grid["TIPS"]["Close"]) if not self.grid["TIPS"].empty else 0.0
+                conf = self.meta.get("TIPS", {}).get("confidence", 1.0)
+            elif f_id == "dxy_strain":
                 raw_val = self.processor.compute_z_score(self.grid["DXY"]["Close"]) if not self.grid["DXY"].empty else 0.0
                 conf = self.meta.get("DXY", {}).get("confidence", 1.0)
-            elif "safe_haven" in f_id:
+            elif f_id == "mining_beta":
+                raw_val = self.processor.compute_z_score(self.grid["XME"]["Close"]) if not self.grid["XME"].empty else 0.0
+                conf = self.meta.get("XME", {}).get("confidence", 1.0)
+            elif f_id == "safe_haven":
                 raw_val = self.processor.compute_z_score(self.grid["VIX"]["Close"]) if not self.grid["VIX"].empty else 0.0
                 conf = 0.9
 
@@ -127,6 +146,7 @@ class PreTradeGatekeeper:
         bull_clusters = sum(1 for v in cluster_scores.values() if v > 0.3)
         bear_clusters = sum(1 for v in cluster_scores.values() if v < -0.3)
 
+        # Karar Eşikleri
         if total_score >= 3.0 and bull_clusters >= 3:
             verdict, color, icon = "GÜÇLÜ AL", "green", "🟢🟢"
         elif total_score >= 1.2:
@@ -150,5 +170,7 @@ class PreTradeGatekeeper:
             "anomaly_score": round(self.anomaly_score, 2),
             "market_regime": self.market_regime,
             "current_vix": round(self.current_vix, 1),
+            "stagflation_z": round(self.stagflation_z, 2),
+            "yen_carry_z": round(self.yen_carry_z, 2),
             "details": details
         }
