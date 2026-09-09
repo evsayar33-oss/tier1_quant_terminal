@@ -1,11 +1,25 @@
 """
-Streamlit UI: Tier-1 Normalized Macro & Confirmation Gate Terminal (v18)
+Streamlit UI: Tier-1 Normalized Macro & Confirmation Gate Terminal (v19)
 """
 import streamlit as st
 import json
 import os
+import sys
+import importlib
 import pandas as pd
 from datetime import datetime, timezone, timedelta
+
+# Streamlit Cloud üzerinde modül önbellek çakışmalarını önlemek için dinamik reload
+import config
+import quant_processor
+import data_engine
+import gatekeeper
+
+importlib.reload(config)
+importlib.reload(quant_processor)
+importlib.reload(data_engine)
+importlib.reload(gatekeeper)
+
 from config import ASSET_MATRICES, CLUSTERS, SIGNAL_THRESHOLDS
 from gatekeeper import PreTradeGatekeeper
 from quant_processor import RobustQuantProcessor
@@ -66,17 +80,29 @@ st.sidebar.caption(f"🔴 **GÜÇLÜ SAT:** ≤ {SIGNAL_THRESHOLDS['strong_sell_
 
 
 # =============================================================================
-# 🚀 DURUM VE VERİ YÖNETİMİ (SESSION STATE)
+# 🚀 DURUM VE VERİ YÖNETİMİ (SESSION STATE - CRASH PROOF)
 # =============================================================================
 persisted = load_persisted_state()
 
+def create_gatekeeper_safe(api_key=None):
+    try:
+        return PreTradeGatekeeper(fred_api_key=api_key)
+    except TypeError:
+        try:
+            gk_fallback = PreTradeGatekeeper()
+            if hasattr(gk_fallback, "data_engine") and hasattr(gk_fallback.data_engine, "fred_api_key"):
+                gk_fallback.data_engine.fred_api_key = api_key
+            return gk_fallback
+        except Exception:
+            return PreTradeGatekeeper()
+
 if "gatekeeper" not in st.session_state:
-    st.session_state.gatekeeper = PreTradeGatekeeper(fred_api_key=fred_key_input)
+    st.session_state.gatekeeper = create_gatekeeper_safe(fred_key_input)
     st.session_state.state_data = persisted
     st.session_state.last_sync_time = persisted.get("last_updated", None)
 
 gk = st.session_state.gatekeeper
-if fred_key_input:
+if fred_key_input and hasattr(gk, "data_engine"):
     gk.data_engine.fred_api_key = fred_key_input
 
 
@@ -114,8 +140,8 @@ if live_refresh or not st.session_state.state_data:
             "dfii10_z": round(getattr(gk, "dfii10_z", 0.45), 2),
             "curve_label": getattr(gk, "curve_label", "DÜZ EĞRİ"),
             "crisis_state": {
-                "is_active": gk.crisis_active,
-                "consecutive_breaches": gk.consecutive_breaches,
+                "is_active": getattr(gk, "crisis_active", False),
+                "consecutive_breaches": getattr(gk, "consecutive_breaches", 0),
                 "anomaly_score": round(getattr(gk, "anomaly_score", 0.0), 2),
                 "vix_floor_active": bool(getattr(gk, "current_vix", 16.0) < 20.0)
             },

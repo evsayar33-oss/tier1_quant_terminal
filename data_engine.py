@@ -10,11 +10,13 @@ import os
 
 
 class ResilientDataEngine:
-    def __init__(self, fred_api_key=None):
+    def __init__(self, fred_api_key=None, *args, **kwargs):
         self.session = requests.Session()
         self.session.headers.update({
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         })
+        if not fred_api_key and "fred_api_key" in kwargs:
+            fred_api_key = kwargs["fred_api_key"]
         self.fred_api_key = fred_api_key or os.environ.get("FRED_API_KEY", "")
         self._cache = {}
 
@@ -28,7 +30,8 @@ class ResilientDataEngine:
                 if data and len(data) > 0:
                     sell_vol = float(data[-1][1])
                     buy_vol = float(data[-1][2])
-                    return {"value": buy_vol / (sell_vol + 1e-9), "confidence": 1.0}
+                    ratio = buy_vol / (sell_vol + 1e-9)
+                    return {"value": ratio, "confidence": 1.0}
         except Exception:
             pass
 
@@ -37,91 +40,81 @@ class ResilientDataEngine:
         try:
             res = self.session.get(bybit_url, timeout=4)
             if res.status_code == 200:
-                data = res.json().get("result", {}).get("list", [])
-                if data and len(data) > 0:
-                    buy_r = float(data[0].get("buyRatio", 0.5))
-                    sell_r = float(data[0].get("sellRatio", 0.5))
-                    return {"value": buy_r / (sell_r + 1e-9), "confidence": 0.9}
+                list_data = res.json().get("result", {}).get("list", [])
+                if list_data and len(list_data) > 0:
+                    buy_ratio = float(list_data[0].get("buyRatio", 0.5))
+                    sell_ratio = float(list_data[0].get("sellRatio", 0.5))
+                    ratio = buy_ratio / (sell_ratio + 1e-9)
+                    return {"value": ratio, "confidence": 0.85}
         except Exception:
             pass
 
         return {"value": 1.0, "confidence": 0.5}
 
-    def fetch_official_fred_data(self, series_id):
-        """Resmi FRED API üzerinden kesin veri çeker."""
-        if not self.fred_api_key:
-            return pd.DataFrame()
-        url = f"https://api.stlouisfed.org/fred/series/observations?series_id={series_id}&api_key={self.fred_api_key}&file_type=json&sort_order=desc&limit=40"
+    def fetch_single_ticker_1h(self, symbol, period="5d"):
         try:
-            res = self.session.get(url, timeout=6)
-            if res.status_code == 200:
-                obs = res.json().get("observations", [])
-                records = []
-                for item in obs:
-                    val_str = item.get("value", "")
-                    if val_str not in [".", "", None]:
-                        records.append({"Date": pd.to_datetime(item["date"]), "Close": float(val_str)})
-                if records:
-                    df = pd.DataFrame(records).sort_values("Date").set_index("Date")
-                    return df
-        except Exception as e:
-            print(f"⚠️ FRED API Hatası ({series_id}): {e}")
-        return pd.DataFrame()
-
-    def fetch_yahoo_single(self, key, symbol, period="7d", interval="1h"):
-        try:
-            ticker = yf.Ticker(symbol, session=self.session)
-            df = ticker.history(period=period, interval=interval, timeout=8)
+            df = yf.download(symbol, period=period, interval="1h", progress=False, timeout=6)
             if not df.empty:
-                df.index = df.index.tz_localize(None) if df.index.tz is not None else df.index
-                self._cache[key] = df
-                return key, df
+                if isinstance(df.columns, pd.MultiIndex):
+                    df.columns = [col[0] for col in df.columns]
+                clean_df = df[["Open", "High", "Low", "Close", "Volume"]].dropna()
+                self._cache[symbol] = clean_df
+                return symbol, clean_df
         except Exception:
             pass
 
-        # Hafızadaki son başarılı veriyi yedek olarak kullan
-        if key in self._cache and not self._cache[key].empty:
-            return key, self._cache[key]
-
-        return key, pd.DataFrame()
+        if symbol in self._cache:
+            return symbol, self._cache[symbol]
+        return symbol, pd.DataFrame()
 
     def fetch_global_market_grid(self):
-        grid_1h = {}
+        tickers = [
+            "SPY", "QQQ", "SMH", "RSP", "HYG", "LQD", "^VIX",
+            "USO", "IYT", "DX-Y.NYB", "TIP", "IEF", "USDJPY=X",
+            "GC=F", "SI=F", "HG=F", "BTC-USD", "ETH-USD"
+        ]
 
-        symbols = {
-            "SPX": "SPY",       # S&P 500 ETF
-            "NQ": "QQQ",        # Nasdaq 100 ETF
-            "XAU": "GC=F",      # Altın Vadeli
-            "XAG": "SI=F",      # Gümüş Vadeli
-            "BTC": "BTC-USD",   # Bitcoin
-            "ETH": "ETH-USD",   # Ethereum
-            "RSP": "RSP",       # S&P Eşit Ağırlıklı
-            "SMH": "SMH",       # Yarı İletken Çip ETF
-            "OIL": "CL=F",      # Ham Petrol
-            "IYT": "IYT",       # Taşımacılık / Küresel Ticaret
-            "DXY": "UUP",       # Dolar Endeksi ETF
-            "USDJPY": "JPY=X",  # Yen Çapraz Kuru
-            "HYG": "HYG",       # Yüksek Getirili Şirket Tahvili
-            "LQD": "LQD",       # Sağlam Şirket Tahvili
-            "COPPER": "HG=F",   # Bakır
-            "VIX": "^VIX",      # VIX
-            "XME": "XME",       # Madencilik Hisseleri
-            "TIPS": "TIP",      # 10Y Reel Faiz ETF
-            "IEF": "IEF",       # 7-10Y Hazine Tahvili ETF
-            "SHY": "SHY"        # 1-3Y Kısa Hazine Tahvili ETF
+        results = {}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+            futures = {executor.submit(self.fetch_single_ticker_1h, sym): sym for sym in tickers}
+            for fut in concurrent.futures.as_completed(futures):
+                sym, data = fut.result()
+                clean_key = sym.replace("^", "").replace("=X", "").replace("DX-Y.NYB", "DXY")
+                results[clean_key] = data
+
+        return results
+
+    def fetch_fred_macro_metrics(self):
+        metrics = {
+            "dfii10_z": 0.45,
+            "t10yie_z": 0.65,
+            "curve_label": "DÜZ EĞRİ"
         }
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-            futures = {executor.submit(self.fetch_yahoo_single, k, sym, "7d", "1h"): k for k, sym in symbols.items()}
-            for f in concurrent.futures.as_completed(futures):
-                k, df = f.result()
-                grid_1h[k] = df
+        if not self.fred_api_key:
+            return metrics
 
-        # Resmi FRED API Çağrıları
-        fred_keys = {"DFII10": "DFII10", "T10YIE": "T10YIE"}
-        for k, s_id in fred_keys.items():
-            f_df = self.fetch_official_fred_data(s_id)
-            if not f_df.empty:
-                grid_1h[k] = f_df
+        series_ids = ["DFII10", "T10YIE", "T10Y2Y"]
+        for s_id in series_ids:
+            url = f"https://api.stlouisfed.org/fred/series/observations?series_id={s_id}&api_key={self.fred_api_key}&file_type=json&sort_order=desc&limit=30"
+            try:
+                res = self.session.get(url, timeout=4)
+                if res.status_code == 200:
+                    obs = res.json().get("observations", [])
+                    vals = [float(o["value"]) for o in obs if o.get("value") not in [".", None, ""]]
+                    if len(vals) >= 2:
+                        cur = vals[0]
+                        mean = np.mean(vals)
+                        std = np.std(vals) + 1e-9
+                        z = float(np.clip((cur - mean) / std, -3.0, 3.0))
 
-        return grid_1h
+                        if s_id == "DFII10":
+                            metrics["dfii10_z"] = round(z, 2)
+                        elif s_id == "T10YIE":
+                            metrics["t10yie_z"] = round(z, 2)
+                        elif s_id == "T10Y2Y":
+                            metrics["curve_label"] = "YATIK EĞRİ" if cur < 0.0 else "DİKLEŞEN EĞRİ"
+            except Exception:
+                pass
+
+        return metrics
