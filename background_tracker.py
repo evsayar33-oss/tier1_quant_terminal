@@ -1,5 +1,5 @@
 """
-Tier-1 Quant Terminal - Headless Background Tracker (Direct Signals)
+Tier-1 Quant Terminal - Headless Background Tracker (Saving All Macro Radars & Yield Curve)
 """
 import os
 import json
@@ -24,7 +24,7 @@ def send_telegram_alert(message):
         print(f"⚠️ Telegram alert hatası: {e}")
 
 def run_background_cycle():
-    print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC] 🔄 Arka plan yön taraması başladı...")
+    print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC] 🔄 Arka plan kurumsal öncü tarama başladı...")
     
     state = {}
     if os.path.exists(STATE_FILE):
@@ -46,10 +46,15 @@ def run_background_cycle():
     for asset_key in ASSET_MATRICES.keys():
         verdicts[asset_key] = gk.evaluate_asset_direction(asset_key)
 
+    # 🎯 KÖK DİZİNE TÜM ÖNCÜ RADARLARIN GERÇEK DEĞERLERİ YAZILIYOR
     new_state = {
         "last_updated": datetime.now(timezone.utc).isoformat(),
         "market_regime": gk.market_regime,
         "current_vix": round(gk.current_vix, 1),
+        "stagflation_z": round(gk.stagflation_z, 2),
+        "yen_carry_z": round(gk.yen_carry_z, 2),
+        "dfii10_z": round(gk.dfii10_z, 2),
+        "curve_label": gk.curve_label,
         "crisis_state": {
             "is_active": gk.crisis_active,
             "consecutive_breaches": gk.consecutive_breaches,
@@ -67,7 +72,8 @@ def run_background_cycle():
         "anomaly_score": gk.anomaly_score,
         "current_vix": gk.current_vix,
         "crisis_active": gk.crisis_active,
-        "market_regime": gk.market_regime
+        "market_regime": gk.market_regime,
+        "dfii10_z": gk.dfii10_z
     }
     df_new = pd.DataFrame([history_row])
     if os.path.exists(HISTORY_FILE):
@@ -77,11 +83,11 @@ def run_background_cycle():
 
     if gk.crisis_active and not prev_crisis:
         msg = "🚨 <b>ACİL DURUM: SİSTEMİK KRİZ KİLİDİ DEVREYE GİRDİ!</b>\n"
-        msg += f"⚠️ Kredi ve Volatilite Anomalisi: <b>{gk.anomaly_score:.2f}</b> (VIX: {gk.current_vix:.1f})\n"
+        msg += f"⚠️ Anomali: <b>{gk.anomaly_score:.2f}</b> (VIX: {gk.current_vix:.1f} | DFII10: {gk.dfii10_z:.2f}σ)\n"
         msg += "🛑 <i>Tüm piyasalarda yeni işlem açılışları DURDURULDU!</i>"
         send_telegram_alert(msg)
 
-    print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC] ✅ Yön taraması tamamlandı. (Rejim: {gk.market_regime})")
+    print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC] ✅ Tarama bitti. Rejim: {gk.market_regime} | DFII10: {gk.dfii10_z:+.2f}σ")
 
 if __name__ == "__main__":
     run_background_cycle()
