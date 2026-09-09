@@ -1,5 +1,5 @@
 """
-Tier-1 Quant Terminal - Headless Background Tracker & Crisis Monitor
+Tier-1 Quant Terminal - Headless Background Tracker (Reinforced v4)
 """
 import os
 import json
@@ -24,9 +24,8 @@ def send_telegram_alert(message):
         print(f"⚠️ Telegram alert hatası: {e}")
 
 def run_background_cycle():
-    print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC] 🔄 Arka plan takip döngüsü başladı...")
+    print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC] 🔄 Arka plan döngüsü başladı...")
     
-    # 1. Mevcut state'i yükle
     state = {}
     if os.path.exists(STATE_FILE):
         try:
@@ -38,34 +37,26 @@ def run_background_cycle():
     prev_crisis = state.get("crisis_state", {}).get("is_active", False)
     prev_breaches = state.get("crisis_state", {}).get("consecutive_breaches", 0)
 
-    # 2. Gatekeeper'ı başlat ve verileri tazele
     gk = PreTradeGatekeeper()
     gk.crisis_active = prev_crisis
     gk.consecutive_breaches = prev_breaches
     gk.refresh_market()
 
-    # 3. Tüm varlıklar için LONG ve SHORT onay durumlarını hesapla
     verdicts = {}
     for asset_key in ASSET_MATRICES.keys():
         eval_long = gk.evaluate_asset_gate(asset_key, "LONG")
         eval_short = gk.evaluate_asset_gate(asset_key, "SHORT")
-        verdicts[asset_key] = {
-            "LONG": eval_long,
-            "SHORT": eval_short
-        }
+        verdicts[asset_key] = {"LONG": eval_long, "SHORT": eval_short}
 
-    # 4. State'i güncelle
     new_state = {
         "last_updated": datetime.now(timezone.utc).isoformat(),
+        "market_regime": gk.market_regime,
+        "current_vix": round(gk.current_vix, 1),
         "crisis_state": {
             "is_active": gk.crisis_active,
             "consecutive_breaches": gk.consecutive_breaches,
             "anomaly_score": round(gk.anomaly_score, 2),
-            "last_crisis_trigger": datetime.now(timezone.utc).isoformat() if gk.crisis_active else state.get("crisis_state", {}).get("last_crisis_trigger")
-        },
-        "market_summary": {
-            "anomaly_score": round(gk.anomaly_score, 2),
-            "consecutive_breaches": gk.consecutive_breaches
+            "vix_floor_active": bool(gk.current_vix < 20.0)
         },
         "asset_verdicts": verdicts
     }
@@ -73,12 +64,12 @@ def run_background_cycle():
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(new_state, f, ensure_ascii=False, indent=2)
 
-    # 5. Tarihsel log kaydı (terminal_history.csv)
     history_row = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "anomaly_score": gk.anomaly_score,
+        "current_vix": gk.current_vix,
         "crisis_active": gk.crisis_active,
-        "consecutive_breaches": gk.consecutive_breaches
+        "market_regime": gk.market_regime
     }
     df_new = pd.DataFrame([history_row])
     if os.path.exists(HISTORY_FILE):
@@ -86,10 +77,9 @@ def run_background_cycle():
     else:
         df_new.to_csv(HISTORY_FILE, mode="w", header=True, index=False)
 
-    # 6. KRİZ ALARMI: Eğer kriz durumu yeni devreye girdiyse Telegram'a ACİL bildirim at
     if gk.crisis_active and not prev_crisis:
         msg = "🚨 <b>ACİL DURUM: SİSTEMİK KRİZ KİLİDİ DEVREYE GİRDİ!</b>\n"
-        msg += f"⚠️ Kredi ve Volatilite Anomalisi: <b>{gk.anomaly_score:.2f}</b>\n"
+        msg += f"⚠️ Kredi ve Volatilite Anomalisi: <b>{gk.anomaly_score:.2f}</b> (VIX: {gk.current_vix:.1f})\n"
         msg += "🛑 <i>Tüm piyasalarda yeni işlem açılışları onay kapısı tarafından DURDURULDU!</i>"
         send_telegram_alert(msg)
     elif not gk.crisis_active and prev_crisis:
@@ -97,7 +87,7 @@ def run_background_cycle():
         msg += "🟢 <i>Temel onay kapısı normal doğrulama moduna geçti.</i>"
         send_telegram_alert(msg)
 
-    print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC] ✅ State başarıyla kaydedildi. (Kriz: {gk.crisis_active})")
+    print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC] ✅ Döngü tamamlandı. (Rejim: {gk.market_regime} | VIX: {gk.current_vix:.1f} | Kriz: {gk.crisis_active})")
 
 if __name__ == "__main__":
     run_background_cycle()
