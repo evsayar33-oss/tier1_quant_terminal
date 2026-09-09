@@ -125,10 +125,11 @@ if live_refresh or not st.session_state.state_data:
         prev_verdicts = st.session_state.state_data.get("asset_verdicts", {})
         gk.refresh_market()
 
-        verdicts = {}
-        for k in ASSET_MATRICES.keys():
-            prev_sig = prev_verdicts.get(k, {}).get("verdict", "NÖTR (BEKLE)")
-            verdicts[k] = gk.evaluate_asset_direction(k, previous_signal=prev_sig)
+        prev_map = {k: prev_verdicts.get(k, {}).get("verdict", "NÖTR (BEKLE)") for k in ASSET_MATRICES.keys()}
+        if hasattr(gk, "evaluate_all_assets_harmonized"):
+            verdicts = gk.evaluate_all_assets_harmonized(prev_map)
+        else:
+            verdicts = {k: gk.evaluate_asset_direction(k, previous_signal=prev_map[k]) for k in ASSET_MATRICES.keys()}
 
         current_time_iso = datetime.now(timezone.utc).isoformat()
         new_state = {

@@ -208,3 +208,48 @@ class PreTradeGatekeeper:
             "session_status": session_status,
             "details": details
         }
+
+    def evaluate_all_assets_harmonized(self, previous_signals=None):
+        """
+        Tüm varlıkları değerlendirir ve korelasyonu yüksek ikiz varlıklar (SPX-NQ, XAU-XAG, BTC-ETH)
+        arasında 0.30 puandan az fark varken birinin AL/SAT diğerinin NÖTR kalmasını engelleyerek
+        kurumsal konsensüs sağlar.
+        """
+        if previous_signals is None:
+            previous_signals = {}
+        verdicts = {}
+        for k in ASSET_MATRICES.keys():
+            prev = previous_signals.get(k, "NÖTR (BEKLE)")
+            verdicts[k] = self.evaluate_asset_direction(k, previous_signal=prev)
+
+        # 🤝 İKİZ VARLIK ÇAPRAZ KORELASYON SENKRONİZASYONU
+        twin_pairs = [("SPX", "NQ"), ("XAU", "XAG"), ("BTC", "ETH")]
+        for a1, a2 in twin_pairs:
+            v1 = verdicts.get(a1)
+            v2 = verdicts.get(a2)
+            if not v1 or not v2:
+                continue
+            sc1 = float(v1.get("score", 0.0))
+            sc2 = float(v2.get("score", 0.0))
+            diff = abs(sc1 - sc2)
+
+            # Eğer iki ikiz varlık arasındaki puan farkı 0.35 veya daha azsa:
+            if diff <= 0.35:
+                # Negatif Bölge: İkisi de negatif ve en az biri SAT ise ikisi de SAT olur
+                if sc1 <= -0.40 and sc2 <= -0.40:
+                    if "SAT" in v1["verdict"] or "SAT" in v2["verdict"]:
+                        for v in (v1, v2):
+                            if "GÜÇLÜ SAT" not in v["verdict"]:
+                                v["verdict"] = "SAT"
+                                v["icon"] = "🔴"
+                                v["color"] = "red"
+                # Pozitif Bölge: İkisi de pozitif ve en az biri AL ise ikisi de AL olur
+                elif sc1 >= 0.40 and sc2 >= 0.40:
+                    if "AL" in v1["verdict"] or "AL" in v2["verdict"]:
+                        for v in (v1, v2):
+                            if "GÜÇLÜ AL" not in v["verdict"]:
+                                v["verdict"] = "AL"
+                                v["icon"] = "🟢"
+                                v["color"] = "lightgreen"
+
+        return verdicts

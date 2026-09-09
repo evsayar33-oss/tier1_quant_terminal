@@ -45,10 +45,11 @@ def run_background_cycle():
     gk.consecutive_breaches = prev_breaches
     gk.refresh_market()
 
-    verdicts = {}
-    for asset_key in ASSET_MATRICES.keys():
-        prev_sig = prev_verdicts.get(asset_key, {}).get("verdict", "NÖTR (BEKLE)")
-        verdicts[asset_key] = gk.evaluate_asset_direction(asset_key, previous_signal=prev_sig)
+    prev_map = {k: prev_verdicts.get(k, {}).get("verdict", "NÖTR (BEKLE)") for k in ASSET_MATRICES.keys()}
+    if hasattr(gk, "evaluate_all_assets_harmonized"):
+        verdicts = gk.evaluate_all_assets_harmonized(prev_map)
+    else:
+        verdicts = {k: gk.evaluate_asset_direction(k, previous_signal=prev_map[k]) for k in ASSET_MATRICES.keys()}
 
     new_state = {
         "last_updated": datetime.now(timezone.utc).isoformat(),
