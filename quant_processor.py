@@ -1,53 +1,23 @@
 """
-Robust Quant Processor: Whipsaw-Proof Hysteresis & Crash-Proof Imports (v11)
+Robust Quant Processor: Whipsaw-Proof Hysteresis, Breadth & GSR Calculations (v12)
 """
 import numpy as np
 import pandas as pd
 from datetime import datetime, timezone
 
-# 🛡️ ÇÖKMEYE KARŞI KORUMALI İMPORT (Config eksik kalsa bile ASLA çökmez!)
 try:
-    from config import CRISIS_CONFIG
+    from config import CRISIS_CONFIG, SIGNAL_THRESHOLDS, ASSET_CLOCKS, CATALYST_WINDOWS_UTC
 except Exception:
     CRISIS_CONFIG = {"upper_threshold": 2.2, "lower_threshold": 1.5, "enter_consecutive_bars": 3, "vix_spike_threshold": 2.5, "vix_absolute_floor": 20.0}
-
-try:
-    from config import SIGNAL_THRESHOLDS
-except Exception:
-    SIGNAL_THRESHOLDS = {
-        "strong_buy_enter": 2.6, "strong_buy_exit": 1.8,
-        "buy_enter": 1.2, "buy_exit": 0.5,
-        "strong_sell_enter": -2.6, "strong_sell_exit": -1.8,
-        "sell_enter": -1.2, "sell_exit": -0.5
-    }
-
-try:
-    from config import ASSET_CLOCKS
-except Exception:
-    ASSET_CLOCKS = {
-        "SPX": {"market": "US_EQUITY", "open_utc": 13.5, "close_utc": 20.0, "days": [0, 1, 2, 3, 4]},
-        "NQ":  {"market": "US_EQUITY", "open_utc": 13.5, "close_utc": 20.0, "days": [0, 1, 2, 3, 4]},
-        "XAU": {"market": "METALS",    "open_utc": 7.0,  "close_utc": 21.0, "days": [0, 1, 2, 3, 4]},
-        "XAG": {"market": "METALS",    "open_utc": 7.0,  "close_utc": 21.0, "days": [0, 1, 2, 3, 4]},
-        "BTC": {"market": "CRYPTO",    "open_utc": 0.0,  "close_utc": 24.0, "days": [0, 1, 2, 3, 4, 5, 6]},
-        "ETH": {"market": "CRYPTO",    "open_utc": 0.0,  "close_utc": 24.0, "days": [0, 1, 2, 3, 4, 5, 6]}
-    }
-
-try:
-    from config import CATALYST_WINDOWS_UTC
-except Exception:
-    CATALYST_WINDOWS_UTC = [
-        {"start": 12.5, "end": 13.5, "desc": "ABD Makro Veri Saati (TÜFE/İstihdam)"},
-        {"start": 18.0, "end": 19.5, "desc": "Fed / FOMC Karar Saati"}
-    ]
+    SIGNAL_THRESHOLDS = {"strong_buy_enter": 2.6, "strong_buy_exit": 1.8, "buy_enter": 1.2, "buy_exit": 0.5, "strong_sell_enter": -2.6, "strong_sell_exit": -1.8, "sell_enter": -1.2, "sell_exit": -0.5}
+    ASSET_CLOCKS = {}
+    CATALYST_WINDOWS_UTC = []
 
 class RobustQuantProcessor:
     @staticmethod
     def get_asset_session_status(asset_key):
         clock = ASSET_CLOCKS.get(asset_key, {})
-        if not clock:
-            return "CANLI", 1.0
-
+        if not clock: return "CANLI", 1.0
         now = datetime.now(timezone.utc)
         current_hour = now.hour + (now.minute / 60.0)
         current_day = now.weekday()
@@ -73,7 +43,6 @@ class RobustQuantProcessor:
         now = datetime.now(timezone.utc)
         current_hour = now.hour + (now.minute / 60.0)
         current_day = now.weekday()
-
         if current_day in [0, 1, 2, 3, 4]:
             for w in CATALYST_WINDOWS_UTC:
                 if w["start"] <= current_hour <= w["end"]:
@@ -82,44 +51,62 @@ class RobustQuantProcessor:
 
     @staticmethod
     def compute_intraday_direction_momentum(df_1h, fast_window=4, slow_window=24):
-        if df_1h.empty or len(df_1h) < 2:
-            return 0.0
+        if df_1h.empty or len(df_1h) < 2: return 0.0
         close = df_1h["Close"]
         w_fast = min(fast_window, len(close) - 1)
         roc_4h = ((close.iloc[-1] - close.iloc[-w_fast - 1]) / (close.iloc[-w_fast - 1] + 1e-9)) * 100.0
         w_slow = min(slow_window, len(close) - 1)
         roc_24h = ((close.iloc[-1] - close.iloc[-w_slow - 1]) / (close.iloc[-w_slow - 1] + 1e-9)) * 100.0
-
         blended = (roc_4h * 1.2) + (roc_24h * 0.4)
         return float(np.clip(blended * 1.2, -3.5, 3.5))
 
     @staticmethod
     def compute_asset_volume_liquidity_flow(df_1h, window=24):
-        if df_1h.empty or len(df_1h) < 4 or "Volume" not in df_1h.columns:
-            return 0.0
+        if df_1h.empty or len(df_1h) < 4 or "Volume" not in df_1h.columns: return 0.0
         close = df_1h["Close"]
         high = df_1h["High"]
         low = df_1h["Low"]
         vol = df_1h["Volume"]
-
         range_span = high.iloc[-1] - low.iloc[-1]
         clv = ((close.iloc[-1] - low.iloc[-1]) - (high.iloc[-1] - close.iloc[-1])) / (range_span + 1e-9)
-
         w = min(window, len(vol) - 1)
         mean_vol = vol.tail(w).mean() + 1e-9
         rvol = vol.iloc[-1] / mean_vol
-
-        flow_score = clv * min(max(rvol, 0.5), 3.0) * 2.0
-        return float(np.clip(flow_score, -3.0, 3.0))
+        return float(np.clip(clv * min(max(rvol, 0.5), 3.0) * 2.0, -3.0, 3.0))
 
     @staticmethod
     def compute_usd_strength_impulse(dxy_df_1h, window=4):
-        if dxy_df_1h.empty or len(dxy_df_1h) < 2:
-            return 0.0
+        if dxy_df_1h.empty or len(dxy_df_1h) < 2: return 0.0
         close = dxy_df_1h["Close"]
         w = min(window, len(close) - 1)
         roc_4h = ((close.iloc[-1] - close.iloc[-w - 1]) / (close.iloc[-w - 1] + 1e-9)) * 100.0
         return float(np.clip(roc_4h * 5.0, -3.0, 3.0))
+
+    @staticmethod
+    def compute_market_breadth(rsp_df, spy_df, window=24):
+        """🏛️ S&P 500 PİYASA GENİŞLİĞİ: RSP / SPY Rasyosu"""
+        if rsp_df.empty or spy_df.empty: return 0.0
+        s1 = rsp_df["Close"]
+        s2 = spy_df["Close"]
+        aligned = pd.concat([s1, s2], axis=1, join="inner").dropna()
+        if len(aligned) < 2: return 0.0
+        ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
+        w = min(window, len(ratio) - 1)
+        roc = ((ratio.iloc[-1] - ratio.iloc[-w - 1]) / (ratio.iloc[-w - 1] + 1e-9)) * 100.0
+        return float(np.clip(roc * 4.0, -3.0, 3.0))
+
+    @staticmethod
+    def compute_gsr_velocity(xau_df, xag_df, window=24):
+        """🪙 ALTIN / GÜMÜŞ RASYOSU İVMESİ (GSR)"""
+        if xau_df.empty or xag_df.empty: return 0.0
+        s1 = xau_df["Close"]
+        s2 = xag_df["Close"]
+        aligned = pd.concat([s1, s2], axis=1, join="inner").dropna()
+        if len(aligned) < 2: return 0.0
+        ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
+        w = min(window, len(ratio) - 1)
+        roc = ((ratio.iloc[-1] - ratio.iloc[-w - 1]) / (ratio.iloc[-w - 1] + 1e-9)) * 100.0
+        return float(np.clip(roc * 4.0, -3.0, 3.0))
 
     @staticmethod
     def resolve_signal_with_hysteresis(current_score, previous_signal="NÖTR (BEKLE)", bull_clusters=0, bear_clusters=0):
