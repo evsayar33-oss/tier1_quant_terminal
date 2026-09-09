@@ -1,9 +1,9 @@
 """
-Gatekeeper: Multi-Asset Leading Macro & Institutional Confirmation Engine (Zero Attribute Errors)
+Gatekeeper: Multi-Asset Leading Macro & Institutional Confirmation Engine (Clean Imports)
 """
 import numpy as np
 import pandas as pd
-from config import ASSET_MATRICES, CLUSTERS, THRESHOLD_CLAMPS
+from config import ASSET_MATRICES, CLUSTERS
 from data_engine import ResilientDataEngine
 from quant_processor import RobustQuantProcessor
 
@@ -38,7 +38,7 @@ class PreTradeGatekeeper:
         self.stagflation_z = self.processor.compute_stagflation_shock(self.grid_1h.get("OIL", pd.DataFrame()), self.grid_1h.get("IYT", pd.DataFrame()))
         self.yen_carry_z = self.processor.compute_yen_carry_shock(self.grid_1h.get("USDJPY", pd.DataFrame()))
 
-        # FRED Reel Getiri & Getiri Eğrisi
+        # FRED Reel Getiri
         dfii10_df = self.grid_daily.get("DFII10", pd.DataFrame())
         self.dfii10_z = self.processor.compute_z_score(dfii10_df["Close"]) if not dfii10_df.empty else 0.0
         self.curve_label = "NÖTR EĞRİ"
@@ -102,7 +102,7 @@ class PreTradeGatekeeper:
                 effective_sign = 1
             elif f_id == "dxy_strain":
                 raw_val = self.dxy_velocity
-                effective_sign = -1 # Dolar artarsa borsa eksi yer
+                effective_sign = -1
             elif f_id == "stagflation_shock":
                 raw_val = self.stagflation_z
                 effective_sign = 1 if asset_key in ["XAU", "XAG"] else -1
