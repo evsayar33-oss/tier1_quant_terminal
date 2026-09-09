@@ -1,5 +1,5 @@
 """
-Resilient Data Engine: 100% Live ETF Grid (Zero Timeouts, Zero Zeroes!)
+Resilient Data Engine: 100% Live ETF Grid + OKX/Bybit Crypto (Zero Zeroes!)
 """
 import requests
 import pandas as pd
@@ -13,7 +13,7 @@ class ResilientDataEngine:
         self.session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
 
     def fetch_crypto_taker_flow(self, ccy="BTC"):
-        # 1. OKX Canlı Taker Hacmi
+        # 1. OKX Kurumsal Taker Hacmi
         okx_url = f"https://www.okx.com/api/v5/rubik/stat/taker-volume?ccy={ccy}&instType=CONTRACTS&period=1H"
         try:
             res = self.session.get(okx_url, timeout=5)
@@ -55,7 +55,7 @@ class ResilientDataEngine:
     def fetch_global_market_grid(self):
         grid_1h = {}
 
-        # 🛡️ TÜM GÖSTERGELER CANLI VE KESİNTİSİZ ETF'LERE BAĞLANDI (SIFIR ÇIKMAZ!)
+        # 🛡️ FRED TAMAMEN ÇÖPE ATILDI! CANLI RESMİ ETF'LER BAĞLANDI (SIFIR ÇIKMAZ!)
         symbols = {
             "SPX": "SPY",       # S&P 500 ETF
             "NQ": "QQQ",        # Nasdaq 100 ETF
@@ -63,20 +63,20 @@ class ResilientDataEngine:
             "XAG": "SI=F",      # Gümüş Vadeli
             "BTC": "BTC-USD",   # Bitcoin
             "ETH": "ETH-USD",   # Ethereum
-            "RSP": "RSP",       # S&P Eşit Ağırlıklı (Genişlik)
-            "SMH": "SMH",       # Yarı İletken Çip ETF (Nasdaq Motoru)
+            "RSP": "RSP",       # S&P Eşit Ağırlıklı (Piyasa Genişliği)
+            "SMH": "SMH",       # Yarı İletken Çip ETF (Tech Motoru)
             "OIL": "CL=F",      # Ham Petrol
             "IYT": "IYT",       # Taşımacılık / Küresel Ticaret
-            "DXY": "UUP",       # Dolar Endeksi ETF'si
+            "DXY": "UUP",       # Dolar Endeksi ETF
             "USDJPY": "JPY=X",  # Yen Çapraz Kuru
             "HYG": "HYG",       # Yüksek Getirili Şirket Tahvili (Kredi)
-            "LQD": "LQD",       # Yatırım Yapılabilir Şirket Tahvili
+            "LQD": "LQD",       # Sağlam Şirket Tahvili
             "COPPER": "HG=F",   # Bakır
             "VIX": "^VIX",      # VIX
             "XME": "XME",       # Madencilik Hisseleri
-            "TIPS": "TIP",      # 🛡️ 10Y Reel Faiz ETF'si (Canlı!)
-            "IEF": "IEF",       # 🛡️ 7-10Y Hazine Tahvili ETF'si
-            "SHY": "SHY"        # 🛡️ 1-3Y Kısa Hazine Tahvili ETF'si
+            "TIPS": "TIP",      # 🛡️ 10Y Reel Faiz ETF (Canlı!)
+            "IEF": "IEF",       # 🛡️ 7-10Y Hazine Tahvili ETF
+            "SHY": "SHY"        # 🛡️ 1-3Y Kısa Hazine Tahvili ETF
         }
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
