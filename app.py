@@ -1,5 +1,5 @@
 """
-Streamlit UI: Tier-1 3-Pillar & Whipsaw-Protected Terminal (v10)
+Streamlit UI: Tier-1 Normalized Macro & Confirmation Gate Terminal (v18)
 """
 import streamlit as st
 import json
@@ -9,7 +9,7 @@ from datetime import datetime, timezone, timedelta
 from config import ASSET_MATRICES
 from gatekeeper import PreTradeGatekeeper
 
-st.set_page_config(page_title="Tier-1 Histerezis Korumalı Terminal", layout="wide", page_icon="🧭")
+st.set_page_config(page_title="Tier-1 Kurumsal Yön Terminali", layout="wide", page_icon="🧭")
 
 STATE_FILE = "terminal_state.json"
 
@@ -17,43 +17,29 @@ def get_now_tsi_str():
     now_tsi = datetime.now(timezone.utc) + timedelta(hours=3)
     return now_tsi.strftime("%H:%M:%S TSİ")
 
-def load_background_state():
-    if os.path.exists(STATE_FILE):
-        try:
-            with open(STATE_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {}
+# Yan Panel: FRED API Key Girişi (İsteğe Bağlı)
+st.sidebar.header("🔑 Veri Servisleri")
+fred_key_input = st.sidebar.text_input("FRED API Key (İsteğe Bağlı):", type="password", help="St. Louis Fed resmi API anahtarınız varsa buraya yapıştırabilirsiniz.")
 
-bg_state = load_background_state()
-
-st.title("🧭 Tier-1 Titreşimsiz Piyasa Yön Terminali")
-st.caption("3 Standart Sütun (Yön + Likidite Akışı + USD Gücü) & Histerezis Ölü Bant Koruması")
+st.title("🧭 Tier-1 Öncü Makro Şok & Piyasa Yön Terminali")
+st.caption("Barra Normalizasyonlu, Çift Çekirdekli ve Histerezis Korumalı Kurumsal Risk Kapısı")
 
 col_head1, col_head2 = st.columns([3, 1])
 with col_head2:
     live_refresh = st.button("⚡ Canlı Verileri Yenile", use_container_width=True)
 
-gk = PreTradeGatekeeper()
+# Motoru Çalıştır
+gk = PreTradeGatekeeper(fred_api_key=fred_key_input)
 gk.refresh_market()
 
-# Önceki sinyalleri hafızadan alarak titreşimi süz
-prev_verdicts = bg_state.get("asset_verdicts", {})
 verdicts = {}
 for k in ASSET_MATRICES.keys():
-    prev_sig = prev_verdicts.get(k, {}).get("verdict", "NÖTR (BEKLE)")
-    verdicts[k] = gk.evaluate_asset_direction(k, previous_signal=prev_sig)
+    verdicts[k] = gk.evaluate_asset_direction(k)
 
 regime = getattr(gk, "market_regime", "MAKRO DENGE")
 vix_val = getattr(gk, "current_vix", 16.0)
 stagflation_z = getattr(gk, "stagflation_z", 0.0)
 yen_carry_z = getattr(gk, "yen_carry_z", 0.0)
-is_event_active = getattr(gk, "is_event_active", False)
-event_desc = getattr(gk, "event_desc", "Sakin Veri Dönemi")
-
-if is_event_active:
-    st.error(f"⚠️ **DİKKAT: HABER PENCERESİ!** ── `{event_desc}` saati içerisindesiniz.")
 
 # =============================================================================
 # 📡 1. GÜNÜN ÖNCÜ MAKRO RADARLARI
@@ -76,9 +62,9 @@ with r4:
 st.divider()
 
 # =============================================================================
-# 📊 2. TÜM VARLIKLARIN CANLI SİNYAL TABLOSU
+# 📊 2. TÜM VARLIKLARIN CANLI SİNYAL TABLOSU (NORMALİZE EDİLMİŞ)
 # =============================================================================
-st.subheader("📊 Varlıklar Canlı Sinyal Tablosu (Titreşimsiz Histerezis Modu)")
+st.subheader("📊 Varlıklar Canlı Sinyal Tablosu (Normalleştirilmiş Aralık: [-3.5, +3.5])")
 
 summary_rows = []
 for k, data in verdicts.items():
@@ -86,7 +72,7 @@ for k, data in verdicts.items():
         "Varlık": k,
         "Ad": ASSET_MATRICES[k]["name"],
         "Sinyal": f"{data.get('icon', '')} {data.get('verdict', 'NÖTR')}",
-        "Net Skor": f"{data.get('score', 0.0):+.2f}",
+        "Normal Skor": f"{data.get('score', 0.0):+.2f}",
         "Seans": data.get("session_status", "CANLI"),
         "Küme Durumu": data.get("cluster_agreement", "-")
     })
@@ -97,9 +83,9 @@ st.dataframe(df_summary, use_container_width=True, hide_index=True)
 st.divider()
 
 # =============================================================================
-# 🔍 3. TEKİL VARLIK DETAYI (3 SÜTUN DAĞILIMI)
+# 🔍 3. TEKİL VARLIK VE FAKTÖR DAĞILIMI
 # =============================================================================
-st.subheader("🔍 Varlık 3 Temel Sütun & Faktör Dağılımı")
+st.subheader("🔍 Varlık Detay Analizi")
 
 selected_asset = st.selectbox(
     "Detayını İncelemek İstediğiniz Varlık:",
@@ -123,17 +109,17 @@ elif "SAT" in verdict:
 elif "KRİZ" in verdict:
     st.error(f"### ⛔ {selected_asset} ── {verdict} (Piyasa Kilitli)")
 else:
-    st.info(f"### {icon} {selected_asset} ── {verdict} (Denge / Yönsüz Ölü Bant)")
+    st.info(f"### {icon} {selected_asset} ── {verdict} (Denge / Yönsüz)")
 
 st.caption(f"🕒 Seans: **{res.get('session_status', 'CANLI')}** | Son Canlı Tarama: **{get_now_tsi_str()}**")
 
 details = res.get("details", [])
 if details:
-    with st.expander(f"📋 {selected_asset} 3 Sütun ve Faktör Puanları"):
+    with st.expander(f"📋 {selected_asset} Faktör Dağılım Tablosu"):
         df_det = pd.DataFrame(details)
         st.dataframe(df_det.rename(columns={
             "faktör": "Faktör Adı",
             "küme": "Küme",
             "ham_deger": "Ham Değer",
-            "puan": "Net Puan"
+            "puan": "Puan (Max ±1.8)"
         }), use_container_width=True, hide_index=True)
