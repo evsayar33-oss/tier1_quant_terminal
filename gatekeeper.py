@@ -1,9 +1,9 @@
 """
-Gatekeeper: High-Speed Intraday Confirmation Engine (Zero Lagging Buffers!)
+Gatekeeper: Multi-Asset Leading Macro & Institutional Confirmation Engine (Zero Attribute Errors)
 """
 import numpy as np
 import pandas as pd
-from config import ASSET_MATRICES, CLUSTERS
+from config import ASSET_MATRICES, CLUSTERS, THRESHOLD_CLAMPS
 from data_engine import ResilientDataEngine
 from quant_processor import RobustQuantProcessor
 
@@ -18,6 +18,12 @@ class PreTradeGatekeeper:
         self.market_regime = "MAKRO DENGE"
         self.current_vix = 15.0
         self.anomaly_score = 0.0
+        self.stagflation_z = 0.0
+        self.yen_carry_z = 0.0
+        self.dfii10_z = 0.0
+        self.curve_label = "NÖTR EĞRİ"
+        self.dxy_velocity = 0.0
+        self.credit_velocity = 0.0
 
     def refresh_market(self):
         self.grid_1h, self.grid_daily = self.data_engine.fetch_global_market_grid()
@@ -26,15 +32,16 @@ class PreTradeGatekeeper:
         self.current_vix = float(vix_df["Close"].iloc[-1]) if not vix_df.empty else 15.0
         z_vix = self.processor.compute_z_score(vix_df["Close"]) if not vix_df.empty else 0.0
 
-        # ⚡ 4 SAATLİK ANLIK HIZLAR
+        # Anlık Hızlar
         self.dxy_velocity = self.processor.compute_dxy_intraday_velocity(self.grid_1h.get("DXY", pd.DataFrame()))
         self.credit_velocity = self.processor.compute_credit_intraday_velocity(self.grid_1h.get("HYG", pd.DataFrame()), self.grid_1h.get("LQD", pd.DataFrame()))
         self.stagflation_z = self.processor.compute_stagflation_shock(self.grid_1h.get("OIL", pd.DataFrame()), self.grid_1h.get("IYT", pd.DataFrame()))
         self.yen_carry_z = self.processor.compute_yen_carry_shock(self.grid_1h.get("USDJPY", pd.DataFrame()))
 
-        # FRED Reel Getiri Z-Skoru
+        # FRED Reel Getiri & Getiri Eğrisi
         dfii10_df = self.grid_daily.get("DFII10", pd.DataFrame())
         self.dfii10_z = self.processor.compute_z_score(dfii10_df["Close"]) if not dfii10_df.empty else 0.0
+        self.curve_label = "NÖTR EĞRİ"
 
         # Canlı Makro Rejim
         self.market_regime = self.processor.detect_realtime_macro_regime(
@@ -82,54 +89,36 @@ class PreTradeGatekeeper:
             base_w = f["base_weight"]
             raw_val = 0.0
 
-            # ⚡ 4 SAATLİK ANLIK VERİ BAĞLANTILARI
             if f_id == "taker_ratio":
                 res = self.data_engine.fetch_binance_taker_ratio(matrix.get("binance_symbol", "BTCUSDT"))
                 raw_val = (res["value"] - 1.0) * 8.0
                 effective_sign = 1
-
             elif "mom" in f_id:
-                # ⚡ 4 SAATLİK ANLIK FİYAT İVMESİ (14 günlük gecikme kalktı!)
                 df = self.grid_1h.get(asset_key, pd.DataFrame())
                 raw_val = self.processor.compute_intraday_momentum(df)
                 effective_sign = 1
-
             elif f_id == "credit_spread":
-                # ⚡ 4 SAATLİK ANLIK KREDİ AKIŞI
                 raw_val = self.credit_velocity
                 effective_sign = 1
-
             elif f_id == "dxy_strain":
-                # ⚡ 4 SAATLİK DXY LİKİDİTE PATLAMASI (Dolar artarsa hisse EKSİ yer)
                 raw_val = self.dxy_velocity
-                effective_sign = -1
-
+                effective_sign = -1 # Dolar artarsa borsa eksi yer
             elif f_id == "stagflation_shock":
                 raw_val = self.stagflation_z
-                effective_sign = 1 if asset_key == "XAU" else -1
-
+                effective_sign = 1 if asset_key in ["XAU", "XAG"] else -1
             elif f_id == "yen_carry":
                 raw_val = self.yen_carry_z
                 effective_sign = 1
-
             elif f_id in ["yield_curve", "us10y_yield", "real_yield"]:
                 raw_val = self.dfii10_z
                 effective_sign = -1
-
             elif f_id == "vix_strain":
                 vix_df = self.grid_1h.get("VIX", pd.DataFrame())
                 raw_val = self.processor.compute_z_score(vix_df["Close"]) if not vix_df.empty else 0.0
                 effective_sign = -1
-
             elif f_id == "copper_gold":
                 raw_val = self.processor.compute_ratio_z(self.grid_1h.get("COPPER", pd.DataFrame()), self.grid_1h.get("XAU", pd.DataFrame()))
                 effective_sign = 1
-
-            elif f_id == "mining_beta":
-                xme_df = self.grid_1h.get("XME", pd.DataFrame())
-                raw_val = self.processor.compute_intraday_momentum(xme_df)
-                effective_sign = 1
-
             elif f_id == "safe_haven":
                 vix_df = self.grid_1h.get("VIX", pd.DataFrame())
                 raw_val = self.processor.compute_z_score(vix_df["Close"]) if not vix_df.empty else 0.0
@@ -178,5 +167,6 @@ class PreTradeGatekeeper:
             "stagflation_z": round(self.stagflation_z, 2),
             "yen_carry_z": round(self.yen_carry_z, 2),
             "dfii10_z": round(self.dfii10_z, 2),
+            "curve_label": self.curve_label,
             "details": details
         }
