@@ -1,5 +1,5 @@
 """
-Robust Quant Processor: Real-Time ETF Metrics & Strict Barra Normalization (v18)
+Robust Quant Processor: Real-Time ETF Metrics & Strict Barra Normalization (v19 Calibrated)
 """
 import numpy as np
 import pandas as pd
@@ -14,10 +14,10 @@ except Exception:
         "vix_absolute_floor": 20.0
     }
     SIGNAL_THRESHOLDS = {
-        "strong_buy_enter": 1.8, "strong_buy_exit": 1.1,
-        "buy_enter": 0.7, "buy_exit": 0.25,
-        "strong_sell_enter": -1.8, "strong_sell_exit": -1.1,
-        "sell_enter": -0.7, "sell_exit": -0.25
+        "strong_buy_enter": 1.6, "strong_buy_exit": 1.0,
+        "buy_enter": 0.6, "buy_exit": 0.20,
+        "strong_sell_enter": -1.6, "strong_sell_exit": -1.0,
+        "sell_enter": -0.6, "sell_exit": -0.20
     }
     ASSET_CLOCKS = {}
     CATALYST_WINDOWS_UTC = []
@@ -29,8 +29,8 @@ class RobustQuantProcessor:
         clocks = {
             "SPX": {"open_utc": 13.5, "close_utc": 20.0, "crypto": False},
             "NQ":  {"open_utc": 13.5, "close_utc": 20.0, "crypto": False},
-            "XAU": {"open_utc": 7.0,  "close_utc": 21.0, "crypto": False},
-            "XAG": {"open_utc": 7.0,  "close_utc": 21.0, "crypto": False},
+            "XAU": {"open_utc": 0.0,  "close_utc": 24.0, "crypto": True},  # COMEX 23H Futures
+            "XAG": {"open_utc": 0.0,  "close_utc": 24.0, "crypto": True},  # COMEX 23H Futures
             "BTC": {"open_utc": 0.0,  "close_utc": 24.0, "crypto": True},
             "ETH": {"open_utc": 0.0,  "close_utc": 24.0, "crypto": True}
         }
@@ -43,7 +43,7 @@ class RobustQuantProcessor:
         current_day = now.weekday()
 
         if current_day in [5, 6]:
-            return "HAFTA SONU (KAPALI)", 0.4
+            return "HAFTA SONU (KAPALI)", 1.0
 
         open_h = clock.get("open_utc", 13.5)
         close_h = clock.get("close_utc", 20.0)
@@ -51,9 +51,9 @@ class RobustQuantProcessor:
         if open_h <= current_hour <= close_h:
             return "CANLI SEANS", 1.0
         elif (open_h - 4.0) <= current_hour < open_h:
-            return "SEANS ÖNCESİ (PRE-MARKET)", 0.7
+            return "SEANS ÖNCESİ (PRE-MARKET)", 1.0
         else:
-            return "KAPALI (SEANS DIŞI)", 0.5
+            return "KAPALI (SEANS DIŞI)", 1.0
 
     @staticmethod
     def check_catalyst_event_window():
@@ -76,10 +76,12 @@ class RobustQuantProcessor:
         roc_4h = ((close.iloc[-1] - close.iloc[-w_fast - 1]) / (close.iloc[-w_fast - 1] + 1e-9)) * 100.0
         w_slow = min(slow_window, len(close) - 1)
         roc_24h = ((close.iloc[-1] - close.iloc[-w_slow - 1]) / (close.iloc[-w_slow - 1] + 1e-9)) * 100.0
-        blended = (roc_4h * 1.2) + (roc_24h * 0.4)
+        
+        # 4H anlık ivmeye öncelik vererek yön dönüşlerine duyarlılığı artırıyoruz
+        blended = (roc_4h * 1.5) + (roc_24h * 0.5)
 
         scale = max(float(vol_scale), 0.5)
-        norm_blended = (blended / scale) * 1.2
+        norm_blended = (blended / scale) * 1.3
         return float(np.clip(norm_blended, -2.0, 2.0))
 
     @staticmethod
@@ -103,7 +105,7 @@ class RobustQuantProcessor:
         close = dxy_df_1h["Close"]
         w = min(window, len(close) - 1)
         roc_4h = ((close.iloc[-1] - close.iloc[-w - 1]) / (close.iloc[-w - 1] + 1e-9)) * 100.0
-        return float(np.clip(roc_4h * 4.0, -2.0, 2.0))
+        return float(np.clip(roc_4h * 3.5, -2.0, 2.0))
 
     @staticmethod
     def compute_market_breadth(rsp_df, spy_df, window=24):
@@ -117,7 +119,7 @@ class RobustQuantProcessor:
         ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
         w = min(window, len(ratio) - 1)
         roc = ((ratio.iloc[-1] - ratio.iloc[-w - 1]) / (ratio.iloc[-w - 1] + 1e-9)) * 100.0
-        return float(np.clip(roc * 2.5, -1.8, 1.8))
+        return float(np.clip(roc * 2.0, -1.8, 1.8))
 
     @staticmethod
     def compute_gsr_velocity(xau_df, xag_df, window=24):
@@ -190,6 +192,30 @@ class RobustQuantProcessor:
         return float(np.clip(roc * 2.0, -1.8, 1.8))
 
     @staticmethod
+    def compute_vix_stress(vix_df, window=48):
+        """
+        VIX Stresi: Hem mutlak seviye (17.5 altı sakin, 22 üstü stres)
+        hem de bağıl Z-skorunu harmanlar. VIX 16 seviyesindeyken yapay kriz üretmesini engeller.
+        """
+        if vix_df.empty:
+            return 0.0
+        close = vix_df["Close"]
+        cur_vix = float(close.iloc[-1])
+        
+        # Mutlak seviye çıpası (VIX 17.5 nötr seviyedir)
+        abs_stress = (cur_vix - 17.5) / 5.0
+        
+        # Bağıl dinamik şok
+        w = min(window, len(close))
+        mean_val = close.rolling(w).mean().iloc[-1]
+        std_val = close.rolling(w).std().iloc[-1] + 1e-9
+        rel_z = (cur_vix - mean_val) / std_val
+        
+        # Mutlak seviye %60, bağıl şok %40 ağırlıkta harmanlanır
+        blended = (abs_stress * 0.6) + (rel_z * 0.4)
+        return float(np.clip(blended, -2.0, 2.0))
+
+    @staticmethod
     def compute_vix_term_structure(vix_df, vix3m_df):
         if vix_df.empty:
             return 0.0
@@ -199,11 +225,16 @@ class RobustQuantProcessor:
             ratio = cur_vix / (cur_vix3m + 1e-9)
             stress = (ratio - 1.0) * 8.0
             return float(np.clip(stress, -2.0, 2.0))
-        return float(np.clip((cur_vix - 16.0) / 4.0, -1.8, 1.8))
+        return float(np.clip((cur_vix - 17.5) / 4.0, -1.8, 1.8))
 
     @staticmethod
     def compute_crypto_funding_stress(funding_rate):
-        stress = float(np.clip(funding_rate * 5000.0, -2.0, 2.0))
+        """
+        0.0001 (0.01% per 8h) nötr kripto normudur.
+        0.0001 seviyesinde stres 0.0 olmalıdır; sadece aşırı kaldıraç (>0.0003) veya negatif fonlama stres üretir.
+        """
+        excess_rate = funding_rate - 0.0001
+        stress = float(np.clip(excess_rate * 5000.0, -2.0, 2.0))
         return stress
 
     @staticmethod
@@ -249,20 +280,22 @@ class RobustQuantProcessor:
         return float(np.clip(roc_4h * 4.0, -2.0, 2.0))
 
     @staticmethod
-    def compute_stagflation_shock(oil_df, transport_df, window=24):
+    def compute_stagflation_shock(oil_df, transport_df, window=48):
         if oil_df.empty or transport_df.empty:
             return 0.0
         p_oil = float(oil_df["Close"].iloc[-1])
         p_iyt = float(transport_df["Close"].iloc[-1])
-        mean_oil = oil_df["Close"].tail(window).mean()
-        mean_iyt = transport_df["Close"].tail(window).mean()
+        w = min(window, len(oil_df), len(transport_df))
+        mean_oil = oil_df["Close"].tail(w).mean()
+        mean_iyt = transport_df["Close"].tail(w).mean()
         current_ratio = p_oil / (p_iyt + 1e-9)
         baseline_ratio = mean_oil / (mean_iyt + 1e-9)
         dev_pct = ((current_ratio - baseline_ratio) / (baseline_ratio + 1e-9)) * 100.0
-        return float(np.clip(dev_pct * 0.3, -2.0, 2.0))
+        # %8-10 sapma ~ 1.0 şok seviyesi olmalıdır, küçük günlük gürültülerde tetiklenmez
+        return float(np.clip(dev_pct * 0.12, -2.0, 2.0))
 
     @staticmethod
-    def compute_yen_carry_shock(usdjpy_df, window=20):
+    def compute_yen_carry_shock(usdjpy_df, window=24):
         if usdjpy_df.empty or len(usdjpy_df) < 5:
             return 0.0
         close = usdjpy_df["Close"]
@@ -272,7 +305,7 @@ class RobustQuantProcessor:
         return float(np.clip((close.iloc[-1] - mean_val) / std_val, -2.0, 2.0))
 
     @staticmethod
-    def compute_ratio_z(df_num, df_denom, window=24):
+    def compute_ratio_z(df_num, df_denom, window=48):
         if df_num.empty or df_denom.empty:
             return 0.0
         s1 = df_num["Close"]
@@ -287,7 +320,7 @@ class RobustQuantProcessor:
         return float(np.clip((ratio.iloc[-1] - mean) / std, -2.0, 2.0))
 
     @staticmethod
-    def compute_z_score(series, window=24):
+    def compute_z_score(series, window=48):
         if len(series) < 2:
             return 0.0
         w = min(window, len(series))
@@ -295,11 +328,11 @@ class RobustQuantProcessor:
 
     @staticmethod
     def detect_realtime_macro_regime(dxy_velocity, credit_velocity, real_yield_z, z_vix, stagflation_z, yen_carry_z):
-        if stagflation_z > 1.0:
+        if stagflation_z > 1.35:
             return "🛢️ KÜRESEL STAGFLASYON ŞOKU (PETROL BASKISI)"
         elif (dxy_velocity > 0.8 and credit_velocity < -0.6) or (yen_carry_z < -1.2 and z_vix > 0.8):
             return "🚨 SİSTEMİK LİKİDİTE ŞOKU (NAKDE KAÇIŞ)"
-        elif real_yield_z > 1.0:
+        elif real_yield_z > 1.2:
             return "⚡ TAHVİL REEL GETİRİ ŞOKU (TECH BASKISI)"
         elif credit_velocity < -1.0:
             return "⚠️ KREDİ PİYASASI TEMERRÜT STRESİ"
@@ -310,7 +343,14 @@ class RobustQuantProcessor:
     @staticmethod
     def evaluate_crisis_lock_with_hysteresis(credit_velocity, z_vix, z_real_rate, dxy_velocity, current_vix_val, current_state=False, consecutive_breaches=0):
         cfg = CRISIS_CONFIG
-        anomaly_score = float(np.linalg.norm([abs(credit_velocity), z_vix, z_real_rate, abs(dxy_velocity)]) / 2.0)
+        
+        # Sadece stres yönündeki sapmalar kriz skoru üretir (Boğa genişlemesi kriz sayılamaz)
+        credit_stress = max(-credit_velocity, 0.0)
+        vix_stress = max(z_vix, 0.0) if current_vix_val >= cfg.get("vix_absolute_floor", 20.0) else 0.0
+        dxy_stress = max(dxy_velocity, 0.0)
+        rate_stress = max(z_real_rate, 0.0)
+
+        anomaly_score = float(np.linalg.norm([credit_stress, vix_stress, rate_stress, dxy_stress]) / 1.7)
         is_vix_above_floor = (current_vix_val >= cfg.get("vix_absolute_floor", 20.0))
 
         enter_condition = False
@@ -344,12 +384,11 @@ class RobustQuantProcessor:
 
         # 2. AL KONTROLÜ
         if prev in ["AL", "GÜÇLÜ AL"]:
-            if current_score >= t.get("buy_exit", 0.20):
+            if current_score > t.get("buy_exit", 0.20):
                 return "AL", "lightgreen", "🟢"
         else:
             if current_score >= t.get("buy_enter", 0.60):
                 return "AL", "lightgreen", "🟢"
-            # Küme mutlak çoğunluğu (>=3) ve pozitif ivme varsa AL teyidi
             if bull_clusters >= 3 and current_score >= 0.50:
                 return "AL", "lightgreen", "🟢"
 
@@ -363,12 +402,11 @@ class RobustQuantProcessor:
 
         # 4. SAT KONTROLÜ
         if prev in ["SAT", "GÜÇLÜ SAT"]:
-            if current_score <= t.get("sell_exit", -0.20):
+            if current_score < t.get("sell_exit", -0.20):
                 return "SAT", "red", "🔴"
         else:
             if current_score <= t.get("sell_enter", -0.60):
                 return "SAT", "red", "🔴"
-            # Küme mutlak çoğunluğu (>=3) ve negatif ivme varsa SAT teyidi
             if bear_clusters >= 3 and current_score <= -0.50:
                 return "SAT", "red", "🔴"
 

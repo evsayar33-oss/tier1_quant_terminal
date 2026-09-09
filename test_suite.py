@@ -104,7 +104,28 @@ def test_all_assets_evaluation():
     print("✅ All 6 Assets Evaluation Test Passed!")
 
 
+
+def test_calibrations():
+    qp = RobustQuantProcessor()
+    # 1. VIX 16.0 should be calm (negative or near-zero stress)
+    dates = pd.date_range('2026-09-01', periods=30, freq='1h')
+    vix_df = pd.DataFrame({'Close': [15.5]*25 + [16.0]*5}, index=dates)
+    vix_stress = qp.compute_vix_stress(vix_df)
+    assert vix_stress < 0.8, f'VIX at 16 should not produce high stress, got {vix_stress}'
+    
+    # 2. Crypto funding at normal 0.0001 must be 0.0 stress
+    fr_stress = qp.compute_crypto_funding_stress(0.0001)
+    assert abs(fr_stress) < 1e-5, f'Baseline funding should be 0, got {fr_stress}'
+    
+    # 3. Small oil/transport move should not explode stagflation
+    oil_df = pd.DataFrame({'Close': [100.0]*25 + [102.0]*5}, index=dates)
+    iyt_df = pd.DataFrame({'Close': [100.0]*25 + [99.5]*5}, index=dates)
+    stag_z = qp.compute_stagflation_shock(oil_df, iyt_df)
+    assert stag_z < 1.0, f'Small fluctuation should not trigger stagflation shock, got {stag_z}'
+    print('✅ New Calibrations Test Passed!')
+
 if __name__ == "__main__":
+    test_calibrations()
     test_hysteresis_logic()
     test_volatility_scaling()
     test_crisis_lock()

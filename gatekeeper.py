@@ -1,5 +1,5 @@
 """
-Gatekeeper: Multi-Asset Engine with Strict Barra Risk-Parity Normalization & FRED Integration (v21 Ultra-Comprehensive)
+Gatekeeper: Multi-Asset Engine with Strict Barra Risk-Parity Normalization & FRED Integration (v22 Institutional Calibration)
 """
 import numpy as np
 import pandas as pd
@@ -34,7 +34,7 @@ class PreTradeGatekeeper:
 
         vix_df = self.grid_1h.get("VIX", pd.DataFrame())
         self.current_vix = float(vix_df["Close"].iloc[-1]) if not vix_df.empty else 16.0
-        z_vix = self.processor.compute_z_score(vix_df["Close"]) if not vix_df.empty else 0.0
+        z_vix = self.processor.compute_vix_stress(vix_df) if not vix_df.empty else 0.0
 
         # Anlık Hızlar
         self.dxy_velocity = self.processor.compute_usd_strength_impulse(self.grid_1h.get("DXY", pd.DataFrame()))
@@ -205,14 +205,14 @@ class PreTradeGatekeeper:
                 val = self.credit_velocity
             elif f_id == "vix_strain":
                 vix_df = self.grid_1h.get("VIX", pd.DataFrame())
-                val = self.processor.compute_z_score(vix_df["Close"]) if not vix_df.empty else 0.0
+                val = self.processor.compute_vix_stress(vix_df) if not vix_df.empty else 0.0
             elif f_id == "real_yield":
                 val = self.real_yield_z
             elif f_id == "breakeven_infl":
                 val = self.breakeven_z
             elif f_id == "safe_haven":
                 vix_df = self.grid_1h.get("VIX", pd.DataFrame())
-                val = self.processor.compute_z_score(vix_df["Close"]) if not vix_df.empty else 0.0
+                val = self.processor.compute_vix_stress(vix_df) if not vix_df.empty else 0.0
             elif f_id == "stagflation_shock":
                 val = self.stagflation_z
 
@@ -230,10 +230,12 @@ class PreTradeGatekeeper:
             })
 
         # ⚖️ BARRA AĞIRLIKLI ORTALAMA NORMALİZASYONU
-        # Ham toplamı ağırlıkların toplamına bölerek [-3.5, +3.5] aralığına ölçeklendir
+        # Ağırlıklı ortalamayı [-3.5, +3.5] aralığına ölçeklendir
         weighted_avg = weighted_sum / (total_weights + 1e-9)
         normalized_score = round(float(np.clip(weighted_avg * 1.5, -3.5, 3.5)), 2)
-        final_score = round(normalized_score * session_multiplier, 2)
+        
+        # Seans durumu sinyali zayıflatmamalı; yön yön olarak kalmalı, seans likidite bilgisi UI'da gösterilmelidir
+        final_score = normalized_score
 
         # Küme Konsensüsü
         active_clusters = [c for c, sc in cluster_scores.items() if abs(sc) > 0.15]
@@ -262,9 +264,8 @@ class PreTradeGatekeeper:
 
     def evaluate_all_assets_harmonized(self, previous_signals=None):
         """
-        Tüm varlıkları değerlendirir ve korelasyonu yüksek ikiz varlıklar (SPX-NQ, XAU-XAG, BTC-ETH)
-        arasında 0.30 puandan az fark varken birinin AL/SAT diğerinin NÖTR kalmasını engelleyerek
-        kurumsal konsensüs sağlar.
+        Tüm varlıkları değerlendirir. İkiz varlıklar (SPX-NQ, XAU-XAG, BTC-ETH) arasında senkronizasyon
+        sağlarken, güçlü/yükselen varlığın zayıf varlık tarafından haksız yere SAT'a çekilmesini engeller.
         """
         if previous_signals is None:
             previous_signals = {}
@@ -273,7 +274,7 @@ class PreTradeGatekeeper:
             prev = previous_signals.get(k, "NÖTR (BEKLE)")
             verdicts[k] = self.evaluate_asset_direction(k, previous_signal=prev)
 
-        # 🤝 İKİZ VARLIK ÇAPRAZ KORELASYON SENKRONİZASYONU
+        # 🤝 İKİZ VARLIK KONSENSÜS KONTROLÜ
         twin_pairs = [("SPX", "NQ"), ("XAU", "XAG"), ("BTC", "ETH")]
         for a1, a2 in twin_pairs:
             v1 = verdicts.get(a1)
@@ -284,18 +285,18 @@ class PreTradeGatekeeper:
             sc2 = float(v2.get("score", 0.0))
             diff = abs(sc1 - sc2)
 
-            # Eğer iki ikiz varlık arasındaki puan farkı 0.35 veya daha azsa:
+            # Sadece her iki varlık da aynı kutupta (negatif veya pozitif) ve birbirine yakınsa senkronize et:
             if diff <= 0.35:
-                # Negatif Bölge: İkisi de negatif ve en az biri SAT ise ikisi de SAT olur
-                if sc1 <= -0.40 and sc2 <= -0.40:
+                # Negatif Bölge: Her ikisi de belirgin negatif (-0.45 altı) ise SAT teyidi
+                if sc1 <= -0.45 and sc2 <= -0.45:
                     if "SAT" in v1["verdict"] or "SAT" in v2["verdict"]:
                         for v in (v1, v2):
                             if "GÜÇLÜ SAT" not in v["verdict"]:
                                 v["verdict"] = "SAT"
                                 v["icon"] = "🔴"
                                 v["color"] = "red"
-                # Pozitif Bölge: İkisi de pozitif ve en az biri AL ise ikisi de AL olur
-                elif sc1 >= 0.40 and sc2 >= 0.40:
+                # Pozitif Bölge: Her ikisi de belirgin pozitif (+0.45 üstü) ise AL teyidi
+                elif sc1 >= 0.45 and sc2 >= 0.45:
                     if "AL" in v1["verdict"] or "AL" in v2["verdict"]:
                         for v in (v1, v2):
                             if "GÜÇLÜ AL" not in v["verdict"]:
