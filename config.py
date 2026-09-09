@@ -1,11 +1,11 @@
 """
-Configuration: Asset Matrices, Risk Clusters & Barra Normalization Weights (v21 Ultra-Comprehensive)
+Configuration: Asset Matrices, Risk Clusters & Barra Normalization Weights (v22 Ultra-Deep 64 Factors)
 """
 
 CLUSTERS = {
     "A": "Dolar & Küresel Likidite (DXY)",
-    "B": "Faiz & Getiri Eğrisi (TIPS, 10Y, 2Y)",
-    "C": "Kredi & Volatilite (HYG/LQD, VIX, Term Structure)",
+    "B": "Faiz, Getiri Eğrisi & Süre Riski (TIPS, 10Y, TLT/SHY)",
+    "C": "Kredi, Bankacılık & Volatilite (HYG/LQD, KRE, VIX Term)",
     "D": "Emtia, Enflasyon & Sektörel Rotasyon (Petrol, Bakır, Altın)",
     "E": "Varlığa Özel İtici Güç & Riskler (Taker, Fonlama, Çip, Defansif Kaçış)"
 }
@@ -33,6 +33,8 @@ ASSET_MATRICES = {
             {"id": "market_breadth", "name": "RSP/SPY Piyasa Katılım Genişliği", "cluster": "E", "base_weight": 1.15, "base_sign": 1.0},
             {"id": "defensive_flight", "name": "XLU/SPY Kurumsal Defansif Kaçış", "cluster": "E", "base_weight": 1.20, "base_sign": -1.0},
             {"id": "consumer_demand", "name": "XLY/XLP Tüketici Talebi & Büyüme", "cluster": "E", "base_weight": 0.95, "base_sign": 1.0},
+            {"id": "duration_risk", "name": "TLT/SHY Uzun Vade Tahvil Süre Riski", "cluster": "B", "base_weight": 1.10, "base_sign": 1.0},
+            {"id": "banking_stress", "name": "KRE/SPY Bölgesel Bankacılık Likiditesi", "cluster": "C", "base_weight": 1.05, "base_sign": 1.0},
             {"id": "credit_spread", "name": "HYG/LQD Kredi Gücü & İştahı", "cluster": "C", "base_weight": 1.10, "base_sign": 1.0},
             {"id": "vix_strain", "name": "VIX Opsiyon Korku Primi", "cluster": "C", "base_weight": 1.00, "base_sign": -1.0},
             {"id": "vix_term", "name": "VIX/VIX3M Vade Eğrisi (Kuyruk Riski)", "cluster": "C", "base_weight": 1.10, "base_sign": -1.0},
@@ -51,6 +53,8 @@ ASSET_MATRICES = {
             {"id": "market_breadth", "name": "RSP/SPY Piyasa Katılım Genişliği", "cluster": "E", "base_weight": 1.00, "base_sign": 1.0},
             {"id": "defensive_flight", "name": "XLU/QQQ Kurumsal Defansif Kaçış", "cluster": "E", "base_weight": 1.20, "base_sign": -1.0},
             {"id": "speculative_beta", "name": "ARKK/QQQ Yüksek Beta Spekülasyon", "cluster": "E", "base_weight": 0.95, "base_sign": 1.0},
+            {"id": "duration_risk", "name": "TLT Tahvil Süre (Duration) Duyarlılığı", "cluster": "B", "base_weight": 1.20, "base_sign": 1.0},
+            {"id": "banking_stress", "name": "Finansal Sistem Likidite Stresi (KRE)", "cluster": "C", "base_weight": 0.90, "base_sign": 1.0},
             {"id": "credit_spread", "name": "Kredi Piyasası Gücü (HYG/LQD)", "cluster": "C", "base_weight": 1.00, "base_sign": 1.0},
             {"id": "vix_strain", "name": "Teknoloji Volatilite Baskısı", "cluster": "C", "base_weight": 1.00, "base_sign": -1.0},
             {"id": "vix_term", "name": "VIX Vade Eğrisi Stresi (VIX/VIX3M)", "cluster": "C", "base_weight": 1.05, "base_sign": -1.0},
@@ -67,6 +71,8 @@ ASSET_MATRICES = {
             {"id": "asset_direction", "name": "Altın 4H Anlık Fiyat İvmesi", "cluster": "E", "base_weight": 1.35, "base_sign": 1.0},
             {"id": "real_yield", "name": "10Y Reel Faiz (TIPS Ters Oran)", "cluster": "B", "base_weight": 1.40, "base_sign": -1.0},
             {"id": "breakeven_infl", "name": "Enflasyon Beklenti Kalkanı", "cluster": "B", "base_weight": 1.15, "base_sign": 1.0},
+            {"id": "duration_risk", "name": "TLT Uzun Vade Tahvil Gücü", "cluster": "B", "base_weight": 1.15, "base_sign": 1.0},
+            {"id": "banking_stress", "name": "Bankacılık Güven Krizi Primi (KRE)", "cluster": "C", "base_weight": 1.10, "base_sign": -1.0},
             {"id": "usd_strength", "name": "USD Gücü & Dolar Baskısı", "cluster": "A", "base_weight": 1.15, "base_sign": -1.0},
             {"id": "safe_haven", "name": "Jeopolitik & Güvenli Liman", "cluster": "C", "base_weight": 1.20, "base_sign": 1.0},
             {"id": "gold_oil_ratio", "name": "Altın / Petrol Şoku (Stagflasyon)", "cluster": "D", "base_weight": 1.05, "base_sign": 1.0},
@@ -83,6 +89,7 @@ ASSET_MATRICES = {
             {"id": "gold_sympathy", "name": "🥇 Altın Güç İvmesi (Gold Beta)", "cluster": "E", "base_weight": 1.35, "base_sign": 1.0},
             {"id": "copper_gold", "name": "Bakır/Altın Sanayi Talebi", "cluster": "D", "base_weight": 1.15, "base_sign": 1.0},
             {"id": "silver_copper", "name": "Gümüş / Bakır Sanayi Rotasyonu", "cluster": "D", "base_weight": 1.05, "base_sign": 1.0},
+            {"id": "duration_risk", "name": "TLT Tahvil Getiri Baskısı", "cluster": "B", "base_weight": 1.05, "base_sign": 1.0},
             {"id": "real_yield", "name": "10Y Reel Faiz Baskısı (TIP)", "cluster": "B", "base_weight": 1.10, "base_sign": -1.0},
             {"id": "breakeven_infl", "name": "Enflasyon Beklenti Kalkanı", "cluster": "B", "base_weight": 1.00, "base_sign": 1.0},
             {"id": "usd_strength", "name": "USD Gücü & Dolar Baskısı", "cluster": "A", "base_weight": 1.00, "base_sign": -1.0},
@@ -99,6 +106,8 @@ ASSET_MATRICES = {
             {"id": "crypto_taker", "name": "OKX/Bybit Spot & Vadeli Taker Akışı", "cluster": "E", "base_weight": 1.35, "base_sign": 1.0},
             {"id": "funding_stress", "name": "Türev Fonlama Oranı (Kaldıraç Riski)", "cluster": "E", "base_weight": 1.25, "base_sign": -1.0},
             {"id": "btc_dominance", "name": "BTC Dominansı / Altcoin Rotasyonu", "cluster": "E", "base_weight": 1.05, "base_sign": 1.0},
+            {"id": "banking_stress", "name": "Geleneksel Bankacılık Kaçışı (KRE Ters)", "cluster": "C", "base_weight": 1.05, "base_sign": -1.0},
+            {"id": "duration_risk", "name": "TLT Küresel Tahvil Likidite Baskısı", "cluster": "B", "base_weight": 0.95, "base_sign": 1.0},
             {"id": "credit_spread", "name": "Küresel Likidite İştahı (HYG/LQD)", "cluster": "C", "base_weight": 1.10, "base_sign": 1.0},
             {"id": "usd_strength", "name": "DXY Dolar Likidite Baskısı", "cluster": "A", "base_weight": 1.10, "base_sign": -1.0},
             {"id": "real_yield", "name": "Reel Getiri Baskısı (TIP)", "cluster": "B", "base_weight": 0.95, "base_sign": -1.0},
@@ -116,6 +125,7 @@ ASSET_MATRICES = {
             {"id": "funding_stress", "name": "Canlı ETH Fonlama Oranı (Funding Riski)", "cluster": "E", "base_weight": 1.20, "base_sign": -1.0},
             {"id": "btc_sympathy", "name": "⚡ Bitcoin İtici Gücü (BTC Beta)", "cluster": "E", "base_weight": 1.35, "base_sign": 1.0},
             {"id": "eth_btc_beta", "name": "ETH/BTC Göreceli Güç (Risk İştahı)", "cluster": "E", "base_weight": 1.15, "base_sign": 1.0},
+            {"id": "duration_risk", "name": "TLT Likidite Baskısı", "cluster": "B", "base_weight": 0.95, "base_sign": 1.0},
             {"id": "credit_spread", "name": "Kurumsal Kredi & Likidite", "cluster": "C", "base_weight": 1.05, "base_sign": 1.0},
             {"id": "usd_strength", "name": "DXY Dolar Likidite Baskısı", "cluster": "A", "base_weight": 1.05, "base_sign": -1.0},
             {"id": "vix_strain", "name": "Sistemik Volatilite Baskısı", "cluster": "C", "base_weight": 0.90, "base_sign": -1.0}

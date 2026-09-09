@@ -98,7 +98,7 @@ class ResilientDataEngine:
     def fetch_global_market_grid(self):
         tickers = [
             "SPY", "QQQ", "SMH", "RSP", "HYG", "LQD", "^VIX", "^VIX3M",
-            "XLU", "XLP", "XLY", "ARKK",
+            "XLU", "XLP", "XLY", "ARKK", "TLT", "SHY", "KRE", "XLF",
             "USO", "IYT", "DX-Y.NYB", "TIP", "IEF", "USDJPY=X",
             "GC=F", "SI=F", "HG=F", "BTC-USD", "ETH-USD"
         ]

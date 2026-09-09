@@ -137,6 +137,16 @@ class PreTradeGatekeeper:
                     self.grid_1h.get("RSP", pd.DataFrame()),
                     self.grid_1h.get("SPY", pd.DataFrame())
                 )
+            elif f_id == "duration_risk":
+                val = self.processor.compute_bond_duration_risk(
+                    self.grid_1h.get("TLT", pd.DataFrame()),
+                    self.grid_1h.get("SHY", pd.DataFrame())
+                )
+            elif f_id == "banking_stress":
+                val = self.processor.compute_banking_stress(
+                    self.grid_1h.get("KRE", pd.DataFrame()),
+                    self.grid_1h.get("SPY", pd.DataFrame())
+                )
             elif f_id == "defensive_flight":
                 bench_sym = "QQQ" if asset_key == "NQ" else "SPY"
                 val = self.processor.compute_defensive_flight(

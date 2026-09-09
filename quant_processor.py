@@ -134,6 +134,34 @@ class RobustQuantProcessor:
         return float(np.clip(roc * 2.0, -1.5, 1.5))
 
     @staticmethod
+    def compute_bond_duration_risk(tlt_df, shy_df, window=24):
+        if tlt_df.empty or shy_df.empty:
+            return 0.0
+        s1 = tlt_df["Close"]
+        s2 = shy_df["Close"]
+        aligned = pd.concat([s1, s2], axis=1, join="inner").dropna()
+        if len(aligned) < 2:
+            return 0.0
+        ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
+        w = min(window, len(ratio) - 1)
+        roc = ((ratio.iloc[-1] - ratio.iloc[-w - 1]) / (ratio.iloc[-w - 1] + 1e-9)) * 100.0
+        return float(np.clip(roc * 2.0, -1.8, 1.8))
+
+    @staticmethod
+    def compute_banking_stress(kre_df, spy_df, window=24):
+        if kre_df.empty or spy_df.empty:
+            return 0.0
+        s1 = kre_df["Close"]
+        s2 = spy_df["Close"]
+        aligned = pd.concat([s1, s2], axis=1, join="inner").dropna()
+        if len(aligned) < 2:
+            return 0.0
+        ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
+        w = min(window, len(ratio) - 1)
+        roc = ((ratio.iloc[-1] - ratio.iloc[-w - 1]) / (ratio.iloc[-w - 1] + 1e-9)) * 100.0
+        return float(np.clip(roc * 2.0, -1.8, 1.8))
+
+    @staticmethod
     def compute_defensive_flight(xlu_df, benchmark_df, window=24):
         if xlu_df.empty or benchmark_df.empty:
             return 0.0
