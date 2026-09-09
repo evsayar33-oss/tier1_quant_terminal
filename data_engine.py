@@ -1,5 +1,5 @@
 """
-Resilient Data Engine: FRED Direct Macro + High-Speed Intraday 1H/4H Engine
+Resilient Data Engine: Live ETFs & Pre-Market Fallback Protection
 """
 import requests
 import pandas as pd
@@ -26,8 +26,8 @@ class ResilientDataEngine:
                 if not df.empty:
                     df.index = df.index.tz_localize(None) if df.index.tz is not None else df.index
                     return df
-        except Exception as e:
-            print(f"⚠️ FRED çekim hatası ({series_id}): {e}")
+        except Exception:
+            pass
         return pd.DataFrame()
 
     def fetch_binance_taker_ratio(self, symbol="BTCUSDT"):
@@ -37,15 +37,12 @@ class ResilientDataEngine:
             if res.status_code == 200:
                 data = res.json()
                 if data and len(data) > 0:
-                    latest = data[-1]
-                    ratio = float(latest["buySellRatio"])
-                    return {"value": ratio, "confidence": 1.0}
-        except Exception as e:
-            print(f"⚠️ Binance API: {e}")
+                    return {"value": float(data[-1]["buySellRatio"]), "confidence": 1.0}
+        except Exception:
+            pass
         return {"value": 1.0, "confidence": 0.4}
 
     def fetch_yahoo_single(self, key, symbol, period="7d", interval="1h"):
-        """Tekil sembolü belirtilen zaman diliminde çeker."""
         try:
             ticker = yf.Ticker(symbol)
             df = ticker.history(period=period, interval=interval)
@@ -57,36 +54,33 @@ class ResilientDataEngine:
         return key, pd.DataFrame()
 
     def fetch_global_market_grid(self):
-        """Piyasa varlıklarını 1 saatlik ANLIK INTRADAY hızında paralel çeker."""
         grid_1h = {}
         grid_daily = {}
 
+        # 🛡️ SPX için gecikmeli ^GSPC yerine canlı SPY ETF'si bağlandı
         symbols = {
-            "SPX": "^GSPC",
-            "NQ": "QQQ",
-            "XAU": "GC=F",
-            "XAG": "SI=F",
+            "SPX": "SPY",       # Canlı S&P 500 ETF'si
+            "NQ": "QQQ",        # Canlı Nasdaq 100 ETF'si
+            "XAU": "GC=F",      # Altın
+            "XAG": "SI=F",      # Gümüş
             "BTC": "BTC-USD",
             "ETH": "ETH-USD",
-            "OIL": "CL=F",
-            "IYT": "IYT",
-            "DXY": "UUP",
-            "USDJPY": "JPY=X",
+            "OIL": "CL=F",      # Ham Petrol
+            "IYT": "IYT",       # Küresel Ticaret/Taşımacılık
+            "DXY": "UUP",       # Dolar
+            "USDJPY": "JPY=X",  # Yen
             "HYG": "HYG",
             "LQD": "LQD",
             "COPPER": "HG=F",
-            "VIX": "^VIX",
-            "XME": "XME"
+            "VIX": "^VIX"
         }
 
-        # ⚡ 1 SAATLİK ANLIK VERİLERİ 10 İŞ PARÇACIĞIYLA PARALEL ÇEK (0.8 Saniye)
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
             futures = {executor.submit(self.fetch_yahoo_single, k, sym, "7d", "1h"): k for k, sym in symbols.items()}
             for f in concurrent.futures.as_completed(futures):
                 k, df = f.result()
                 grid_1h[k] = df
 
-        # Günlük FRED Makro Serileri
         fred_keys = {
             "DFII10": "DFII10",
             "DGS10": "DGS10",
