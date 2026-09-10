@@ -1,9 +1,11 @@
 """
-Robust Quant Processor: Real-Time Microstructure, 3-Pillar USD Risk & Barra Normalization (v30)
+Robust Quant Processor: Institutional Barra Engine & Gamma Microstructure (v32)
 Enhanced with:
-- Zero-Lag Intraday Microstructure Price Discovery (Strict Sign Segregation)
-- Fixed False-Positive Rise Tilt on Negative Returns
-- Seamless Cross-Market Time-Series Alignment Engine (_safe_align_series)
+- Zero-Lag Intraday Microstructure Engine (Strict Sign Segregation & Directional Tilt)
+- Session-Adaptive ETF Liquidity Dampener (Immune to Pre-Market Distortions)
+- Continuous Real Yield Duration Engine (Zero-Deadband Elimination)
+- Market Maker Dealer Gamma Exposure & Tail Risk Architecture
+- Seamless Time-Series Alignment Engine (_safe_align_series)
 """
 import numpy as np
 import pandas as pd
@@ -40,13 +42,32 @@ class RobustQuantProcessor:
         return df_aligned
 
     # =========================================================================
-    # 📍 KUSURSUZ MİKRO PİYASA YAPISI (İŞARET KİLİTLİ YÖN MOTORU)
+    # 🕒 SEANS LİKİDİTE GÜVENİLİRLİK FİLTRESİ (PRE-MARKET YANILGISINI ÖNLER)
+    # =========================================================================
+    @staticmethod
+    def _get_cash_session_liquidity_multiplier() -> float:
+        """
+        ABD Nakit Hisse Seansı (13:30 - 20:00 UTC / 16:30 - 23:00 TSİ) dışındaki
+        sığ hisse senedi ETF (RSP, XLU, XLY, KRE) rasyo gürültüsünü filtreler.
+        """
+        now = datetime.now(timezone.utc)
+        if now.weekday() in [5, 6]:
+            return 0.50
+        cur_hour = now.hour + (now.minute / 60.0)
+        # ABD nakit piyasası açıkken tam ağırlık (1.0)
+        if 13.5 <= cur_hour <= 20.0:
+            return 1.0
+        # Pre-market veya seans dışı saatlerde sığ gürültüyü %50 törpüle
+        return 0.50
+
+    # =========================================================================
+    # 📍 GECİKMESİZ MİKRO PİYASA YAPISI & İŞARET KİLİTLİ YÖN MOTORU
     # =========================================================================
     @staticmethod
     def compute_realtime_price_action(df_1h, fast_window=4, vol_scale=1.0, asset_key=None):
         """
         📍 Saf Mikro Piyasa Yapısı (Zero-Lag Price Discovery):
-        İşaret kilidi entegre edildi:
+        İşaret kilidi:
         - display_roc < 0 ise ASLA 'YÜKSELİŞ' yazamaz.
         - display_roc > 0 ise ASLA 'DÜŞÜŞ' yazamaz.
         """
@@ -90,7 +111,6 @@ class RobustQuantProcessor:
         # =====================================================================
         # 🎯 KESİN İŞARET AYRIŞTIRMALI KARAR MOTORU
         # =====================================================================
-        # A. Pozitif Getiri Bölgesi (display_roc > 0)
         if display_roc > 0:
             if micro_score >= 1.0:
                 return f"🟢 GÜÇLÜ YUKARI (%{display_roc:+.2f})", "🟢🟢", "green", display_roc
@@ -101,7 +121,6 @@ class RobustQuantProcessor:
             else:
                 return f"⚪ YATAY / TESTERE (%{display_roc:+.2f})", "⚪", "gray", display_roc
 
-        # B. Negatif Getiri Bölgesi (display_roc < 0)
         elif display_roc < 0:
             if micro_score <= -1.0:
                 return f"🔴 GÜÇLÜ AŞAĞI (%{display_roc:+.2f})", "🔴🔴", "darkred", display_roc
@@ -112,7 +131,6 @@ class RobustQuantProcessor:
             else:
                 return f"⚪ YATAY / TESTERE (%{display_roc:+.2f})", "⚪", "gray", display_roc
 
-        # C. Nötr / Sıfır Bölgesi (display_roc == 0)
         else:
             return f"⚪ YATAY (%0.00)", "⚪", "gray", 0.0
 
@@ -232,17 +250,17 @@ class RobustQuantProcessor:
         return float(np.clip(roc_4h * 3.5, -2.0, 2.0))
 
     # =========================================================================
-    # 🎯 VARLIĞA ÖZEL İDİOSİNKRATİK RİSK MODELLERİ
+    # 🎯 VARLIĞA ÖZEL İDİOSİNKRATİK & MODERNLEŞTİRİLMİŞ RİSK MODELLERİ
     # =========================================================================
     @staticmethod
     def compute_equity_duration_drag(df_asset, real_yield_z):
-        if real_yield_z > 0.30:
-            drag = (real_yield_z - 0.30) * 1.2
-            return float(np.clip(drag, 0.0, 2.0))
-        elif real_yield_z < -0.30:
-            boost = (real_yield_z + 0.30) * 0.9
-            return float(np.clip(boost, -2.0, 0.0))
-        return 0.0
+        """
+        KESİNTİSİZ 10Y Reel Faiz Değerleme Motoru (Ölü Bant Hatası Yok):
+        TIPS reel faiz Z-skorunu yapay olarak 0'a çekmez; dinamik kesintisiz etki üretir.
+        """
+        z_val = float(real_yield_z) if real_yield_z is not None else 0.0
+        drag = z_val * 0.85
+        return float(np.clip(drag, -2.0, 2.0))
 
     @staticmethod
     def compute_tech_breadth_dispersion(smh_df, arkk_df, qqq_df, window=24):
@@ -323,7 +341,7 @@ class RobustQuantProcessor:
         return float(np.clip(roc * 2.5, -1.8, 1.8))
 
     # =========================================================================
-    # 📈 STANDART FAKTÖR VE PİYASA BİLEŞENLERİ (GECİKMESİZ HİZALAMA)
+    # 📈 SEANS DUYARLI ROTASYON & MODERN PİYASA YAPICI (GAMMA) MODELLERİ
     # =========================================================================
     @staticmethod
     def compute_intraday_direction_momentum(df_1h, fast_window=4, slow_window=24, vol_scale=1.0):
@@ -356,6 +374,7 @@ class RobustQuantProcessor:
 
     @staticmethod
     def compute_market_breadth(rsp_df, spy_df, window=24):
+        """Piyasa Genişliği (Seans Duyarlı Likidite Korumalı)"""
         if rsp_df.empty or spy_df.empty:
             return 0.0
         s1 = rsp_df["Close"] if "Close" in rsp_df.columns else rsp_df.iloc[:, 0]
@@ -368,13 +387,11 @@ class RobustQuantProcessor:
         if w < 1:
             return 0.0
         roc = ((ratio.iloc[-1] - ratio.iloc[-w - 1]) / (ratio.iloc[-w - 1] + 1e-9)) * 100.0
-        if abs(roc) < 1e-5:
-            w_z = min(48, len(ratio))
-            mean_val = ratio.tail(w_z).mean()
-            std_val = ratio.tail(w_z).std() + 1e-9
-            z_val = (ratio.iloc[-1] - mean_val) / std_val
-            return float(np.clip(z_val, -1.8, 1.8))
-        return float(np.clip(roc * 2.0, -1.8, 1.8))
+
+        # Seans dışı sığ likidite çarpanı
+        session_mult = RobustQuantProcessor._get_cash_session_liquidity_multiplier()
+        raw_val = roc * 2.0 * session_mult
+        return float(np.clip(raw_val, -1.8, 1.8))
 
     @staticmethod
     def compute_gsr_velocity(xau_df, xag_df, window=24):
@@ -422,6 +439,7 @@ class RobustQuantProcessor:
 
     @staticmethod
     def compute_banking_stress(kre_df, spy_df, window=24):
+        """Bölgesel Bankacılık Stresi (Seans Duyarlı)"""
         if kre_df.empty or spy_df.empty:
             return 0.0
         s1 = kre_df["Close"] if "Close" in kre_df.columns else kre_df.iloc[:, 0]
@@ -434,16 +452,13 @@ class RobustQuantProcessor:
         if w < 1:
             return 0.0
         roc = ((ratio.iloc[-1] - ratio.iloc[-w - 1]) / (ratio.iloc[-w - 1] + 1e-9)) * 100.0
-        if abs(roc) < 1e-5:
-            w_z = min(48, len(ratio))
-            mean_val = ratio.tail(w_z).mean()
-            std_val = ratio.tail(w_z).std() + 1e-9
-            z_val = (ratio.iloc[-1] - mean_val) / std_val
-            return float(np.clip(z_val, -1.8, 1.8))
-        return float(np.clip(roc * 2.0, -1.8, 1.8))
+        session_mult = RobustQuantProcessor._get_cash_session_liquidity_multiplier()
+        raw_val = roc * 2.0 * session_mult
+        return float(np.clip(raw_val, -1.8, 1.8))
 
     @staticmethod
     def compute_defensive_flight(xlu_df, benchmark_df, window=24):
+        """Defansif Kamu Kaçışı (Seans Duyarlı)"""
         if xlu_df.empty or benchmark_df.empty:
             return 0.0
         s1 = xlu_df["Close"] if "Close" in xlu_df.columns else xlu_df.iloc[:, 0]
@@ -456,16 +471,13 @@ class RobustQuantProcessor:
         if w < 1:
             return 0.0
         roc = ((ratio.iloc[-1] - ratio.iloc[-w - 1]) / (ratio.iloc[-w - 1] + 1e-9)) * 100.0
-        if abs(roc) < 1e-5:
-            w_z = min(48, len(ratio))
-            mean_val = ratio.tail(w_z).mean()
-            std_val = ratio.tail(w_z).std() + 1e-9
-            z_val = (ratio.iloc[-1] - mean_val) / std_val
-            return float(np.clip(z_val, -1.8, 1.8))
-        return float(np.clip(roc * 2.0, -1.8, 1.8))
+        session_mult = RobustQuantProcessor._get_cash_session_liquidity_multiplier()
+        raw_val = roc * 2.0 * session_mult
+        return float(np.clip(raw_val, -1.8, 1.8))
 
     @staticmethod
     def compute_consumer_confidence(xly_df, xlp_df, window=24):
+        """Tüketici Güveni (Seans Duyarlı)"""
         if xly_df.empty or xlp_df.empty:
             return 0.0
         s1 = xly_df["Close"] if "Close" in xly_df.columns else xly_df.iloc[:, 0]
@@ -478,13 +490,9 @@ class RobustQuantProcessor:
         if w < 1:
             return 0.0
         roc = ((ratio.iloc[-1] - ratio.iloc[-w - 1]) / (ratio.iloc[-w - 1] + 1e-9)) * 100.0
-        if abs(roc) < 1e-5:
-            w_z = min(48, len(ratio))
-            mean_val = ratio.tail(w_z).mean()
-            std_val = ratio.tail(w_z).std() + 1e-9
-            z_val = (ratio.iloc[-1] - mean_val) / std_val
-            return float(np.clip(z_val, -1.8, 1.8))
-        return float(np.clip(roc * 2.0, -1.8, 1.8))
+        session_mult = RobustQuantProcessor._get_cash_session_liquidity_multiplier()
+        raw_val = roc * 2.0 * session_mult
+        return float(np.clip(raw_val, -1.8, 1.8))
 
     @staticmethod
     def compute_vix_stress(vix_df, window=48):
@@ -502,14 +510,21 @@ class RobustQuantProcessor:
 
     @staticmethod
     def compute_vix_term_structure(vix_df, vix3m_df):
+        """
+        MODERN DEALER GAMMA (GEX) & KUYRUK RİSKİ MOTORU:
+        VIX/VIX3M eğrisini piyasa yapıcı Gamma rejimine çevirir:
+        - Ratio < 0.90: Pozitif Gamma (Volatilite Sönümleme Kalkanı)
+        - Ratio > 1.05: Negatif Gamma (Kaskat Çöküş Tehlikesi)
+        """
         if vix_df.empty:
             return 0.0
         cur_vix = float(vix_df["Close"].iloc[-1])
         if not vix3m_df.empty:
             cur_vix3m = float(vix3m_df["Close"].iloc[-1])
             ratio = cur_vix / (cur_vix3m + 1e-9)
-            stress = (ratio - 1.0) * 8.0
-            return float(np.clip(stress, -2.0, 2.0))
+            # Doğrusal olmayan S-eğrisi Gamma tepkisi
+            gamma_stress = np.tanh((ratio - 0.98) * 5.0) * 1.8
+            return float(np.clip(gamma_stress, -2.0, 2.0))
         return float(np.clip((cur_vix - 17.5) / 4.0, -1.8, 1.8))
 
     @staticmethod
@@ -613,7 +628,7 @@ class RobustQuantProcessor:
         if df_num.empty or df_denom.empty:
             return 0.0
         s1 = df_num["Close"] if "Close" in df_num.columns else df_num.iloc[:, 0]
-        s2 = df_denom["Close"] if "Close" in df_denom.columns else df_denom.iloc[:, 0]
+        s2 = df_denom["Close"] if "Close" in df_num.columns else df_denom.iloc[:, 0]
         aligned = RobustQuantProcessor._safe_align_series(s1, s2)
         if len(aligned) < 2:
             return 0.0
