@@ -1,7 +1,8 @@
 """
-Robust Quant Processor: Institutional Barra Engine & Gamma Microstructure (v32)
+Robust Quant Processor: Institutional Barra Engine & Gamma Microstructure (v33)
 Enhanced with:
-- Zero-Lag Intraday Microstructure Engine (Strict Sign Segregation & Directional Tilt)
+- Stabilized Calm Price Action Engine (75% Anchor on 4H Return, Prevents Nervous Jitter)
+- Live Candle Drift Attenuation (No more hyperactive tick-by-tick flipping)
 - Session-Adaptive ETF Liquidity Dampener (Immune to Pre-Market Distortions)
 - Continuous Real Yield Duration Engine (Zero-Deadband Elimination)
 - Market Maker Dealer Gamma Exposure & Tail Risk Architecture
@@ -46,70 +47,65 @@ class RobustQuantProcessor:
     # =========================================================================
     @staticmethod
     def _get_cash_session_liquidity_multiplier() -> float:
-        """
-        ABD Nakit Hisse Seansı (13:30 - 20:00 UTC / 16:30 - 23:00 TSİ) dışındaki
-        sığ hisse senedi ETF (RSP, XLU, XLY, KRE) rasyo gürültüsünü filtreler.
-        """
         now = datetime.now(timezone.utc)
         if now.weekday() in [5, 6]:
             return 0.50
         cur_hour = now.hour + (now.minute / 60.0)
-        # ABD nakit piyasası açıkken tam ağırlık (1.0)
         if 13.5 <= cur_hour <= 20.0:
             return 1.0
-        # Pre-market veya seans dışı saatlerde sığ gürültüyü %50 törpüle
         return 0.50
 
     # =========================================================================
-    # 📍 GECİKMESİZ MİKRO PİYASA YAPISI & İŞARET KİLİTLİ YÖN MOTORU
+    # 📍 SAKİN & STABİLİZE EDİLMİŞ MİKRO PİYASA YAPISI (GÜRÜLTÜ FİLTRELİ)
     # =========================================================================
     @staticmethod
     def compute_realtime_price_action(df_1h, fast_window=4, vol_scale=1.0, asset_key=None):
         """
-        📍 Saf Mikro Piyasa Yapısı (Zero-Lag Price Discovery):
-        İşaret kilidi:
-        - display_roc < 0 ise ASLA 'YÜKSELİŞ' yazamaz.
-        - display_roc > 0 ise ASLA 'DÜŞÜŞ' yazamaz.
+        📍 Stabilize Edilmiş Fiyat Hareketi Motoru (Sakin & Güvenilir):
+        - Fiyatın her 5 saniyelik tik takında yön değiştirmesini engeller.
+        - Ana omurgayı %75 ile oturaklı 4 saatlik seans getirisine bağlar.
+        - Henüz kapanmamış canlı barın içsel gürültüsünü törpüler.
         """
         if df_1h is None or df_1h.empty or len(df_1h) < 2:
             return "⚪ YATAY (%0.00)", "⚪", "gray", 0.0
 
+        close = df_1h["Close"]
+        c = float(close.iloc[-1])
+
+        # 1. Ana Oturaklı Çapa: 4 Saatlik Seans Getirisi (Stabil)
+        w = min(fast_window, len(df_1h) - 1)
+        roc_window = ((c - close.iloc[-w - 1]) / (close.iloc[-w - 1] + 1e-9)) * 100.0
+        display_roc = round(float(roc_window), 2)
+
+        # 2. Canlı Bar İtki Düzeltmesi (Sadece mikro teyit için, ana yönü bozamaz)
         last_bar = df_1h.iloc[-1]
-        c = float(last_bar["Close"])
-        o = float(last_bar["Open"]) if "Open" in df_1h.columns else float(df_1h["Close"].iloc[-2])
+        o = float(last_bar["Open"]) if "Open" in df_1h.columns else float(close.iloc[-2])
+        instant_drift = ((c - o) / (o + 1e-9)) * 100.0
+
+        # 3. Bar İçi Likidite Konumu (CLV) - Törpülenmiş mikro etki (%5)
         h = float(last_bar["High"]) if "High" in df_1h.columns else max(c, o)
         l = float(last_bar["Low"]) if "Low" in df_1h.columns else min(c, o)
         bar_range = max(h - l, 1e-9)
-
-        # 1. Anlık Mum İtme Oranı (Close vs Open)
-        instant_drift = ((c - o) / (o + 1e-9)) * 100.0
-
-        # 2. Seans Penceresi Getirisi (Fast window, örn. 4H)
-        w = min(fast_window, len(df_1h) - 1)
-        roc_window = ((c - df_1h["Close"].iloc[-w - 1]) / (df_1h["Close"].iloc[-w - 1] + 1e-9)) * 100.0
-        display_roc = round(float(roc_window), 2)
-
-        # 3. Bar İçi Likidite Konumu (CLV) [-1.0, +1.0]
         clv = ((c - l) - (h - c)) / bar_range
 
-        # 4. Hacim Ağırlığı
+        # 4. Hacim Teyidi
         vol_weight = 1.0
         if "Volume" in df_1h.columns and len(df_1h) >= 12:
             avg_vol = df_1h["Volume"].tail(12).mean()
             if avg_vol > 0:
                 cur_vol = float(last_bar["Volume"])
-                vol_weight = float(np.clip(cur_vol / avg_vol, 0.6, 2.0))
+                vol_weight = float(np.clip(cur_vol / avg_vol, 0.7, 1.5))
 
         # 5. Dinamik Volatilite Normalizasyonu
         eff_scale = max(float(vol_scale), 0.5)
         noise_threshold = 0.35 * eff_scale
 
-        # Mikro Yapı Skoru
-        blended_momentum = (instant_drift * 0.50) + (roc_window * 0.30)
-        micro_score = ((blended_momentum * vol_weight) / noise_threshold) + (clv * 0.40)
+        # 6. STABİL MİKRO SKOR (%75 4H Seans Getirisi + %20 Canlı Mum İtkisi + %5 CLV)
+        blended_momentum = (roc_window * 0.75) + (instant_drift * 0.20)
+        micro_score = ((blended_momentum * vol_weight) / noise_threshold) + (clv * 0.05)
 
         # =====================================================================
-        # 🎯 KESİN İŞARET AYRIŞTIRMALI KARAR MOTORU
+        # 🎯 KARAR VE ETİKETLEME MEKANİZMASI (STABİL & SAKİN)
         # =====================================================================
         if display_roc > 0:
             if micro_score >= 1.0:
@@ -255,8 +251,7 @@ class RobustQuantProcessor:
     @staticmethod
     def compute_equity_duration_drag(df_asset, real_yield_z):
         """
-        KESİNTİSİZ 10Y Reel Faiz Değerleme Motoru (Ölü Bant Hatası Yok):
-        TIPS reel faiz Z-skorunu yapay olarak 0'a çekmez; dinamik kesintisiz etki üretir.
+        KESİNTİSİZ 10Y Reel Faiz Değerleme Motoru (Ölü Bant Hatası Yok)
         """
         z_val = float(real_yield_z) if real_yield_z is not None else 0.0
         drag = z_val * 0.85
@@ -374,7 +369,6 @@ class RobustQuantProcessor:
 
     @staticmethod
     def compute_market_breadth(rsp_df, spy_df, window=24):
-        """Piyasa Genişliği (Seans Duyarlı Likidite Korumalı)"""
         if rsp_df.empty or spy_df.empty:
             return 0.0
         s1 = rsp_df["Close"] if "Close" in rsp_df.columns else rsp_df.iloc[:, 0]
@@ -388,7 +382,6 @@ class RobustQuantProcessor:
             return 0.0
         roc = ((ratio.iloc[-1] - ratio.iloc[-w - 1]) / (ratio.iloc[-w - 1] + 1e-9)) * 100.0
 
-        # Seans dışı sığ likidite çarpanı
         session_mult = RobustQuantProcessor._get_cash_session_liquidity_multiplier()
         raw_val = roc * 2.0 * session_mult
         return float(np.clip(raw_val, -1.8, 1.8))
@@ -439,7 +432,6 @@ class RobustQuantProcessor:
 
     @staticmethod
     def compute_banking_stress(kre_df, spy_df, window=24):
-        """Bölgesel Bankacılık Stresi (Seans Duyarlı)"""
         if kre_df.empty or spy_df.empty:
             return 0.0
         s1 = kre_df["Close"] if "Close" in kre_df.columns else kre_df.iloc[:, 0]
@@ -458,7 +450,6 @@ class RobustQuantProcessor:
 
     @staticmethod
     def compute_defensive_flight(xlu_df, benchmark_df, window=24):
-        """Defansif Kamu Kaçışı (Seans Duyarlı)"""
         if xlu_df.empty or benchmark_df.empty:
             return 0.0
         s1 = xlu_df["Close"] if "Close" in xlu_df.columns else xlu_df.iloc[:, 0]
@@ -477,7 +468,6 @@ class RobustQuantProcessor:
 
     @staticmethod
     def compute_consumer_confidence(xly_df, xlp_df, window=24):
-        """Tüketici Güveni (Seans Duyarlı)"""
         if xly_df.empty or xlp_df.empty:
             return 0.0
         s1 = xly_df["Close"] if "Close" in xly_df.columns else xly_df.iloc[:, 0]
@@ -510,19 +500,12 @@ class RobustQuantProcessor:
 
     @staticmethod
     def compute_vix_term_structure(vix_df, vix3m_df):
-        """
-        MODERN DEALER GAMMA (GEX) & KUYRUK RİSKİ MOTORU:
-        VIX/VIX3M eğrisini piyasa yapıcı Gamma rejimine çevirir:
-        - Ratio < 0.90: Pozitif Gamma (Volatilite Sönümleme Kalkanı)
-        - Ratio > 1.05: Negatif Gamma (Kaskat Çöküş Tehlikesi)
-        """
         if vix_df.empty:
             return 0.0
         cur_vix = float(vix_df["Close"].iloc[-1])
         if not vix3m_df.empty:
             cur_vix3m = float(vix3m_df["Close"].iloc[-1])
             ratio = cur_vix / (cur_vix3m + 1e-9)
-            # Doğrusal olmayan S-eğrisi Gamma tepkisi
             gamma_stress = np.tanh((ratio - 0.98) * 5.0) * 1.8
             return float(np.clip(gamma_stress, -2.0, 2.0))
         return float(np.clip((cur_vix - 17.5) / 4.0, -1.8, 1.8))
@@ -715,29 +698,29 @@ class RobustQuantProcessor:
         is_choppy = ("DENGE" in market_regime or "SIKIŞMA" in market_regime or "REJIMSIZ_GECIS" in market_regime) or (adx_val < 20.0)
 
         if dyn is not None:
-            buy_enter = dyn.get("buy_enter", 0.60)
-            sell_enter = dyn.get("sell_enter", -0.60)
+            buy_enter = dyn.get("buy_enter", 0.75)
+            sell_enter = dyn.get("sell_enter", -0.75)
             buy_exit = dyn.get("buy_exit", 0.30)
             sell_exit = dyn.get("sell_exit", -0.30)
-            strong_buy_enter = dyn.get("strong_buy_enter", 1.60)
-            strong_sell_enter = dyn.get("strong_sell_enter", -1.60)
+            strong_buy_enter = dyn.get("strong_buy_enter", 1.70)
+            strong_sell_enter = dyn.get("strong_sell_enter", -1.70)
             req_clusters = max(min_clusters, dyn.get("min_clusters", 2))
         elif is_choppy:
-            buy_enter = 0.85
-            sell_enter = -0.85
-            req_clusters = max(min_clusters, 3)
-            buy_exit = 0.35
-            sell_exit = -0.35
+            buy_enter = 0.75
+            sell_enter = -0.75
+            req_clusters = max(min_clusters, 2)
+            buy_exit = 0.30
+            sell_exit = -0.30
             strong_buy_enter = 1.70
             strong_sell_enter = -1.70
         else:
-            buy_enter = t.get("buy_enter", 0.60)
-            sell_enter = t.get("sell_enter", -0.60)
+            buy_enter = t.get("buy_enter", 0.75)
+            sell_enter = t.get("sell_enter", -0.75)
             req_clusters = min_clusters
             buy_exit = t.get("buy_exit", 0.30)
             sell_exit = t.get("sell_exit", -0.30)
-            strong_buy_enter = t.get("strong_buy_enter", 1.60)
-            strong_sell_enter = t.get("strong_sell_enter", -1.60)
+            strong_buy_enter = t.get("strong_buy_enter", 1.70)
+            strong_sell_enter = t.get("strong_sell_enter", -1.70)
 
         # 1. GÜÇLÜ AL KONTROLÜ
         if prev == "GÜÇLÜ AL":
