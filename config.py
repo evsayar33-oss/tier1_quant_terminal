@@ -1,9 +1,9 @@
 """
-Configuration: Calibrated Asset Matrices, Barra Cluster Parity & Risk Normalization (v32)
+Configuration: Calibrated Asset Matrices, Barra Cluster Parity & Risk Normalization (v33)
 Enhanced with:
+- Live 24/7 Futures Benchmarks (ES=F for S&P 500, NQ=F for Nasdaq 100)
 - Updated Dynamic Thresholds (Buy Enter: +0.75, Exit: +0.30 | Sell Enter: -0.75, Exit: -0.30)
 - Multicollinearity-Proof Cluster Risk Parity (Balanced Cluster Weights)
-- Restored Liquid Benchmarks (SPY, QQQ, GC=F, SI=F, BTC-USD, ETH-USD)
 """
 
 CLUSTERS = {
@@ -14,7 +14,6 @@ CLUSTERS = {
     "E": "Varlığa Özel İtici Güç & Mikro Yapı (4H Momentum, Çip, Taker, Sıkışma)"
 }
 
-# Kalibre Edilmiş Sinyal Eşikleri
 SIGNAL_THRESHOLDS = {
     "strong_buy_enter": 1.60,
     "strong_buy_exit": 1.00,
@@ -26,16 +25,13 @@ SIGNAL_THRESHOLDS = {
     "sell_exit": -0.30
 }
 
-# =============================================================================
-# 🎯 BARRA KÜME RİSK PARİTESİ İLE KALİBRE EDİLMİŞ MATRİSLER
-# =============================================================================
 ASSET_MATRICES = {
     "SPX": {
         "name": "S&P 500 Index",
-        "benchmark_symbol": "SPY",
+        "benchmark_symbol": "ES=F",
         "vol_scale": 1.0,
         "factors": [
-            {"id": "asset_direction", "name": "SPY 4H Anlık Fiyat Hızı", "cluster": "E", "base_weight": 1.80, "base_sign": 1.0},
+            {"id": "asset_direction", "name": "ES 4H Anlık Fiyat Hızı", "cluster": "E", "base_weight": 1.80, "base_sign": 1.0},
             {"id": "semi_lead", "name": "SMH Çip / AI Sektör İvmesi", "cluster": "E", "base_weight": 0.80, "base_sign": 1.0},
             {"id": "market_breadth", "name": "RSP/SPY Piyasa Katılım Genişliği", "cluster": "E", "base_weight": 0.55, "base_sign": 1.0},
             {"id": "defensive_flight", "name": "XLU/SPY Kurumsal Defansif Kaçış", "cluster": "E", "base_weight": 0.55, "base_sign": -1.0},
@@ -54,10 +50,10 @@ ASSET_MATRICES = {
     },
     "NQ": {
         "name": "NASDAQ 100",
-        "benchmark_symbol": "QQQ",
+        "benchmark_symbol": "NQ=F",
         "vol_scale": 1.2,
         "factors": [
-            {"id": "asset_direction", "name": "QQQ 4H Anlık Fiyat Hızı", "cluster": "E", "base_weight": 1.80, "base_sign": 1.0},
+            {"id": "asset_direction", "name": "NQ 4H Anlık Fiyat Hızı", "cluster": "E", "base_weight": 1.80, "base_sign": 1.0},
             {"id": "semi_lead", "name": "SMH Çip / AI Sektör İvmesi", "cluster": "E", "base_weight": 0.95, "base_sign": 1.0},
             {"id": "tech_breadth_dispersion", "name": "Çip & Yüksek Beta Ayrışması", "cluster": "E", "base_weight": 0.65, "base_sign": 1.0},
             {"id": "speculative_beta", "name": "ARKK/QQQ Yüksek Beta Spekülasyon", "cluster": "E", "base_weight": 0.60, "base_sign": 1.0},
@@ -158,12 +154,12 @@ ASSET_MATRICES = {
 }
 
 ASSET_CLOCKS = {
-    "SPX": {"open_utc": 13.5, "close_utc": 20.0, "type": "TRADITIONAL"},
-    "NQ":  {"open_utc": 13.5, "close_utc": 20.0, "type": "TRADITIONAL"},
-    "XAU": {"open_utc": 0.0,  "close_utc": 24.0, "type": "FUTURES_23H"},
-    "XAG": {"open_utc": 0.0,  "close_utc": 24.0, "type": "FUTURES_23H"},
-    "BTC": {"open_utc": 0.0,  "close_utc": 24.0, "type": "CRYPTO_24_7"},
-    "ETH": {"open_utc": 0.0,  "close_utc": 24.0, "type": "CRYPTO_24_7"}
+    "SPX": {"open_utc": 0.0, "close_utc": 24.0, "type": "FUTURES_23H"},
+    "NQ":  {"open_utc": 0.0, "close_utc": 24.0, "type": "FUTURES_23H"},
+    "XAU": {"open_utc": 0.0, "close_utc": 24.0, "type": "FUTURES_23H"},
+    "XAG": {"open_utc": 0.0, "close_utc": 24.0, "type": "FUTURES_23H"},
+    "BTC": {"open_utc": 0.0, "close_utc": 24.0, "type": "CRYPTO_24_7"},
+    "ETH": {"open_utc": 0.0, "close_utc": 24.0, "type": "CRYPTO_24_7"}
 }
 
 CRISIS_CONFIG = {
@@ -403,80 +399,41 @@ MACRO_EVENT_SYSTEM_SPEC = {
   ]
 }
 
-# =============================================================================
-# 🎯 YENİ KALİBRE EDİLMİŞ DİNAMİK EŞİKLER (±0.75 Giriş / ±0.30 Çıkış)
-# =============================================================================
 REGIME_DYNAMIC_THRESHOLDS = {
     1: {
         "name": "Küresel Enflasyon & Stagflasyon Şoku",
-        "buy_enter": 0.85,
-        "buy_exit": 0.35,
-        "sell_enter": -0.50,
-        "sell_exit": -0.20,
-        "strong_buy_enter": 1.90,
-        "strong_sell_enter": -1.30,
-        "min_clusters": 3,
-        "risk_scale": 0.70,
+        "buy_enter": 0.85, "buy_exit": 0.35, "sell_enter": -0.50, "sell_exit": -0.20,
+        "strong_buy_enter": 1.90, "strong_sell_enter": -1.30, "min_clusters": 3, "risk_scale": 0.70,
         "description": "Enflasyon baskısı: Alış eşiği sıkılaştırıldı (0.85), satış eşiği duyarlılaştırıldı (-0.50)."
     },
     2: {
         "name": "Sistemik Likidite Şoku & Carry Çöküşü",
-        "buy_enter": 1.20,
-        "buy_exit": 0.50,
-        "sell_enter": -0.40,
-        "sell_exit": -0.15,
-        "strong_buy_enter": 2.20,
-        "strong_sell_enter": -1.10,
-        "min_clusters": 3,
-        "risk_scale": 0.40,
+        "buy_enter": 1.20, "buy_exit": 0.50, "sell_enter": -0.40, "sell_exit": -0.15,
+        "strong_buy_enter": 2.20, "strong_sell_enter": -1.10, "min_clusters": 3, "risk_scale": 0.40,
         "description": "Likidite çöküşü: Alışlar aşırı yüksek teyide bağlandı (1.20), satışlar hızlandırıldı (-0.40)."
     },
     3: {
         "name": "Reel Faiz Şoku",
-        "buy_enter": 0.80,
-        "buy_exit": 0.30,
-        "sell_enter": -0.55,
-        "sell_exit": -0.25,
-        "strong_buy_enter": 1.80,
-        "strong_sell_enter": -1.40,
-        "min_clusters": 2,
-        "risk_scale": 0.75,
+        "buy_enter": 0.80, "buy_exit": 0.30, "sell_enter": -0.55, "sell_exit": -0.25,
+        "strong_buy_enter": 1.80, "strong_sell_enter": -1.40, "min_clusters": 2, "risk_scale": 0.75,
         "description": "Reel getiri baskısı: Değerleme şoku, süre riski yüksek varlıklarda alış filtresi (0.80)."
     },
     4: {
         "name": "Kredi Temerrüt Baskısı",
-        "buy_enter": 0.95,
-        "buy_exit": 0.40,
-        "sell_enter": -0.45,
-        "sell_exit": -0.20,
-        "strong_buy_enter": 2.00,
-        "strong_sell_enter": -1.20,
-        "min_clusters": 3,
-        "risk_scale": 0.50,
+        "buy_enter": 0.95, "buy_exit": 0.40, "sell_enter": -0.45, "sell_exit": -0.20,
+        "strong_buy_enter": 2.00, "strong_sell_enter": -1.20, "min_clusters": 3, "risk_scale": 0.50,
         "description": "Kredi temerrüt riski: Spread patlaması, yüksek beta varlıklarda savunma (0.95)."
     },
     5: {
         "name": "Küresel Likidite Rallisi (Risk-On)",
-        "buy_enter": 0.50,
-        "buy_exit": 0.25,
-        "sell_enter": -0.80,
-        "sell_exit": -0.35,
-        "strong_buy_enter": 1.40,
-        "strong_sell_enter": -1.80,
-        "min_clusters": 2,
-        "risk_scale": 1.25,
+        "buy_enter": 0.50, "buy_exit": 0.25, "sell_enter": -0.80, "sell_exit": -0.35,
+        "strong_buy_enter": 1.40, "strong_sell_enter": -1.80, "min_clusters": 2, "risk_scale": 1.25,
         "description": "Likidite rallisi: Alışlar erken tetiklenir (0.50), boğa piyasasında erken satışlar engellenir (-0.80)."
     },
     "REJIMSIZ_GECIS": {
         "name": "Rejimsiz Geçiş / Makro Denge",
-        "buy_enter": 0.75,
-        "buy_exit": 0.30,
-        "sell_enter": -0.75,
-        "sell_exit": -0.30,
-        "strong_buy_enter": 1.70,
-        "strong_sell_enter": -1.70,
-        "min_clusters": 2,
-        "risk_scale": 0.85,
+        "buy_enter": 0.75, "buy_exit": 0.30, "sell_enter": -0.75, "sell_exit": -0.30,
+        "strong_buy_enter": 1.70, "strong_sell_enter": -1.70, "min_clusters": 2, "risk_scale": 0.85,
         "description": "Rejimsiz Geçiş / Denge: Testere filtresi devrede, simetrik eşikler (±0.75 Giriş / ±0.30 Çıkış)."
     }
 }
