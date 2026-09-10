@@ -1,10 +1,9 @@
 """
-Configuration: Calibrated Asset Matrices, Barra Cluster Parity & Risk Normalization (v31)
+Configuration: Calibrated Asset Matrices, Barra Cluster Parity & Risk Normalization (v32)
 Enhanced with:
+- Updated Dynamic Thresholds (Buy Enter: +0.75, Exit: +0.30 | Sell Enter: -0.75, Exit: -0.30)
 - Multicollinearity-Proof Cluster Risk Parity (Balanced Cluster Weights)
-- Session-Adaptive ETF Resilience
 - Restored Liquid Benchmarks (SPY, QQQ, GC=F, SI=F, BTC-USD, ETH-USD)
-- Continuous Duration & Macro Event Calibration
 """
 
 CLUSTERS = {
@@ -15,15 +14,15 @@ CLUSTERS = {
     "E": "Varlığa Özel İtici Güç & Mikro Yapı (4H Momentum, Çip, Taker, Sıkışma)"
 }
 
-# Kalibre Edilmiş Sinyal Eşikleri (±0.60 Giriş, ±0.30 Çıkış)
+# Kalibre Edilmiş Sinyal Eşikleri
 SIGNAL_THRESHOLDS = {
     "strong_buy_enter": 1.60,
     "strong_buy_exit": 1.00,
-    "buy_enter": 0.60,
+    "buy_enter": 0.75,
     "buy_exit": 0.30,
     "strong_sell_enter": -1.60,
     "strong_sell_exit": -1.00,
-    "sell_enter": -0.60,
+    "sell_enter": -0.75,
     "sell_exit": -0.30
 }
 
@@ -36,23 +35,18 @@ ASSET_MATRICES = {
         "benchmark_symbol": "SPY",
         "vol_scale": 1.0,
         "factors": [
-            # Küme E: Varlığa Özel & Mikro Yapı (Dengeli: Toplam ~2.6)
             {"id": "asset_direction", "name": "SPY 4H Anlık Fiyat Hızı", "cluster": "E", "base_weight": 1.80, "base_sign": 1.0},
             {"id": "semi_lead", "name": "SMH Çip / AI Sektör İvmesi", "cluster": "E", "base_weight": 0.80, "base_sign": 1.0},
             {"id": "market_breadth", "name": "RSP/SPY Piyasa Katılım Genişliği", "cluster": "E", "base_weight": 0.55, "base_sign": 1.0},
             {"id": "defensive_flight", "name": "XLU/SPY Kurumsal Defansif Kaçış", "cluster": "E", "base_weight": 0.55, "base_sign": -1.0},
             {"id": "consumer_demand", "name": "XLY/XLP Tüketici Talebi & Büyüme", "cluster": "E", "base_weight": 0.55, "base_sign": 1.0},
-            # Küme B: Faiz & Süre (Toplam ~1.2)
             {"id": "equity_duration_drag", "name": "10Y Reel Faiz Değerleme Baskısı", "cluster": "B", "base_weight": 0.65, "base_sign": -1.0},
             {"id": "duration_risk", "name": "TLT/SHY Uzun Vade Tahvil Süre Riski", "cluster": "B", "base_weight": 0.55, "base_sign": 1.0},
-            # Küme C: Kredi & Volatilite (Multicollinearity Düzeltildi: Toplam ~2.0)
             {"id": "banking_stress", "name": "KRE/SPY Bölgesel Bankacılık Likiditesi", "cluster": "C", "base_weight": 0.50, "base_sign": 1.0},
             {"id": "credit_spread", "name": "HYG/LQD Kredi Gücü & İştahı", "cluster": "C", "base_weight": 0.55, "base_sign": 1.0},
             {"id": "vix_strain", "name": "VIX Opsiyon Korku Primi", "cluster": "C", "base_weight": 0.55, "base_sign": -1.0},
             {"id": "vix_term", "name": "VIX/VIX3M Dealer Gamma & Vade Eğrisi", "cluster": "C", "base_weight": 0.60, "base_sign": -1.0},
-            # Küme D: Emtia & Enflasyon
             {"id": "stagflation_shock", "name": "Petrol / Ticaret (IYT) Şoku", "cluster": "D", "base_weight": 0.50, "base_sign": -1.0},
-            # Küme A: Dolar Riski & Küresel Likidite (Toplam ~1.8)
             {"id": "usd_strength", "name": "DXY Kısa Vade Dolar Baskısı", "cluster": "A", "base_weight": 0.60, "base_sign": -1.0},
             {"id": "net_dollar_liquidity", "name": "Fed Net Dolar Likiditesi (NDL)", "cluster": "A", "base_weight": 0.65, "base_sign": 1.0},
             {"id": "usd_jpy_carry", "name": "USD/JPY Carry & Küresel Likidite", "cluster": "A", "base_weight": 0.55, "base_sign": 1.0}
@@ -63,23 +57,18 @@ ASSET_MATRICES = {
         "benchmark_symbol": "QQQ",
         "vol_scale": 1.2,
         "factors": [
-            # Küme E: Teknoloji & İdiosinkratik
             {"id": "asset_direction", "name": "QQQ 4H Anlık Fiyat Hızı", "cluster": "E", "base_weight": 1.80, "base_sign": 1.0},
             {"id": "semi_lead", "name": "SMH Çip / AI Sektör İvmesi", "cluster": "E", "base_weight": 0.95, "base_sign": 1.0},
             {"id": "tech_breadth_dispersion", "name": "Çip & Yüksek Beta Ayrışması", "cluster": "E", "base_weight": 0.65, "base_sign": 1.0},
             {"id": "speculative_beta", "name": "ARKK/QQQ Yüksek Beta Spekülasyon", "cluster": "E", "base_weight": 0.60, "base_sign": 1.0},
             {"id": "defensive_flight", "name": "XLU/QQQ Kurumsal Defansif Kaçış", "cluster": "E", "base_weight": 0.50, "base_sign": -1.0},
-            # Küme B: Faiz & Süre
             {"id": "equity_duration_drag", "name": "Teknoloji Değerleme / Reel Getiri Baskısı", "cluster": "B", "base_weight": 0.70, "base_sign": -1.0},
             {"id": "duration_risk", "name": "TLT Tahvil Süre Duyarlılığı", "cluster": "B", "base_weight": 0.55, "base_sign": 1.0},
-            # Küme C: Kredi & Volatilite
             {"id": "banking_stress", "name": "Finansal Sistem Likidite Stresi (KRE)", "cluster": "C", "base_weight": 0.40, "base_sign": 1.0},
             {"id": "credit_spread", "name": "Kredi Piyasası Gücü (HYG/LQD)", "cluster": "C", "base_weight": 0.50, "base_sign": 1.0},
             {"id": "vix_strain", "name": "Teknoloji Volatilite Baskısı", "cluster": "C", "base_weight": 0.55, "base_sign": -1.0},
             {"id": "vix_term", "name": "VIX Vade Eğrisi & Gamma Stresi", "cluster": "C", "base_weight": 0.60, "base_sign": -1.0},
-            # Küme D: Enerji
             {"id": "stagflation_shock", "name": "Petrol / Enerji Baskısı", "cluster": "D", "base_weight": 0.45, "base_sign": -1.0},
-            # Küme A: Dolar & Carry
             {"id": "usd_strength", "name": "DXY Dolar Likidite Sıkışması", "cluster": "A", "base_weight": 0.60, "base_sign": -1.0},
             {"id": "net_dollar_liquidity", "name": "Fed Net Dolar Likiditesi (NDL)", "cluster": "A", "base_weight": 0.65, "base_sign": 1.0},
             {"id": "usd_jpy_carry", "name": "USD/JPY Carry Tasfiye Riski", "cluster": "A", "base_weight": 0.55, "base_sign": 1.0}
@@ -414,36 +403,39 @@ MACRO_EVENT_SYSTEM_SPEC = {
   ]
 }
 
+# =============================================================================
+# 🎯 YENİ KALİBRE EDİLMİŞ DİNAMİK EŞİKLER (±0.75 Giriş / ±0.30 Çıkış)
+# =============================================================================
 REGIME_DYNAMIC_THRESHOLDS = {
     1: {
         "name": "Küresel Enflasyon & Stagflasyon Şoku",
         "buy_enter": 0.85,
-        "buy_exit": 0.40,
-        "sell_enter": -0.45,
+        "buy_exit": 0.35,
+        "sell_enter": -0.50,
         "sell_exit": -0.20,
         "strong_buy_enter": 1.90,
         "strong_sell_enter": -1.30,
         "min_clusters": 3,
         "risk_scale": 0.70,
-        "description": "Enflasyon baskısı: Alış eşiği sıkılaştırıldı (0.85), satış eşiği duyarlılaştırıldı (-0.45)."
+        "description": "Enflasyon baskısı: Alış eşiği sıkılaştırıldı (0.85), satış eşiği duyarlılaştırıldı (-0.50)."
     },
     2: {
         "name": "Sistemik Likidite Şoku & Carry Çöküşü",
         "buy_enter": 1.20,
-        "buy_exit": 0.60,
-        "sell_enter": -0.35,
+        "buy_exit": 0.50,
+        "sell_enter": -0.40,
         "sell_exit": -0.15,
         "strong_buy_enter": 2.20,
         "strong_sell_enter": -1.10,
         "min_clusters": 3,
         "risk_scale": 0.40,
-        "description": "Likidite çöküşü: Alışlar aşırı yüksek teyide bağlandı (1.20), satışlar hızlandırıldı (-0.35)."
+        "description": "Likidite çöküşü: Alışlar aşırı yüksek teyide bağlandı (1.20), satışlar hızlandırıldı (-0.40)."
     },
     3: {
         "name": "Reel Faiz Şoku",
         "buy_enter": 0.80,
-        "buy_exit": 0.35,
-        "sell_enter": -0.50,
+        "buy_exit": 0.30,
+        "sell_enter": -0.55,
         "sell_exit": -0.25,
         "strong_buy_enter": 1.80,
         "strong_sell_enter": -1.40,
@@ -454,8 +446,8 @@ REGIME_DYNAMIC_THRESHOLDS = {
     4: {
         "name": "Kredi Temerrüt Baskısı",
         "buy_enter": 0.95,
-        "buy_exit": 0.45,
-        "sell_enter": -0.40,
+        "buy_exit": 0.40,
+        "sell_enter": -0.45,
         "sell_exit": -0.20,
         "strong_buy_enter": 2.00,
         "strong_sell_enter": -1.20,
@@ -465,26 +457,26 @@ REGIME_DYNAMIC_THRESHOLDS = {
     },
     5: {
         "name": "Küresel Likidite Rallisi (Risk-On)",
-        "buy_enter": 0.45,
-        "buy_exit": 0.20,
-        "sell_enter": -0.85,
-        "sell_exit": -0.40,
+        "buy_enter": 0.50,
+        "buy_exit": 0.25,
+        "sell_enter": -0.80,
+        "sell_exit": -0.35,
         "strong_buy_enter": 1.40,
         "strong_sell_enter": -1.80,
         "min_clusters": 2,
         "risk_scale": 1.25,
-        "description": "Likidite rallisi: Alışlar erken tetiklenir (0.45), boğa piyasasında erken satışlar engellenir (-0.85)."
+        "description": "Likidite rallisi: Alışlar erken tetiklenir (0.50), boğa piyasasında erken satışlar engellenir (-0.80)."
     },
     "REJIMSIZ_GECIS": {
         "name": "Rejimsiz Geçiş / Makro Denge",
         "buy_enter": 0.75,
-        "buy_exit": 0.35,
+        "buy_exit": 0.30,
         "sell_enter": -0.75,
-        "sell_exit": -0.35,
+        "sell_exit": -0.30,
         "strong_buy_enter": 1.70,
         "strong_sell_enter": -1.70,
         "min_clusters": 2,
         "risk_scale": 0.85,
-        "description": "Rejimsiz Geçiş / Denge: Testere filtresi devrede, dengeli simetrik eşikler (±0.75)."
+        "description": "Rejimsiz Geçiş / Denge: Testere filtresi devrede, simetrik eşikler (±0.75 Giriş / ±0.30 Çıkış)."
     }
 }
