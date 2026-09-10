@@ -1,8 +1,9 @@
 """
-Configuration: Asset Matrices, Risk Clusters & Barra Normalization Weights (v26 Dual-Pillar USD & Asset-Specific Precision)
+Configuration: Asset Matrices, Risk Clusters & Barra Normalization Weights (v27 24/7 Futures & Asset-Specific Precision)
 Enhanced with:
+- 24/7 Live Futures Benchmarks for Equities (ES=F for S&P 500, NQ=F for Nasdaq 100)
 - 3-Pillar USD Risk Architecture (Spot DXY, Net Dollar Liquidity NDL, USD/JPY Carry)
-- Idiosyncratic Asset-Specific Risk Models (Duration Drag, Mega-cap Dispersion, Sovereign Decoupling, Squeeze Risk)
+- Idiosyncratic Asset-Specific Risk Models
 - Macro Event Interpretation System v1.0 & Calibrated Dynamic Thresholds
 """
 
@@ -29,10 +30,10 @@ SIGNAL_THRESHOLDS = {
 ASSET_MATRICES = {
     "SPX": {
         "name": "S&P 500 Index",
-        "benchmark_symbol": "SPY",
+        "benchmark_symbol": "ES=F",
         "vol_scale": 1.0,
         "factors": [
-            {"id": "asset_direction", "name": "SPY 4H Anlık Fiyat Hızı", "cluster": "E", "base_weight": 2.20, "base_sign": 1.0},
+            {"id": "asset_direction", "name": "ES 4H Anlık Fiyat Hızı", "cluster": "E", "base_weight": 2.20, "base_sign": 1.0},
             {"id": "semi_lead", "name": "SMH Çip / AI Sektör İvmesi", "cluster": "E", "base_weight": 1.20, "base_sign": 1.0},
             {"id": "market_breadth", "name": "RSP/SPY Piyasa Katılım Genişliği", "cluster": "E", "base_weight": 0.70, "base_sign": 1.0},
             {"id": "defensive_flight", "name": "XLU/SPY Kurumsal Defansif Kaçış", "cluster": "E", "base_weight": 0.70, "base_sign": -1.0},
@@ -44,7 +45,6 @@ ASSET_MATRICES = {
             {"id": "vix_strain", "name": "VIX Opsiyon Korku Primi", "cluster": "C", "base_weight": 0.90, "base_sign": -1.0},
             {"id": "vix_term", "name": "VIX/VIX3M Vade Eğrisi (Kuyruk Riski)", "cluster": "C", "base_weight": 0.80, "base_sign": -1.0},
             {"id": "stagflation_shock", "name": "Petrol / Ticaret (IYT) Şoku", "cluster": "D", "base_weight": 0.65, "base_sign": -1.0},
-            # 💵 3-Pillar USD Risk Modeli
             {"id": "usd_strength", "name": "DXY Kısa Vade Dolar Baskısı", "cluster": "A", "base_weight": 0.75, "base_sign": -1.0},
             {"id": "net_dollar_liquidity", "name": "Fed Net Dolar Likiditesi (NDL)", "cluster": "A", "base_weight": 0.85, "base_sign": 1.0},
             {"id": "usd_jpy_carry", "name": "USD/JPY Carry & Küresel Likidite", "cluster": "A", "base_weight": 0.70, "base_sign": 1.0}
@@ -52,10 +52,10 @@ ASSET_MATRICES = {
     },
     "NQ": {
         "name": "NASDAQ 100",
-        "benchmark_symbol": "QQQ",
+        "benchmark_symbol": "NQ=F",
         "vol_scale": 1.2,
         "factors": [
-            {"id": "asset_direction", "name": "QQQ 4H Anlık Fiyat Hızı", "cluster": "E", "base_weight": 2.20, "base_sign": 1.0},
+            {"id": "asset_direction", "name": "NQ 4H Anlık Fiyat Hızı", "cluster": "E", "base_weight": 2.20, "base_sign": 1.0},
             {"id": "semi_lead", "name": "SMH Çip / AI Sektör İvmesi", "cluster": "E", "base_weight": 1.30, "base_sign": 1.0},
             {"id": "tech_breadth_dispersion", "name": "Çip & Yüksek Beta Ayrışması", "cluster": "E", "base_weight": 0.80, "base_sign": 1.0},
             {"id": "speculative_beta", "name": "ARKK/QQQ Yüksek Beta Spekülasyon", "cluster": "E", "base_weight": 0.80, "base_sign": 1.0},
@@ -67,7 +67,6 @@ ASSET_MATRICES = {
             {"id": "vix_strain", "name": "Teknoloji Volatilite Baskısı", "cluster": "C", "base_weight": 0.90, "base_sign": -1.0},
             {"id": "vix_term", "name": "VIX Vade Eğrisi Stresi (VIX/VIX3M)", "cluster": "C", "base_weight": 0.80, "base_sign": -1.0},
             {"id": "stagflation_shock", "name": "Petrol / Enerji Baskısı", "cluster": "D", "base_weight": 0.60, "base_sign": -1.0},
-            # 💵 3-Pillar USD Risk Modeli
             {"id": "usd_strength", "name": "DXY Dolar Likidite Sıkışması", "cluster": "A", "base_weight": 0.75, "base_sign": -1.0},
             {"id": "net_dollar_liquidity", "name": "Fed Net Dolar Likiditesi (NDL)", "cluster": "A", "base_weight": 0.85, "base_sign": 1.0},
             {"id": "usd_jpy_carry", "name": "USD/JPY Carry Tasfiye Riski", "cluster": "A", "base_weight": 0.75, "base_sign": 1.0}
@@ -88,7 +87,6 @@ ASSET_MATRICES = {
             {"id": "gold_oil_ratio", "name": "Altın / Petrol Şoku (Stagflasyon)", "cluster": "D", "base_weight": 0.75, "base_sign": 1.0},
             {"id": "copper_gold", "name": "Bakır/Altın Sanayi Döngüsü", "cluster": "D", "base_weight": 0.70, "base_sign": -1.0},
             {"id": "gsr_velocity", "name": "Altın/Gümüş Rasyosu (GSR)", "cluster": "D", "base_weight": 0.70, "base_sign": 1.0},
-            # 💵 3-Pillar USD Risk Modeli
             {"id": "usd_strength", "name": "DXY Spot Dolar Baskısı", "cluster": "A", "base_weight": 0.85, "base_sign": -1.0},
             {"id": "net_dollar_liquidity", "name": "Dolar Rezerv / Net Likidite İvmesi", "cluster": "A", "base_weight": 0.75, "base_sign": 1.0}
         ]
@@ -107,7 +105,6 @@ ASSET_MATRICES = {
             {"id": "real_yield", "name": "10Y Reel Faiz Baskısı (TIP)", "cluster": "B", "base_weight": 0.75, "base_sign": -1.0},
             {"id": "breakeven_infl", "name": "Enflasyon Beklenti Kalkanı", "cluster": "B", "base_weight": 0.70, "base_sign": 1.0},
             {"id": "credit_spread", "name": "Küresel Kredi & Sanayi İştahı", "cluster": "C", "base_weight": 0.75, "base_sign": 1.0},
-            # 💵 3-Pillar USD Risk Modeli
             {"id": "usd_strength", "name": "USD Gücü & Dolar Baskısı", "cluster": "A", "base_weight": 0.75, "base_sign": -1.0},
             {"id": "net_dollar_liquidity", "name": "Fed Net Dolar Likiditesi (NDL)", "cluster": "A", "base_weight": 0.70, "base_sign": 1.0}
         ]
@@ -129,7 +126,6 @@ ASSET_MATRICES = {
             {"id": "credit_spread", "name": "Küresel Likidite İştahı (HYG/LQD)", "cluster": "C", "base_weight": 0.80, "base_sign": 1.0},
             {"id": "real_yield", "name": "Reel Getiri Baskısı (TIP)", "cluster": "B", "base_weight": 0.60, "base_sign": -1.0},
             {"id": "vix_strain", "name": "Sistemik Volatilite Baskısı", "cluster": "C", "base_weight": 0.60, "base_sign": -1.0},
-            # 💵 3-Pillar USD Risk Modeli
             {"id": "usd_strength", "name": "DXY Dolar Likidite Baskısı", "cluster": "A", "base_weight": 0.75, "base_sign": -1.0},
             {"id": "net_dollar_liquidity", "name": "Fed Net Dolar Likiditesi (NDL)", "cluster": "A", "base_weight": 0.95, "base_sign": 1.0},
             {"id": "usd_jpy_carry", "name": "USD/JPY Carry & Risk-On Likiditesi", "cluster": "A", "base_weight": 0.70, "base_sign": 1.0}
@@ -152,7 +148,6 @@ ASSET_MATRICES = {
             {"id": "duration_risk", "name": "TLT Likidite Baskısı", "cluster": "B", "base_weight": 0.55, "base_sign": 1.0},
             {"id": "credit_spread", "name": "Kurumsal Kredi & Likidite", "cluster": "C", "base_weight": 0.75, "base_sign": 1.0},
             {"id": "vix_strain", "name": "Sistemik Volatilite Baskısı", "cluster": "C", "base_weight": 0.60, "base_sign": -1.0},
-            # 💵 3-Pillar USD Risk Modeli
             {"id": "usd_strength", "name": "DXY Dolar Likidite Baskısı", "cluster": "A", "base_weight": 0.75, "base_sign": -1.0},
             {"id": "net_dollar_liquidity", "name": "Fed Net Dolar Likiditesi (NDL)", "cluster": "A", "base_weight": 0.90, "base_sign": 1.0},
             {"id": "usd_jpy_carry", "name": "USD/JPY Carry Likiditesi", "cluster": "A", "base_weight": 0.65, "base_sign": 1.0}
@@ -161,8 +156,8 @@ ASSET_MATRICES = {
 }
 
 ASSET_CLOCKS = {
-    "SPX": {"open_utc": 13.5, "close_utc": 20.0, "type": "TRADITIONAL"},
-    "NQ": {"open_utc": 13.5, "close_utc": 20.0, "type": "TRADITIONAL"},
+    "SPX": {"open_utc": 0.0, "close_utc": 24.0, "type": "FUTURES_23H"},
+    "NQ":  {"open_utc": 0.0, "close_utc": 24.0, "type": "FUTURES_23H"},
     "XAU": {"open_utc": 0.0, "close_utc": 24.0, "type": "FUTURES_23H"},
     "XAG": {"open_utc": 0.0, "close_utc": 24.0, "type": "FUTURES_23H"},
     "BTC": {"open_utc": 0.0, "close_utc": 24.0, "type": "CRYPTO_24_7"},
@@ -410,9 +405,6 @@ MACRO_EVENT_SYSTEM_SPEC = {
   ]
 }
 
-# =============================================================================
-# 🎯 REJİME DUYARLI KALİBRE EDİLMİŞ DİNAMİK EŞİKLER (BACKTEST İLE KANITLANMIŞ)
-# =============================================================================
 REGIME_DYNAMIC_THRESHOLDS = {
     1: {
         "name": "Küresel Enflasyon & Stagflasyon Şoku",
