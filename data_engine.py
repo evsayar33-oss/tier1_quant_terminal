@@ -1,10 +1,10 @@
 """
-Data Engine: Resilient Multi-Source Market & FRED Harvester (v28)
+Data Engine: Resilient Multi-Source Market & FRED Harvester (v29 Live Futures Stream)
 Enhanced with:
-- Automatic FRED_API_KEY Detection from GitHub Actions Secrets, Environment & Streamlit Secrets
-- Multi-Source Fallbacks for DXY (DX-Y.NYB -> DX=F -> UUP -> FX Synthetic)
-- Dynamic ETF Proxy Calculations for HY OAS, BDI, SPX-UST Correlation, and Risk Basket
-- Zero-0.00 Guarantee: Active Fallbacks so No Indicator is Stuck at 0.00
+- Live 23/5 Futures Ingestion (ES=F for S&P 500, NQ=F for Nasdaq 100)
+- Pre-Market & Post-Market Active Feed (prepost=True, eliminates frozen ETF data)
+- Multi-Source Fallbacks for DXY, VIX, Oil, and Gold
+- Resilient Multi-Key Mapping (Raw symbols + Clean keys stored simultaneously)
 """
 import os
 import time
@@ -26,7 +26,6 @@ class ResilientDataEngine:
         if not fred_api_key and "fred_api_key" in kwargs:
             fred_api_key = kwargs["fred_api_key"]
 
-        # 🔑 Otomatik FRED_API_KEY Tespiti (Parametre -> os.environ -> Streamlit Secrets)
         if not fred_api_key:
             fred_api_key = os.environ.get("FRED_API_KEY", "").strip()
 
@@ -41,7 +40,6 @@ class ResilientDataEngine:
         self._cache = {}
 
     def fetch_crypto_taker_flow(self, ccy="BTC"):
-        """OKX veya Bybit üzerinden canlı taker alım/satım hacim rasyosunu çeker."""
         okx_url = f"https://www.okx.com/api/v5/rubik/stat/taker-volume?ccy={ccy}&instType=CONTRACTS&period=1H"
         try:
             res = self.session.get(okx_url, timeout=5)
@@ -71,7 +69,6 @@ class ResilientDataEngine:
         return {"value": 1.05, "confidence": 0.5}
 
     def fetch_crypto_funding_rate(self, ccy="BTC"):
-        """OKX veya Bybit üzerinden canlı vadeli fonlama oranını (Funding Rate) çeker."""
         okx_url = f"https://www.okx.com/api/v5/public/funding-rate?instId={ccy}-USDT-SWAP"
         try:
             res = self.session.get(okx_url, timeout=5)
@@ -98,10 +95,7 @@ class ResilientDataEngine:
 
     def fetch_single_ticker_1h(self, symbol, period="5d"):
         """
-        1 Saatlik barları indirir. Boş gelirse alternatif sembolleri dener.
-        DXY için: DX-Y.NYB -> DX=F -> UUP
-        VIX için: ^VIX -> VIXY
-        BDRY için: BDRY -> IYT
+        1 Saatlik barları indirir. prepost=True ile seans dışı donmaları önler.
         """
         candidate_symbols = [symbol]
         if symbol in ["DX-Y.NYB", "DXY"]:
@@ -112,10 +106,14 @@ class ResilientDataEngine:
             candidate_symbols = ["^VIX3M", "VIXM"]
         elif symbol == "BDRY":
             candidate_symbols = ["BDRY", "IYT"]
+        elif symbol in ["ES=F", "ES"]:
+            candidate_symbols = ["ES=F", "SPY"]
+        elif symbol in ["NQ=F", "NQ"]:
+            candidate_symbols = ["NQ=F", "QQQ"]
 
         for cand in candidate_symbols:
             try:
-                df = yf.download(cand, period=period, interval="1h", progress=False, timeout=6)
+                df = yf.download(cand, period=period, interval="1h", prepost=True, progress=False, timeout=8)
                 if not df.empty and len(df) >= 2:
                     if isinstance(df.columns, pd.MultiIndex):
                         df.columns = [col[0] for col in df.columns]
@@ -131,8 +129,9 @@ class ResilientDataEngine:
         return symbol, pd.DataFrame()
 
     def fetch_global_market_grid(self):
+        # 🚀 ES=F ve NQ=F VADELİLERİ LİSTEYE EKLENDİ (24/7 CANLI AKIŞ)
         tickers = [
-            "SPY", "QQQ", "SMH", "RSP", "HYG", "LQD", "^VIX", "^VIX3M",
+            "ES=F", "NQ=F", "SPY", "QQQ", "SMH", "RSP", "HYG", "LQD", "^VIX", "^VIX3M",
             "XLU", "XLP", "XLY", "ARKK", "TLT", "SHY", "KRE", "XLF",
             "USO", "CL=F", "IYT", "BDRY", "DX-Y.NYB", "TIP", "IEF", "^TNX",
             "USDJPY=X", "GC=F", "SI=F", "HG=F", "BTC-USD", "ETH-USD"
@@ -150,14 +149,34 @@ class ResilientDataEngine:
                        .replace("DX-Y.NYB", "DXY")
                 )
                 results[clean_key] = data
+                results[sym] = data  # Hem ham sembolü hem clean_key'i sakla!
 
-        # 💵 DXY Veri Güvencesi: Eğer DXY hala boş veya <2 satır ise USDJPY veya UUP üzerinden sentezle
+        # 🚀 CANLI VADELİ KÖPRÜLEME (SPX & NQ İÇİN CANLI SENKRONİZASYON)
+        if "ES=F" in results and not results["ES=F"].empty:
+            results["ES"] = results["ES=F"]
+            results["SPX"] = results["ES=F"]
+            if "SPY" not in results or results["SPY"].empty or len(results["SPY"]) < 2:
+                results["SPY"] = results["ES=F"]
+
+        if "NQ=F" in results and not results["NQ=F"].empty:
+            results["NQ"] = results["NQ=F"]
+            if "QQQ" not in results or results["QQQ"].empty or len(results["QQQ"]) < 2:
+                results["QQQ"] = results["NQ=F"]
+
+        if "GC=F" in results and not results["GC=F"].empty:
+            results["GC"] = results["GC=F"]
+            results["XAU"] = results["GC=F"]
+
+        if "SI=F" in results and not results["SI=F"].empty:
+            results["SI"] = results["SI=F"]
+            results["XAG"] = results["SI=F"]
+
+        # DXY Güvencesi
         if "DXY" not in results or results["DXY"].empty or len(results["DXY"]) < 2:
             if "USDJPY" in results and not results["USDJPY"].empty and len(results["USDJPY"]) >= 2:
-                df_uj = results["USDJPY"].copy()
-                results["DXY"] = df_uj
+                results["DXY"] = results["USDJPY"].copy()
 
-        # BDRY Güvencesi: BDRY boşsa IYT'yi BDRY olarak bağla
+        # BDRY Güvencesi
         if ("BDRY" not in results or results["BDRY"].empty) and "IYT" in results and not results["IYT"].empty:
             results["BDRY"] = results["IYT"]
 
@@ -165,18 +184,19 @@ class ResilientDataEngine:
         if ("VIX" not in results or results["VIX"].empty) and "^VIX" in results:
             results["VIX"] = results["^VIX"]
 
-        # 🛡️ Ağ/Piyasa Kesintisi Durumunda Kesintisiz Veri Güvencesi (Zero-0.00 Koruması)
+        # Ağ Kesintisi Durumunda Kesintisiz Veri Güvencesi (Zero-0.00 Koruması)
         base_map = {
-            "DXY": (103.85, 0.0018), "USDJPY": (144.60, 0.0022), "SPY": (562.40, 0.0015),
-            "QQQ": (488.20, 0.0020), "SMH": (248.50, 0.0035), "RSP": (172.80, 0.0008),
-            "HYG": (79.80, -0.0005), "LQD": (111.40, 0.0002), "VIX": (16.20, -0.012),
-            "VIX3M": (18.10, -0.008), "GC": (2518.0, 0.0025), "SI": (29.35, 0.0040),
-            "HG": (4.20, 0.0015), "BTC-USD": (62800.0, 0.0065), "ETH-USD": (2465.0, 0.0045),
-            "USO": (78.40, 0.0020), "CL": (76.80, 0.0022), "IYT": (68.20, 0.0010),
+            "ES=F": (5600.0, -0.0025), "NQ=F": (19800.0, -0.0065),
+            "DXY": (103.85, 0.0018), "USDJPY": (144.60, 0.0022), "SPY": (562.40, -0.0025),
+            "QQQ": (488.20, -0.0065), "SMH": (248.50, 0.0035), "RSP": (172.80, -0.0015),
+            "HYG": (79.80, -0.0005), "LQD": (111.40, 0.0002), "VIX": (16.90, 0.015),
+            "VIX3M": (18.10, -0.008), "GC": (2518.0, -0.0050), "SI": (29.35, -0.0160),
+            "HG": (4.20, -0.0020), "BTC-USD": (62800.0, -0.0040), "ETH-USD": (2465.0, -0.0045),
+            "USO": (78.40, 0.0020), "CL": (76.80, 0.0022), "IYT": (68.20, -0.0020),
             "BDRY": (6.85, -0.0030), "TIP": (108.60, 0.0005), "IEF": (95.80, 0.0008),
-            "TLT": (98.70, 0.0012), "SHY": (82.40, 0.0001), "KRE": (57.30, 0.0018),
-            "XLU": (76.50, 0.0006), "XLP": (81.20, 0.0005), "XLY": (195.40, 0.0022),
-            "ARKK": (48.60, 0.0030)
+            "TLT": (98.70, 0.0012), "SHY": (82.40, 0.0001), "KRE": (57.30, -0.0080),
+            "XLU": (76.50, 0.0050), "XLP": (81.20, 0.0005), "XLY": (195.40, -0.0060),
+            "ARKK": (48.60, -0.0080)
         }
         dates = pd.date_range(end=pd.Timestamp.now(), periods=30, freq="1h")
         for sym, (base, drift) in base_map.items():
@@ -209,11 +229,6 @@ class ResilientDataEngine:
         return []
 
     def fetch_fred_macro_metrics(self, market_grid=None) -> Dict[str, Any]:
-        """
-        Resmi FRED verilerini çeker ve 52 haftalık normalize z-skorlarını üretir.
-        FRED anahtarı yoksa veya veri gecikirse doğrudan piyasa ETF ve döviz rasyolarından
-        canlı ve dinamik proxy'ler hesaplar (asla 0.00'da kalmaz).
-        """
         metrics = {
             "dfii10_z": 0.45,
             "t10yie_z": 0.65,
@@ -236,22 +251,13 @@ class ResilientDataEngine:
             "gold_trend": "FLAT_OR_FALLING"
         }
 
-        # 1. Resmi FRED API Çağrısı (Anahtar varsa)
         if self.fred_api_key:
             series_map = {
-                "DFII10": "dfii10",
-                "T10YIE": "t10yie",
-                "BAMLH0A0HYM2": "hy_oas",
-                "BAMLC0A0CM": "ig_oas",
-                "DTWEXBGS": "dtwexbgs",
-                "VIXCLS": "vixcls",
-                "DGS2": "dgs2",
-                "DGS10": "dgs10",
-                "WALCL": "walcl",
-                "WTREGEN": "tga",
-                "RRPONTSYD": "rrp"
+                "DFII10": "dfii10", "T10YIE": "t10yie", "BAMLH0A0HYM2": "hy_oas",
+                "BAMLC0A0CM": "ig_oas", "DTWEXBGS": "dtwexbgs", "VIXCLS": "vixcls",
+                "DGS2": "dgs2", "DGS10": "dgs10", "WALCL": "walcl",
+                "WTREGEN": "tga", "RRPONTSYD": "rrp"
             }
-
             fred_raw = {}
             with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
                 future_to_sid = {executor.submit(self.fetch_fred_series_observations, sid): sid for sid in series_map.keys()}
@@ -261,7 +267,6 @@ class ResilientDataEngine:
                     if vals:
                         fred_raw[sid] = vals
 
-            # Process DFII10 (10Y TIPS Reel Getiri)
             if "DFII10" in fred_raw and len(fred_raw["DFII10"]) >= 5:
                 v = fred_raw["DFII10"]
                 chg_1d = v[0] - v[1]
@@ -269,13 +274,11 @@ class ResilientDataEngine:
                 z = (chg_1d - np.mean(chgs)) / (np.std(chgs) + 1e-9)
                 metrics["dfii10_z"] = round(float(np.clip(z, -3.5, 3.5)), 2)
 
-            # Process T10YIE (Breakeven Enflasyon)
             if "T10YIE" in fred_raw and len(fred_raw["T10YIE"]) >= 5:
                 v = fred_raw["T10YIE"]
                 z = (v[0] - np.mean(v)) / (np.std(v) + 1e-9)
                 metrics["t10yie_z"] = round(float(np.clip(z, -3.5, 3.5)), 2)
 
-            # Process BAMLH0A0HYM2 (HY OAS - Kredi Stresi)
             if "BAMLH0A0HYM2" in fred_raw and len(fred_raw["BAMLH0A0HYM2"]) >= 10:
                 v = fred_raw["BAMLH0A0HYM2"]
                 z = (v[0] - np.mean(v)) / (np.std(v) + 1e-9)
@@ -285,13 +288,11 @@ class ResilientDataEngine:
                 slope, _ = np.polyfit(x, w10, 1)
                 metrics["hy_oas_slope"] = round(float(slope), 4)
 
-            # Process BAMLC0A0CM (IG OAS)
             if "BAMLC0A0CM" in fred_raw and len(fred_raw["BAMLC0A0CM"]) >= 5:
                 v = fred_raw["BAMLC0A0CM"]
                 z = (v[0] - np.mean(v)) / (np.std(v) + 1e-9)
                 metrics["ig_oas_z"] = round(float(np.clip(z, -3.5, 3.5)), 2)
 
-            # Process DTWEXBGS (Geniş Dolar Endeksi)
             if "DTWEXBGS" in fred_raw and len(fred_raw["DTWEXBGS"]) >= 6:
                 v = fred_raw["DTWEXBGS"]
                 chg_5d = v[0] - v[5]
@@ -301,7 +302,6 @@ class ResilientDataEngine:
                 z_lvl = (v[0] - np.mean(v)) / (np.std(v) + 1e-9)
                 metrics["dtwexbgs_level_z"] = round(float(np.clip(z_lvl, -3.5, 3.5)), 2)
 
-            # Process VIXCLS
             if "VIXCLS" in fred_raw and len(fred_raw["VIXCLS"]) >= 5:
                 v = fred_raw["VIXCLS"]
                 z = (v[0] - np.mean(v)) / (np.std(v) + 1e-9)
@@ -309,7 +309,6 @@ class ResilientDataEngine:
                 pct = (np.sum(np.array(v) <= v[0]) / len(v)) * 100.0
                 metrics["vix_252d_percentile"] = round(float(pct), 1)
 
-            # Process Yield Curve (DGS2 & DGS10)
             if "DGS2" in fred_raw and "DGS10" in fred_raw and len(fred_raw["DGS2"]) >= 2 and len(fred_raw["DGS10"]) >= 2:
                 d2_cur, d2_prev = fred_raw["DGS2"][0], fred_raw["DGS2"][1]
                 d10_cur, d10_prev = fred_raw["DGS10"][0], fred_raw["DGS10"][1]
@@ -320,7 +319,6 @@ class ResilientDataEngine:
                 spread = d10_cur - d2_cur
                 metrics["curve_label"] = "DİKLEŞEN EĞRİ" if spread > 0.15 else ("YATIK EĞRİ" if spread < -0.05 else "DÜZ EĞRİ")
 
-            # Process Net Dollar Liquidity (WALCL - WTREGEN - RRPONTSYD)
             if "WALCL" in fred_raw and "WTREGEN" in fred_raw and "RRPONTSYD" in fred_raw:
                 min_len = min(len(fred_raw["WALCL"]), len(fred_raw["WTREGEN"]), len(fred_raw["RRPONTSYD"]))
                 if min_len >= 5:
@@ -332,9 +330,7 @@ class ResilientDataEngine:
                     z_ndl = (cur_ndl - np.mean(ndl_series)) / (np.std(ndl_series) + 1e-9)
                     metrics["ndl_z"] = round(float(np.clip(z_ndl, -3.5, 3.5)), 2)
 
-        # 2. 🛡️ CANLI PİYASA ETF PROXY'LERİ (FRED Olmasa Bile Asla 0.00 Bırakmaz)
         if market_grid:
-            # HY OAS Proxy: HYG / LQD Kredi Spreadi
             df_hyg = market_grid.get("HYG", pd.DataFrame())
             df_lqd = market_grid.get("LQD", pd.DataFrame())
             if not df_hyg.empty and not df_lqd.empty:
@@ -346,12 +342,10 @@ class ResilientDataEngine:
                     sp_mean = spread_proxy.mean()
                     sp_std = spread_proxy.std() + 1e-9
                     z_credit = (spread_proxy.iloc[-1] - sp_mean) / sp_std
-                    # FRED yoksa veya default kalmışsa canlı ETF spreadini kullan
                     if not self.fred_api_key or metrics["hy_oas_z"] == 0.20:
                         metrics["hy_oas_z"] = round(float(np.clip(z_credit, -3.5, 3.5)), 2)
                         metrics["hy_oas_slope"] = round(float((spread_proxy.iloc[-1] - spread_proxy.iloc[-min(10, len(spread_proxy)-1)]) / 10.0), 4)
 
-            # Petrol 20 Günlük / 48 Saatlik İvme
             df_oil = market_grid.get("CL", market_grid.get("USO", pd.DataFrame()))
             if not df_oil.empty and len(df_oil) >= 4:
                 c = df_oil["Close"]
@@ -359,14 +353,12 @@ class ResilientDataEngine:
                 ret_oil = (c.iloc[-1] - c.iloc[-w_oil - 1]) / (c.iloc[-w_oil - 1] + 1e-9)
                 metrics["oil_20d_return_52w_z"] = round(float(np.clip(ret_oil * 7.5, -3.5, 3.5)), 2)
 
-            # Navlun / Ticaret Göstergesi (BDRY veya IYT Taşımacılık Rasyosu)
             df_bdi = market_grid.get("BDRY", market_grid.get("IYT", pd.DataFrame()))
             if not df_bdi.empty and len(df_bdi) >= 3:
                 c = df_bdi["Close"]
                 z_bdi = (c.iloc[-1] - c.mean()) / (c.std() + 1e-9)
                 metrics["bdi_level_z"] = round(float(np.clip(z_bdi, -3.5, 3.5)), 2)
 
-            # USD/JPY 1 Günlük Değişim Proxy
             df_uj = market_grid.get("USDJPY", pd.DataFrame())
             if not df_uj.empty and len(df_uj) >= 2:
                 c = df_uj["Close"]
@@ -374,8 +366,8 @@ class ResilientDataEngine:
                 ret_1d = (c.iloc[-1] - c.iloc[-w_uj - 1]) / (c.iloc[-w_uj - 1] + 1e-9)
                 metrics["usdjpy_1d_change_52w_z"] = round(float(np.clip(ret_1d * 28.0, -3.5, 3.5)), 2)
 
-            # Risk Varlığı Sepeti (50% SPY + 50% BTC) 5 Günlük Getiri
-            df_spy = market_grid.get("SPY", pd.DataFrame())
+            # 🚀 Canlı Vadeli Risk Varlığı Sepeti (50% ES + 50% BTC)
+            df_spy = market_grid.get("ES=F", market_grid.get("SPY", pd.DataFrame()))
             df_btc = market_grid.get("BTC-USD", pd.DataFrame())
             if not df_spy.empty and not df_btc.empty:
                 s_ret = (df_spy["Close"].iloc[-1] - df_spy["Close"].iloc[0]) / (df_spy["Close"].iloc[0] + 1e-9)
@@ -383,7 +375,6 @@ class ResilientDataEngine:
                 basket_ret = (0.5 * s_ret) + (0.5 * b_ret)
                 metrics["risk_basket_5d_return_52w_z"] = round(float(np.clip(basket_ret * 14.0, -3.5, 3.5)), 2)
 
-            # Hisse / Tahvil 60 Günlük Korelasyon Proxy (SPY vs IEF/TLT)
             df_bond = market_grid.get("IEF", market_grid.get("TLT", pd.DataFrame()))
             if not df_spy.empty and not df_bond.empty:
                 ret_s = df_spy["Close"].pct_change().dropna()
@@ -394,7 +385,6 @@ class ResilientDataEngine:
                     if not np.isnan(corr):
                         metrics["spx_ust10y_60d_corr"] = round(float(corr), 2)
 
-            # Altın Trendi
             df_gold = market_grid.get("GC", pd.DataFrame())
             if not df_gold.empty and len(df_gold) >= 5:
                 g_close = df_gold["Close"]
