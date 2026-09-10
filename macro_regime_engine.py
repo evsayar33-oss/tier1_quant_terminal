@@ -2,10 +2,10 @@
 Macro Event Interpretation System (v1.0)
 Rule-based deterministic engine for classifying global macro regimes.
 Enhanced with:
+- Direct Fallback to REJIMSIZ_GECIS (No forced Risk-On hysteresis on neutral days)
 - Multi-Key Fallback Mapping (Guarantees zero-loss indicator bridging from data_engine)
-- Priority Rules: SHOCK_REGIMES (1, 2, 3, 4) > RISK_ON_REGIME (5)
+- Priority Rules: SHOCK_REGIMES (1, 2, 3, 4) > RISK_ON_REGIME (5) > REJIMSIZ_GECIS
 - Conflict Resolution: Highest |Z| & T10YIE Breakeven Tie-Breaker
-- 2-Week Hysteresis Confirmation Engine
 """
 import os
 import numpy as np
@@ -19,8 +19,9 @@ from config import MACRO_EVENT_SYSTEM_SPEC, REGIME_DYNAMIC_THRESHOLDS
 class MacroRegimeEngine:
     def __init__(self, fred_api_key=None, *args, **kwargs):
         self.spec = MACRO_EVENT_SYSTEM_SPEC
-        self.confirmed_regime_id: int = 5  # Default confirmed regime: Risk-On (5)
-        self.candidate_regime_id: Optional[int] = None
+        # Başlangıçta yapay ralli yerine gerçekçi olarak Nötr Denge ile başla
+        self.confirmed_regime_id: Any = "REJIMSIZ_GECIS"
+        self.candidate_regime_id: Optional[Any] = None
         self.consecutive_candidate_hits: int = 0
         self.hysteresis_confirmation_weeks: int = 2
         self.last_evaluation_time: Optional[str] = None
@@ -29,46 +30,31 @@ class MacroRegimeEngine:
     def evaluate(self, macro_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Evaluates current macro indicators against the 5 regimes using deterministic logic,
-        strict priority rules, conflict resolution, and 2-week hysteresis.
+        strict priority rules, conflict resolution, and objective regime fallback.
         """
         now_iso = datetime.now(timezone.utc).isoformat()
         self.last_evaluation_time = now_iso
 
-        # Extract or calculate Z-scores from incoming macro_data (Multi-Key Resilient Fallback)
-        # 1. Oil 20-day return 52w Z-score
+        # -------------------------------------------------------------
+        # 1. MAKRO VERİLERİN GÜVENLİ ÇEKİLMESİ
+        # -------------------------------------------------------------
         oil_20d_z = float(macro_data.get("oil_20d_return_52w_z", macro_data.get("oil_20d_z", macro_data.get("oil_z", 0.15))))
-        # 2. Baltic Dry Index (BDI) level 52w Z-score
         bdi_level_z = float(macro_data.get("bdi_level_52w_z", macro_data.get("bdi_level_z", macro_data.get("bdi_z", -0.10))))
-        # 3. HY OAS 52w Z-score
         hy_oas_z = float(macro_data.get("hy_oas_52w_z", macro_data.get("hy_oas_z", macro_data.get("hy_z", 0.20))))
-        # 4. SPX & UST10Y 60-day return correlation
         spx_ust_corr = float(macro_data.get("spx_ust10y_60d_corr", macro_data.get("spx_ust_corr", -0.20)))
-        # 5. DTWEXBGS 5-day change 52w Z-score
         dtwexbgs_5d_z = float(macro_data.get("dtwexbgs_5d_change_52w_z", macro_data.get("dtwexbgs_5d_z", macro_data.get("dxy_velocity_z", macro_data.get("dxy_velocity", 0.10)))))
-        # 6. DTWEXBGS level 52w Z-score
         dtwexbgs_level_z = float(macro_data.get("dtwexbgs_level_52w_z", macro_data.get("dtwexbgs_level_z", dtwexbgs_5d_z)))
-        # 7. USD/JPY 1-day change 52w Z-score
         usdjpy_1d_z = float(macro_data.get("usdjpy_1d_change_52w_z", macro_data.get("usdjpy_1d_z", macro_data.get("yen_carry_z", 0.05))))
-        # 8. VIX level 52w Z-score
         vix_level_z = float(macro_data.get("vix_level_52w_z", macro_data.get("vix_level_z", macro_data.get("z_vix", 0.15))))
-        # 9. VIX 252-day percentile rank
         vix_pct = float(macro_data.get("vix_252d_percentile", 42.0))
-        # 10. Risk Asset Basket (SPX + BTC) 5-day return 52w Z-score
         risk_basket_5d_z = float(macro_data.get("risk_basket_5d_return_52w_z", macro_data.get("risk_basket_5d_z", macro_data.get("risk_basket_z", 0.10))))
-        # 11. DFII10 1-day change 52w Z-score
         dfii10_1d_z = float(macro_data.get("dfii10_1d_change_52w_z", macro_data.get("dfii10_z", 0.45)))
-        # 12. T10YIE 52w Z-score
         t10yie_z = float(macro_data.get("t10yie_52w_z", macro_data.get("t10yie_z", 0.65)))
-        # 13. DGS2 & DGS10 changes
         dgs2_change = float(macro_data.get("dgs2_change", 0.0))
         dgs10_change = float(macro_data.get("dgs10_change", 0.0))
-        # 14. HY OAS 10-day slope
         hy_oas_slope = float(macro_data.get("hy_oas_10d_slope", macro_data.get("hy_oas_slope", 0.005)))
-        # 15. IG OAS level 52w Z-score
         ig_oas_z = float(macro_data.get("ig_oas_52w_z", macro_data.get("ig_oas_z", 0.15)))
-        # 16. Net Dollar Liquidity (NDL) 52w Z-score
         ndl_z = float(macro_data.get("ndl_52w_z", macro_data.get("ndl_z", 0.25)))
-        # 17. Gold trend status
         gold_trend = str(macro_data.get("gold_trend", "FLAT_OR_FALLING")).upper()
 
         z_scores_dict = {
@@ -90,7 +76,7 @@ class MacroRegimeEngine:
         }
 
         # -------------------------------------------------------------
-        # EVALUATE 5 REGIMES INDIVIDUALLY
+        # 2. 5 REJİMİN AYRI AYRI DEĞERLENDİRİLMESİ
         # -------------------------------------------------------------
         triggered_regimes = {}
 
@@ -194,10 +180,10 @@ class MacroRegimeEngine:
             }
 
         # -------------------------------------------------------------
-        # PRIORITY RULES & CONFLICT RESOLUTION
+        # 3. ÖNCELİK KURALLARI & REJİMSİZ GEÇİŞ TAYİNİ
         # -------------------------------------------------------------
         shock_keys = [k for k in triggered_regimes.keys() if triggered_regimes[k]["type"] == "SHOCK"]
-        selected_candidate_id: Optional[int] = None
+        selected_candidate_id: Optional[Any] = None
         conflict_explanation = ""
 
         if len(shock_keys) > 0:
@@ -221,14 +207,15 @@ class MacroRegimeEngine:
             selected_candidate_id = 5
             conflict_explanation = "Likidite Rallisi Koşulları Karşılandı (Risk-On)"
         else:
-            selected_candidate_id = None
-            conflict_explanation = "Hiçbir eşik aşılmadı: REJIMSIZ_GECIS (Önceki teyitli rejim histerezis ile korunuyor)"
+            # HİÇBİR EŞİK AŞILMADIĞINDA DOĞRUDAN REJİMSİZ GEÇİŞ'E GEÇ
+            selected_candidate_id = "REJIMSIZ_GECIS"
+            conflict_explanation = "Hiçbir eşik aşılmadı: REJIMSIZ_GECIS (Makro Denge & Sıkışma Rejimi Aktif)"
 
         # -------------------------------------------------------------
-        # HYSTERESIS CONFIRMATION ENGINE (2-WEEK PERIOD)
+        # 4. HİSTEREZİS & AKTİF REJİM SEÇİMİ
         # -------------------------------------------------------------
         is_confirmed = False
-        if selected_candidate_id is not None:
+        if selected_candidate_id in [1, 2, 3, 4, 5]:
             if selected_candidate_id == self.candidate_regime_id:
                 self.consecutive_candidate_hits += 1
             else:
@@ -237,15 +224,18 @@ class MacroRegimeEngine:
 
             if self.consecutive_candidate_hits >= self.hysteresis_confirmation_weeks:
                 self.confirmed_regime_id = selected_candidate_id
+                active_id = selected_candidate_id
                 is_confirmed = True
             else:
+                active_id = selected_candidate_id
                 is_confirmed = False
         else:
+            # Eşik aşılmadığında inatla eski rejimi tutma, şeffaf biçimde REJİMSİZ GEÇİŞ'i göster
             self.candidate_regime_id = None
             self.consecutive_candidate_hits = 0
+            self.confirmed_regime_id = "REJIMSIZ_GECIS"
+            active_id = "REJIMSIZ_GECIS"
             is_confirmed = True
-
-        active_id = self.confirmed_regime_id if (selected_candidate_id is None or not is_confirmed) else selected_candidate_id
 
         regime_meta = triggered_regimes.get(active_id)
         if not regime_meta:
@@ -254,15 +244,16 @@ class MacroRegimeEngine:
                 2: ("Sistemik Likidite Şoku & Carry Çöküşü", "SHOCK", "Likidite Daralması"),
                 3: ("Reel Faiz Şoku", "SHOCK", "Değerleme / Getiri Şoku"),
                 4: ("Kredi Temerrüt Baskısı", "SHOCK", "Spread Genişlemesi"),
-                5: ("Küresel Likidite Rallisi (Risk-On)", "RISK_ON", "Klasik Goldilocks Risk-On")
+                5: ("Küresel Likidite Rallisi (Risk-On)", "RISK_ON", "Klasik Goldilocks Risk-On"),
+                "REJIMSIZ_GECIS": ("Rejimsiz Geçiş (Makro Denge / Sıkışma)", "DENGE / SIKIŞMA", "Yönsüz Piyasa & Denge Bandı")
             }
-            name, r_type, sub = regime_names.get(active_id, ("REJIMSIZ_GECIS", "TRANSITION", "Denge"))
+            name, r_type, sub = regime_names.get(active_id, ("Rejimsiz Geçiş / Makro Denge", "DENGE", "Yönsüz Sıkışma"))
             regime_meta = {
                 "id": active_id,
                 "name": name,
                 "type": r_type,
                 "sub_type": sub,
-                "main_trigger_name": "-",
+                "main_trigger_name": "Eşikler Nötr",
                 "main_trigger_z": 0.0
             }
 
@@ -278,7 +269,11 @@ class MacroRegimeEngine:
             "REJIMSIZ_GECIS": "⚪"
         }
         reg_icon = icons.get(active_id, "⚪")
-        formatted_label = f"{reg_icon} [REJİM {active_id}] {regime_meta['name']}"
+
+        if active_id == "REJIMSIZ_GECIS":
+            formatted_label = f"{reg_icon} [REJİMSİZ GEÇİŞ] {regime_meta['name']}"
+        else:
+            formatted_label = f"{reg_icon} [REJİM {active_id}] {regime_meta['name']}"
 
         result = {
             "version": "1.0",
