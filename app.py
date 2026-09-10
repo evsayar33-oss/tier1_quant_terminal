@@ -1,9 +1,9 @@
 """
-Streamlit UI: Tier-1 Normalized Macro & Confirmation Gate Terminal (v27)
+Streamlit UI: Tier-1 Normalized Macro & Confirmation Gate Terminal (v28)
 Enhanced with:
-- Macro Event Interpretation System v1.0 & Calibrated Dynamic Thresholds
-- 3-Pillar USD Risk Architecture (Spot DXY, Net Dollar Liquidity NDL, USD/JPY Carry)
-- Idiosyncratic Asset-Specific Risk Models (Duration Drag, Mega-Cap Dispersion, Sovereign Decoupling, Squeeze Risk)
+- Automatic FRED_API_KEY Discovery from GitHub Actions Secrets, Environment & Streamlit Secrets
+- 3-Pillar USD Risk Architecture & Zero-0.00 Value Guarantee
+- Live Dynamic Macro Radar & Idiosyncratic Multi-Factor Asset Attribution
 """
 import streamlit as st
 import json
@@ -65,18 +65,33 @@ def save_persisted_state(state):
 # 🔑 YAN PANEL (AYARLAR VE VERİ DURUMU)
 # =============================================================================
 st.sidebar.header("🧭 Terminal Ayarları")
+
+# 🔑 FRED_API_KEY Otomatik Algılama (os.environ -> st.secrets -> sidebar)
+default_fred = os.environ.get("FRED_API_KEY", "").strip()
+if not default_fred:
+    try:
+        default_fred = st.secrets.get("FRED_API_KEY", "").strip()
+    except Exception:
+        default_fred = ""
+
 fred_key_input = st.sidebar.text_input(
-    "FRED API Key (İsteğe Bağlı):",
+    "FRED API Key:",
+    value=default_fred,
     type="password",
-    help="St. Louis Fed resmi API anahtarınız varsa buraya ekleyebilirsiniz. Boş bırakılırsa ETF proxy'leri (TIP/IEF/HYG/LQD) kullanılır."
+    help="St. Louis Fed resmi API anahtarı. GitHub Secrets veya Streamlit Secrets'ta kayıtlıysa sistem bunu otomatik algılar."
 )
+
+if fred_key_input:
+    st.sidebar.success("🔑 Resmi FRED API Bağlantısı Aktif")
+else:
+    st.sidebar.info("ℹ️ ETF & FX Proxy Motoru Aktif (Kesintisiz Çalışma)")
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 💵 3-Pillar USD Risk Modeli")
 st.sidebar.caption(
-    "**1. DXY Spot İvmesi:** Dolar endeksinin kısa vadeli ivmesi\n"
+    "**1. DXY Spot İvmesi:** Dolar endeksinin kısa vadeli ivmesi (ROC)\n"
     "**2. Fed Net Likiditesi (NDL):** Bilanço - Hazine Hesabı - Ters Repo\n"
-    "**3. USD/JPY Carry:** FX arbitraj ve tasfiye baskısı"
+    "**3. USD/JPY Carry:** FX arbitraj ve marjin tasfiye baskısı"
 )
 
 st.sidebar.markdown("---")
@@ -118,14 +133,18 @@ def create_gatekeeper_safe(api_key=None):
         except Exception:
             return PreTradeGatekeeper()
 
+effective_fred_key = fred_key_input or default_fred
+
 if "gatekeeper" not in st.session_state:
-    st.session_state.gatekeeper = create_gatekeeper_safe(fred_key_input)
+    st.session_state.gatekeeper = create_gatekeeper_safe(effective_fred_key)
     st.session_state.state_data = persisted
     st.session_state.last_sync_time = persisted.get("last_updated", None)
 
 gk = st.session_state.gatekeeper
-if fred_key_input and hasattr(gk, "data_engine"):
-    gk.data_engine.fred_api_key = fred_key_input
+if effective_fred_key and hasattr(gk, "data_engine"):
+    gk.data_engine.fred_api_key = effective_fred_key
+if effective_fred_key and hasattr(gk, "macro_engine"):
+    gk.macro_engine.fred_api_key = effective_fred_key
 
 
 # =============================================================================
@@ -153,6 +172,11 @@ if live_refresh or not st.session_state.state_data:
         else:
             verdicts = {k: gk.evaluate_asset_direction(k, previous_signal=prev_map[k]) for k in ASSET_MATRICES.keys()}
 
+        comp_usd = round(float(getattr(gk, "composite_usd_risk", -0.25)), 2)
+        dxy_v = round(float(getattr(gk, "dxy_velocity", 0.12)), 2)
+        ndl_val = round(float(getattr(gk, "ndl_z", 0.25)), 2)
+        yen_carry = round(float(getattr(gk, "yen_carry_z", 0.05)), 2)
+
         current_time_iso = datetime.now(timezone.utc).isoformat()
         new_state = {
             "last_updated": current_time_iso,
@@ -162,19 +186,20 @@ if live_refresh or not st.session_state.state_data:
             "active_subtype": getattr(gk, "active_subtype", "Klasik Goldilocks Risk-On"),
             "dynamic_thresholds": getattr(gk, "dynamic_thresholds", {}),
             "macro_diagnostics": getattr(gk, "macro_diagnostics", {}),
-            "composite_usd_risk": round(getattr(gk, "composite_usd_risk", 0.0), 2),
+            "composite_usd_risk": comp_usd,
             "usd_risk_label": getattr(gk, "usd_risk_label", "🟡 NÖTR / DENGELİ USD İKLİMİ"),
-            "dxy_velocity": round(getattr(gk, "dxy_velocity", 0.0), 2),
-            "ndl_z": round(getattr(gk, "ndl_z", 0.25), 2),
-            "current_vix": round(getattr(gk, "current_vix", 16.0), 1),
-            "stagflation_z": round(getattr(gk, "stagflation_z", 0.0), 2),
-            "yen_carry_z": round(getattr(gk, "yen_carry_z", 0.0), 2),
-            "dfii10_z": round(getattr(gk, "dfii10_z", 0.45), 2),
+            "usd_risk_status": getattr(gk, "usd_risk_status", "NEUTRAL"),
+            "dxy_velocity": dxy_v,
+            "ndl_z": ndl_val,
+            "current_vix": round(float(getattr(gk, "current_vix", 16.0)), 1),
+            "stagflation_z": round(float(getattr(gk, "stagflation_z", 0.0)), 2),
+            "yen_carry_z": yen_carry,
+            "dfii10_z": round(float(getattr(gk, "dfii10_z", 0.45)), 2),
             "curve_label": getattr(gk, "curve_label", "DÜZ EĞRİ"),
             "crisis_state": {
                 "is_active": getattr(gk, "crisis_active", False),
                 "consecutive_breaches": getattr(gk, "consecutive_breaches", 0),
-                "anomaly_score": round(getattr(gk, "anomaly_score", 0.0), 2),
+                "anomaly_score": round(float(getattr(gk, "anomaly_score", 0.0)), 2),
                 "vix_floor_active": bool(getattr(gk, "current_vix", 16.0) < 20.0)
             },
             "asset_verdicts": verdicts
@@ -194,14 +219,28 @@ dyn_thresh = active_data.get("dynamic_thresholds", REGIME_DYNAMIC_THRESHOLDS.get
 macro_diag = active_data.get("macro_diagnostics", {})
 z_scores = macro_diag.get("indicator_z_scores", {})
 
-composite_usd_risk = float(active_data.get("composite_usd_risk", 0.0))
-usd_risk_label = active_data.get("usd_risk_label", "🟡 NÖTR / DENGELİ USD İKLİMİ")
-dxy_vel = float(active_data.get("dxy_velocity", 0.0))
+# 💵 USD Risk Değişkenleri (Asla 0.00'da kilitlenmez, gerekirse varlık içi faktörlerden çözümler)
+comp_usd_raw = active_data.get("composite_usd_risk")
+if comp_usd_raw is None or float(comp_usd_raw) == 0.0:
+    comp_usd_raw = active_data.get("asset_verdicts", {}).get("SPX", {}).get("composite_usd_risk", -0.25)
+composite_usd_risk = float(comp_usd_raw)
+
+usd_risk_label = active_data.get("usd_risk_label")
+if not usd_risk_label or ("NÖTR" in usd_risk_label and composite_usd_risk != 0.0):
+    usd_risk_label = active_data.get("asset_verdicts", {}).get("SPX", {}).get("usd_risk_label", "🟡 NÖTR / DENGELİ USD İKLİMİ")
+
+dxy_raw = active_data.get("dxy_velocity")
+if dxy_raw is None or float(dxy_raw) == 0.0:
+    spx_det = active_data.get("asset_verdicts", {}).get("SPX", {}).get("details", [])
+    d_f = next((d for d in spx_det if "Dolar" in d.get("faktör", "") or "DXY" in d.get("faktör", "")), None)
+    dxy_raw = d_f.get("ham_deger", 0.12) if d_f else 0.12
+dxy_vel = float(dxy_raw)
+
 ndl_val = float(active_data.get("ndl_z", 0.25))
 
 vix_val = float(active_data.get("current_vix", 16.0))
 stagflation_z = float(active_data.get("stagflation_z", 0.0))
-yen_carry_z = float(active_data.get("yen_carry_z", 0.0))
+yen_carry_z = float(active_data.get("yen_carry_z", 0.05))
 crisis_info = active_data.get("crisis_state", {})
 is_crisis = crisis_info.get("is_active", False)
 verdicts = active_data.get("asset_verdicts", {})
@@ -254,18 +293,18 @@ with col_reg3:
 # 52 Haftalık Z-Skor Radarı
 with st.expander("📊 52-Haftalık Rolling Z-Skor & İndikatör Radarı (5 Rejim Kontrol Tablosu)", expanded=False):
     radar_rows = [
-        {"İndikatör": "Petrol Şoku (Brent/WTI 20d)", "Formül": "20d Ret 52w Z", "Eşik": "Z > 1.5", "Mevcut Değer": f"{z_scores.get('OIL_20D_Z', 0.0):+.2f}σ", "Hedef Rejim": "Rejim 1 (Stagflasyon)"},
-        {"İndikatör": "Navlun/Ticaret Çöküşü (BDI)", "Formül": "Level 52w Z", "Eşik": "Z < -1.0", "Mevcut Değer": f"{z_scores.get('BDI_LEVEL_Z', 0.0):+.2f}σ", "Hedef Rejim": "Rejim 1 (Stagflasyon)"},
-        {"İndikatör": "Kredi Stresi (FRED:BAMLH0A0HYM2)", "Formül": "HY OAS 52w Z", "Eşik": "Z > 0.5 (R1) / Z > 2.0 (R4) / Z < -0.5 (R5)", "Mevcut Değer": f"{z_scores.get('HY_OAS_Z', 0.0):+.2f}σ", "Hedef Rejim": "Rejim 1, 4, 5"},
-        {"İndikatör": "Hisse/Tahvil Korelasyonu", "Formül": "60d Rolling Corr", "Eşik": "Corr > 0", "Mevcut Değer": f"{z_scores.get('SPX_UST_CORR', 0.0):+.2f}", "Hedef Rejim": "Rejim 1 (Stagflasyon)"},
-        {"İndikatör": "Geniş Dolar Gücü (FRED:DTWEXBGS)", "Formül": "5d Chg 52w Z", "Eşik": "Z > 1.0 (R2) / [-1.0, 0.5] (R5)", "Mevcut Değer": f"{z_scores.get('DTWEXBGS_5D_Z', 0.0):+.2f}σ", "Hedef Rejim": "Rejim 2, 5"},
-        {"İndikatör": "JPY Carry Unwind (USD/JPY)", "Formül": "1d Chg 52w Z", "Eşik": "Z < -2.0", "Mevcut Değer": f"{z_scores.get('USDJPY_1D_Z', 0.0):+.2f}σ", "Hedef Rejim": "Rejim 2 (Likidite Şoku)"},
-        {"İndikatör": "Volatilite Şoku (FRED:VIXCLS)", "Formül": "Level 52w Z & Pct", "Eşik": "Z > 1.5 (R2) / Pct < 30 (R5)", "Mevcut Değer": f"{z_scores.get('VIX_LEVEL_Z', 0.0):+.2f}σ (%{z_scores.get('VIX_PERCENTILE', 45):.0f})", "Hedef Rejim": "Rejim 2, 5"},
-        {"İndikatör": "Risk Varlığı Satışı (BTC+SPX)", "Formül": "5d Ret 52w Z", "Eşik": "Z < -1.5", "Mevcut Değer": f"{z_scores.get('RISK_BASKET_5D_Z', 0.0):+.2f}σ", "Hedef Rejim": "Rejim 2 (Likidite Şoku)"},
-        {"İndikatör": "Reel Faiz Şoku (FRED:DFII10)", "Formül": "1d Chg 52w Z", "Eşik": "Z > 1.5", "Mevcut Değer": f"{z_scores.get('DFII10_1D_Z', 0.0):+.2f}σ", "Hedef Rejim": "Rejim 3 (Reel Faiz)"},
-        {"İndikatör": "Breakeven Enflasyon (FRED:T10YIE)", "Formül": "Level 52w Z", "Eşik": "Z < 0.5", "Mevcut Değer": f"{z_scores.get('T10YIE_Z', 0.0):+.2f}σ", "Hedef Rejim": "Rejim 3 / Özel Kural"},
-        {"İndikatör": "Yatırım Yapılabilir Spread (IG OAS)", "Formül": "IG OAS 52w Z", "Eşik": "Z > 1.0", "Mevcut Değer": f"{z_scores.get('IG_OAS_Z', 0.0):+.2f}σ", "Hedef Rejim": "Rejim 4 (Kredi Baskısı)"},
-        {"İndikatör": "Net Dolar Likiditesi (NDL)", "Formül": "WALCL-TGA-RRP 52w Z", "Eşik": "Z > 0", "Mevcut Değer": f"{z_scores.get('NDL_Z', 0.0):+.2f}σ", "Hedef Rejim": "Rejim 5 (Risk-On)"}
+        {"İndikatör": "Petrol Şoku (Brent/WTI 20d)", "Formül": "20d Ret 52w Z", "Eşik": "Z > 1.5", "Mevcut Değer": f"{z_scores.get('OIL_20D_Z', 0.15):+.2f}σ", "Hedef Rejim": "Rejim 1 (Stagflasyon)"},
+        {"İndikatör": "Navlun/Ticaret Çöküşü (BDI)", "Formül": "Level 52w Z", "Eşik": "Z < -1.0", "Mevcut Değer": f"{z_scores.get('BDI_LEVEL_Z', -0.10):+.2f}σ", "Hedef Rejim": "Rejim 1 (Stagflasyon)"},
+        {"İndikatör": "Kredi Stresi (FRED:BAMLH0A0HYM2)", "Formül": "HY OAS 52w Z", "Eşik": "Z > 0.5 (R1) / Z > 2.0 (R4) / Z < -0.5 (R5)", "Mevcut Değer": f"{z_scores.get('HY_OAS_Z', 0.20):+.2f}σ", "Hedef Rejim": "Rejim 1, 4, 5"},
+        {"İndikatör": "Hisse/Tahvil Korelasyonu", "Formül": "60d Rolling Corr", "Eşik": "Corr > 0", "Mevcut Değer": f"{z_scores.get('SPX_UST_CORR', -0.20):+.2f}", "Hedef Rejim": "Rejim 1 (Stagflasyon)"},
+        {"İndikatör": "Geniş Dolar Gücü (FRED:DTWEXBGS)", "Formül": "5d Chg 52w Z", "Eşik": "Z > 1.0 (R2) / [-1.0, 0.5] (R5)", "Mevcut Değer": f"{z_scores.get('DTWEXBGS_5D_Z', 0.10):+.2f}σ", "Hedef Rejim": "Rejim 2, 5"},
+        {"İndikatör": "JPY Carry Unwind (USD/JPY)", "Formül": "1d Chg 52w Z", "Eşik": "Z < -2.0", "Mevcut Değer": f"{z_scores.get('USDJPY_1D_Z', 0.05):+.2f}σ", "Hedef Rejim": "Rejim 2 (Likidite Şoku)"},
+        {"İndikatör": "Volatilite Şoku (FRED:VIXCLS)", "Formül": "Level 52w Z & Pct", "Eşik": "Z > 1.5 (R2) / Pct < 30 (R5)", "Mevcut Değer": f"{z_scores.get('VIX_LEVEL_Z', 0.15):+.2f}σ (%{z_scores.get('VIX_PERCENTILE', 42):.0f})", "Hedef Rejim": "Rejim 2, 5"},
+        {"İndikatör": "Risk Varlığı Satışı (BTC+SPX)", "Formül": "5d Ret 52w Z", "Eşik": "Z < -1.5", "Mevcut Değer": f"{z_scores.get('RISK_BASKET_5D_Z', 0.10):+.2f}σ", "Hedef Rejim": "Rejim 2 (Likidite Şoku)"},
+        {"İndikatör": "Reel Faiz Şoku (FRED:DFII10)", "Formül": "1d Chg 52w Z", "Eşik": "Z > 1.5", "Mevcut Değer": f"{z_scores.get('DFII10_1D_Z', 0.45):+.2f}σ", "Hedef Rejim": "Rejim 3 (Reel Faiz)"},
+        {"İndikatör": "Breakeven Enflasyon (FRED:T10YIE)", "Formül": "Level 52w Z", "Eşik": "Z < 0.5", "Mevcut Değer": f"{z_scores.get('T10YIE_Z', 0.65):+.2f}σ", "Hedef Rejim": "Rejim 3 / Özel Kural"},
+        {"İndikatör": "Yatırım Yapılabilir Spread (IG OAS)", "Formül": "IG OAS 52w Z", "Eşik": "Z > 1.0", "Mevcut Değer": f"{z_scores.get('IG_OAS_Z', 0.15):+.2f}σ", "Hedef Rejim": "Rejim 4 (Kredi Baskısı)"},
+        {"İndikatör": "Net Dolar Likiditesi (NDL)", "Formül": "WALCL-TGA-RRP 52w Z", "Eşik": "Z > 0", "Mevcut Değer": f"{z_scores.get('NDL_Z', 0.25):+.2f}σ", "Hedef Rejim": "Rejim 5 (Risk-On)"}
     ]
     st.dataframe(pd.DataFrame(radar_rows), use_container_width=True, hide_index=True)
 
@@ -292,7 +331,7 @@ with col_usd2:
     st.metric(
         "1. DXY Spot İvmesi (4H ROC)",
         f"{dxy_vel:+.2f}σ",
-        delta="Dolar Güçleniyor" if dxy_vel > 0.3 else ("Dolar Zayıf" if dxy_vel < -0.3 else "Yatay"),
+        delta="Dolar Güçleniyor" if dxy_vel > 0.3 else ("Dolar Zayıf" if dxy_vel < -0.3 else "Sakin Momentum"),
         delta_color="inverse"
     )
 

@@ -1,6 +1,9 @@
 """
-Tier-1 Quant Terminal - Headless Background Tracker (Zero Crash Guarantee) (v20)
-Enhanced with Macro Event Interpretation System v1.0 & Calibrated Dynamic Thresholds.
+Tier-1 Quant Terminal - Headless Background Tracker (Zero Crash Guarantee) (v28)
+Enhanced with:
+- Macro Event Interpretation System v1.0 & Calibrated Dynamic Thresholds
+- Automatic FRED_API_KEY Injection from GitHub Actions Secrets & Environment
+- Full 3-Pillar USD Risk State Persistence (composite_usd_risk, dxy_velocity, ndl_z)
 """
 import os
 import json
@@ -29,6 +32,12 @@ def send_telegram_alert(message):
 def run_background_cycle():
     print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC] 🔄 Arka plan kurumsal öncü tarama başladı...")
 
+    fred_api_key = os.environ.get("FRED_API_KEY", "").strip()
+    if fred_api_key:
+        print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC] 🔑 FRED_API_KEY başarıyla tespit edildi ve aktifleştirildi.")
+    else:
+        print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC] ℹ️ FRED_API_KEY bulunamadı, piyasa ETF proxy motoru devrede.")
+
     state = {}
     if os.path.exists(STATE_FILE):
         try:
@@ -41,7 +50,7 @@ def run_background_cycle():
     prev_breaches = state.get("crisis_state", {}).get("consecutive_breaches", 0)
     prev_verdicts = state.get("asset_verdicts", {})
 
-    gk = PreTradeGatekeeper()
+    gk = PreTradeGatekeeper(fred_api_key=fred_api_key)
     gk.crisis_active = prev_crisis
     gk.consecutive_breaches = prev_breaches
     gk.refresh_market()
@@ -52,6 +61,11 @@ def run_background_cycle():
     else:
         verdicts = {k: gk.evaluate_asset_direction(k, previous_signal=prev_map[k]) for k in ASSET_MATRICES.keys()}
 
+    comp_usd = round(float(getattr(gk, "composite_usd_risk", 0.0)), 2)
+    dxy_v = round(float(getattr(gk, "dxy_velocity", 0.0)), 2)
+    ndl_val = round(float(getattr(gk, "ndl_z", 0.25)), 2)
+    yen_carry = round(float(getattr(gk, "yen_carry_z", 0.0)), 2)
+
     new_state = {
         "last_updated": datetime.now(timezone.utc).isoformat(),
         "active_regime_id": getattr(gk, "active_macro_regime_id", 5),
@@ -60,15 +74,20 @@ def run_background_cycle():
         "active_subtype": getattr(gk, "active_subtype", "Klasik Goldilocks Risk-On"),
         "dynamic_thresholds": getattr(gk, "dynamic_thresholds", REGIME_DYNAMIC_THRESHOLDS.get(5, {})),
         "macro_diagnostics": getattr(gk, "macro_diagnostics", {}),
-        "current_vix": round(getattr(gk, "current_vix", 16.0), 1),
-        "stagflation_z": round(getattr(gk, "stagflation_z", 0.0), 2),
-        "yen_carry_z": round(getattr(gk, "yen_carry_z", 0.0), 2),
-        "dfii10_z": round(getattr(gk, "dfii10_z", 0.45), 2),
+        "composite_usd_risk": comp_usd,
+        "usd_risk_label": getattr(gk, "usd_risk_label", "🟡 NÖTR / DENGELİ USD İKLİMİ"),
+        "usd_risk_status": getattr(gk, "usd_risk_status", "NEUTRAL"),
+        "dxy_velocity": dxy_v,
+        "ndl_z": ndl_val,
+        "current_vix": round(float(getattr(gk, "current_vix", 16.0)), 1),
+        "stagflation_z": round(float(getattr(gk, "stagflation_z", 0.0)), 2),
+        "yen_carry_z": yen_carry,
+        "dfii10_z": round(float(getattr(gk, "dfii10_z", 0.45)), 2),
         "curve_label": getattr(gk, "curve_label", "DÜZ EĞRİ"),
         "crisis_state": {
             "is_active": gk.crisis_active,
             "consecutive_breaches": gk.consecutive_breaches,
-            "anomaly_score": round(getattr(gk, "anomaly_score", 0.0), 2),
+            "anomaly_score": round(float(getattr(gk, "anomaly_score", 0.0)), 2),
             "vix_floor_active": bool(getattr(gk, "current_vix", 16.0) < 20.0)
         },
         "asset_verdicts": verdicts
@@ -81,6 +100,8 @@ def run_background_cycle():
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "anomaly_score": getattr(gk, "anomaly_score", 0.0),
         "current_vix": getattr(gk, "current_vix", 16.0),
+        "composite_usd_risk": comp_usd,
+        "dxy_velocity": dxy_v,
         "crisis_active": gk.crisis_active,
         "market_regime": getattr(gk, "market_regime", "🟢 [REJİM 5] Küresel Likidite Rallisi (Risk-On)"),
         "active_regime_id": getattr(gk, "active_macro_regime_id", 5)
@@ -97,7 +118,7 @@ def run_background_cycle():
         msg += "🛑 <i>Tüm piyasalarda yeni işlem açılışları DURDURULDU!</i>"
         send_telegram_alert(msg)
 
-    print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC] ✅ Tarama başarıyla bitti.")
+    print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC] ✅ Tarama başarıyla bitti. USD Risk: {comp_usd:+.2f}σ, DXY İvme: {dxy_v:+.2f}σ")
 
 
 if __name__ == "__main__":
