@@ -1,11 +1,10 @@
 """
-Robust Quant Processor: Real-Time Microstructure, 3-Pillar USD Risk & Barra Normalization (v28)
+Robust Quant Processor: Real-Time Microstructure, 3-Pillar USD Risk & Barra Normalization (v29)
 Enhanced with:
 - Zero-Lag Intraday Microstructure Price Discovery (No Moving Averages)
 - Seamless Cross-Market Time-Series Alignment Engine (_safe_align_series)
-- Unified 3-Pillar USD Risk Architecture (Spot DXY, Net Dollar Liquidity NDL, USD/JPY Carry)
-- Idiosyncratic Asset-Specific Risk Models
-- Dynamic Regime Adaptation and Hysteresis Deadband Engine
+- ±0.15% Early Directional Tilt (YATAY / OLASI YÜKSELİŞ & DÜŞÜŞ)
+- 23/5 Live Futures Session Support (ES=F, NQ=F, GC=F, SI=F)
 """
 import numpy as np
 import pandas as pd
@@ -46,17 +45,15 @@ class RobustQuantProcessor:
         return df_aligned
 
     # =========================================================================
-    # 📍 GECİKMESİZ MİKRO PİYASA YAPISI & ANLIK FİYAT KEŞFİ MOTORU
+    # 📍 GECİKMESİZ MİKRO PİYASA YAPISI & DİNAMİK ±%0.15 YÖN MOTORU
     # =========================================================================
     @staticmethod
     def compute_realtime_price_action(df_1h, fast_window=4, vol_scale=1.0, asset_key=None):
         """
-        📍 Saf Mikro Piyasa Yapısı & Anlık Fiyat Keşfi Motoru (Zero-Lag):
-        Kesinlikle gecikmeli hareketli ortalama (EMA/SMA) içermez; geçmişi değil ŞİMDİYİ ölçer.
-        1. Anlık Mum İtme Vektörü (Close vs Open Drift)
-        2. Bar İçi Likidite Emilimi & Fitil Reddi (CLV Absorption)
-        3. Hacim Teyitli Mikro Dengesizlik (Volume-Weighted Imbalance)
-        4. Varlığa Özgü Volatilite Normalizasyonu (vol_scale Duyarlı)
+        📍 Saf Mikro Piyasa Yapısı (Zero-Lag Price Discovery):
+        Hareketli ortalama içermez.
+        - ±%0.15 eşiği aşıldığında erken eğilim verir: YATAY / OLASI YÜKSELİŞ veya OLASI DÜŞÜŞ
+        - Sadece ±%0.15 arasındaki ölü bantta YATAY / TESTERE yakar.
         """
         if df_1h.empty or len(df_1h) < 2:
             return "⚪ YATAY (%0.00)", "⚪", "gray", 0.0
@@ -77,10 +74,9 @@ class RobustQuantProcessor:
         display_roc = round(float(roc_window), 2)
 
         # 3. Bar İçi Likidite Konumu (CLV: Fitil / Alıcı-Satıcı Hakimiyeti) [-1.0, +1.0]
-        # Alıcılar mumu dipten yukarı topladıysa pozitif, tepeden satış yediyse negatif
         clv = ((c - l) - (h - c)) / bar_range
 
-        # 4. Hacim Ağırlığı (Düşük hacimli rastgele gürültüyü filtreler)
+        # 4. Hacim Ağırlığı
         vol_weight = 1.0
         if "Volume" in df_1h.columns and len(df_1h) >= 12:
             avg_vol = df_1h["Volume"].tail(12).mean()
@@ -88,34 +84,41 @@ class RobustQuantProcessor:
                 cur_vol = float(last_bar["Volume"])
                 vol_weight = float(np.clip(cur_vol / avg_vol, 0.6, 2.0))
 
-        # 5. Dinamik Volatilite Normalizasyonu (BTC için ~0.70%, SPX için ~0.30%)
+        # 5. Dinamik Volatilite Normalizasyonu
         eff_scale = max(float(vol_scale), 0.5)
         noise_threshold = 0.35 * eff_scale
 
-        # Mikro Yapı Skoru: Anlık itki (%50) + Kümülatif seans (%30) + Bar içi emilim (%20)
+        # Mikro Yapı Skoru
         blended_momentum = (instant_drift * 0.50) + (roc_window * 0.30)
         micro_score = ((blended_momentum * vol_weight) / noise_threshold) + (clv * 0.40)
 
-        # Karar Mekanizması: Rastgele gürültü bandı içi = YATAY, gürültü dışı = YÖNLÜ
+        # =====================================================================
+        # 🎯 KARAR VE ETİKETLEME MEKANİZMASI (±%0.15 DUYARLI)
+        # =====================================================================
+        # 1. Güçlü İvmeler
         if micro_score >= 1.0 and display_roc > 0:
             return f"🟢 GÜÇLÜ YUKARI (%{display_roc:+.2f})", "🟢🟢", "green", display_roc
-        elif micro_score >= 0.40:
-            return f"🟢 YUKARI (%{display_roc:+.2f})", "🟢", "lightgreen", display_roc
         elif micro_score <= -1.0 and display_roc < 0:
             return f"🔴 GÜÇLÜ AŞAĞI (%{display_roc:+.2f})", "🔴🔴", "darkred", display_roc
-        elif micro_score <= -0.40:
+
+        # 2. Onaylanmış Yönler
+        elif micro_score >= 0.45 or (display_roc >= (0.35 * eff_scale)):
+            return f"🟢 YUKARI (%{display_roc:+.2f})", "🟢", "lightgreen", display_roc
+        elif micro_score <= -0.45 or (display_roc <= -(0.35 * eff_scale)):
             return f"🔴 AŞAĞI (%{display_roc:+.2f})", "🔴", "red", display_roc
+
+        # 3. İnce Eşik (±%0.15): Olası Yükseliş / Olası Düşüş
+        elif display_roc >= 0.15 or micro_score >= 0.15:
+            return f"⚪ YATAY / OLASI YÜKSELİŞ (%{display_roc:+.2f})", "⚪", "gray", display_roc
+        elif display_roc <= -0.15 or micro_score <= -0.15:
+            return f"⚪ YATAY / OLASI DÜŞÜŞ (%{display_roc:+.2f})", "⚪", "gray", display_roc
+
+        # 4. Saf Denge / Ölü Bant (-0.15 ile +0.15 arası)
         else:
             return f"⚪ YATAY / TESTERE (%{display_roc:+.2f})", "⚪", "gray", display_roc
 
     @staticmethod
     def compute_adx(df_1h, period=14):
-        """
-        Average Directional Index (ADX) Trend Güç Göstergesi:
-        ADX < 20: Yatay / Testere Piyasası (Trend Yok)
-        20 <= ADX < 25: Zayıf / Gelişen Trend
-        ADX >= 25: Güçlü / Kararlı Trend
-        """
         if df_1h.empty or len(df_1h) < (period * 2):
             return 25.0, "BELİRSİZ"
 
@@ -157,33 +160,27 @@ class RobustQuantProcessor:
     @staticmethod
     def get_asset_session_status(asset_key):
         clocks = {
-            "SPX": {"open_utc": 13.5, "close_utc": 20.0, "crypto": False},
-            "NQ":  {"open_utc": 13.5, "close_utc": 20.0, "crypto": False},
-            "XAU": {"open_utc": 0.0,  "close_utc": 24.0, "crypto": True},
-            "XAG": {"open_utc": 0.0,  "close_utc": 24.0, "crypto": True},
-            "BTC": {"open_utc": 0.0,  "close_utc": 24.0, "crypto": True},
-            "ETH": {"open_utc": 0.0,  "close_utc": 24.0, "crypto": True}
+            "SPX": {"futures": True},
+            "NQ":  {"futures": True},
+            "XAU": {"futures": True},
+            "XAG": {"futures": True},
+            "BTC": {"crypto": True},
+            "ETH": {"crypto": True}
         }
         clock = clocks.get(asset_key, {})
         if clock.get("crypto", False):
             return "CANLI (24/7)", 1.0
 
         now = datetime.now(timezone.utc)
-        current_hour = now.hour + (now.minute / 60.0)
         current_day = now.weekday()
 
         if current_day in [5, 6]:
             return "HAFTA SONU (KAPALI)", 1.0
 
-        open_h = clock.get("open_utc", 13.5)
-        close_h = clock.get("close_utc", 20.0)
+        if clock.get("futures", False):
+            return "CANLI VADELİ (23/5)", 1.0
 
-        if open_h <= current_hour <= close_h:
-            return "CANLI SEANS", 1.0
-        elif (open_h - 4.0) <= current_hour < open_h:
-            return "SEANS ÖNCESİ (PRE-MARKET)", 1.0
-        else:
-            return "KAPALI (SEANS DIŞI)", 1.0
+        return "CANLI SEANS", 1.0
 
     @staticmethod
     def check_catalyst_event_window():
@@ -202,12 +199,6 @@ class RobustQuantProcessor:
     # =========================================================================
     @staticmethod
     def compute_composite_usd_risk(dxy_velocity, ndl_z, usdjpy_1d_z):
-        """
-        Bileşik 3-Pillar USD Risk Endeksi [-2.0, +2.0]:
-        1. DXY Kısa Vade İvmesi (Spot momentum)
-        2. Fed Net Dolar Likiditesi (NDL Z-skoru - Ters yönlü etki)
-        3. USD/JPY Carry Yayılımı (Carry çöküşünde küresel USD tasfiyesi)
-        """
         dxy_term = float(np.clip(dxy_velocity * 0.45, -1.0, 1.0))
         ndl_term = float(np.clip(-ndl_z * 0.35, -1.0, 1.0))
         carry_term = float(np.clip(-usdjpy_1d_z * 0.20, -0.8, 0.8))
@@ -240,10 +231,6 @@ class RobustQuantProcessor:
     # =========================================================================
     @staticmethod
     def compute_equity_duration_drag(df_asset, real_yield_z):
-        """
-        Hisse Senedi Değerleme & Süre Baskısı (Equity Duration Drag):
-        TIPS 10Y Reel Getiri arttığında hisse çarpanlarında (F/K) sıkışma riskini ölçer.
-        """
         if real_yield_z > 0.30:
             drag = (real_yield_z - 0.30) * 1.2
             return float(np.clip(drag, 0.0, 2.0))
@@ -254,9 +241,6 @@ class RobustQuantProcessor:
 
     @staticmethod
     def compute_tech_breadth_dispersion(smh_df, arkk_df, qqq_df, window=24):
-        """
-        Teknoloji Katılım & Çip İvmesi Ayrışması
-        """
         if smh_df.empty or qqq_df.empty:
             return 0.0
         s_smh = smh_df["Close"] if "Close" in smh_df.columns else smh_df.iloc[:, 0]
@@ -273,11 +257,6 @@ class RobustQuantProcessor:
 
     @staticmethod
     def compute_gold_sovereign_decoupling(gold_df, real_yield_z, dxy_df, window=24):
-        """
-        Altın Merkez Bankası & Jeopolitik Rezerv Talebi (Sovereign Decoupling):
-        Altının klasik finans kurallarını aşarak reel faiz veya DXY artarken bile
-        güçlü kalmasını ölçer (De-dolarizasyon ve egemen rezerv birikimi).
-        """
         if gold_df.empty or len(gold_df) < 2:
             return 0.0
         close = gold_df["Close"]
@@ -294,9 +273,6 @@ class RobustQuantProcessor:
 
     @staticmethod
     def compute_silver_monetary_catchup(silver_df, gold_df, copper_df, window=24):
-        """
-        Gümüş Parasal Yakalama & Değerleme İvmesi
-        """
         if silver_df.empty or gold_df.empty:
             return 0.0
         s_ag = silver_df["Close"] if "Close" in silver_df.columns else silver_df.iloc[:, 0]
@@ -313,9 +289,6 @@ class RobustQuantProcessor:
 
     @staticmethod
     def compute_crypto_stablecoin_usd_impulse(flow_ratio, funding_rate, ndl_z):
-        """
-        Kripto-Yerel USD Likiditesi & Taker İştahı
-        """
         taker_term = np.tanh(np.log(flow_ratio + 1e-6) * 2.0) * 1.3
         ndl_term = np.clip(ndl_z * 0.4, -0.6, 0.6)
         fr_term = np.clip((funding_rate - 0.0001) * 1500.0, -0.5, 0.5)
@@ -324,18 +297,12 @@ class RobustQuantProcessor:
 
     @staticmethod
     def compute_liquidation_squeeze_risk(funding_rate, df_crypto, window=24):
-        """
-        Türev Kaldıraç & Likidasyon Sıkışması Riski
-        """
         excess_funding = funding_rate - 0.0001
         stress = excess_funding * 6000.0
         return float(np.clip(stress, -2.0, 2.0))
 
     @staticmethod
     def compute_eth_staking_utility_drift(eth_df, btc_df, window=24):
-        """
-        ETH/BTC Ağ Aktivitesi & Göreceli Değer İvmesi
-        """
         if eth_df.empty or btc_df.empty:
             return 0.0
         s_eth = eth_df["Close"] if "Close" in eth_df.columns else eth_df.iloc[:, 0]
@@ -550,7 +517,7 @@ class RobustQuantProcessor:
     def compute_gold_oil_ratio(gold_df, oil_df, window=24):
         """
         Altın / Petrol Şoku (Stagflasyon Faktörü):
-        Gecikmesiz hizalama ve flat seanslarda Z-skor fallback mekanizması sayesinde ASLA 0 üretmez.
+        Gecikmesiz hizalama ve Z-skor fallback mekanizması sayesinde ASLA 0 üretmez.
         """
         if gold_df is None or oil_df is None or gold_df.empty or oil_df.empty:
             return 0.0
@@ -569,7 +536,6 @@ class RobustQuantProcessor:
 
         roc = ((ratio.iloc[-1] - ratio.iloc[-w - 1]) / (ratio.iloc[-w - 1] + 1e-9)) * 100.0
 
-        # Seans kapalıyken son barlar ffill nedeniyle düz kaldıysa rasyonun Z-skoruna geçer:
         if abs(roc) < 1e-5:
             w_z = min(48, len(ratio))
             mean_val = ratio.tail(w_z).mean()
@@ -646,7 +612,7 @@ class RobustQuantProcessor:
         if df_num.empty or df_denom.empty:
             return 0.0
         s1 = df_num["Close"] if "Close" in df_num.columns else df_num.iloc[:, 0]
-        s2 = df_denom["Close"] if "Close" in df_denom.columns else df_denom.iloc[:, 0]
+        s2 = df_denom["Close"] if "Close" in df_num.columns else df_denom.iloc[:, 0]
         aligned = RobustQuantProcessor._safe_align_series(s1, s2)
         if len(aligned) < 2:
             return 0.0
@@ -718,9 +684,6 @@ class RobustQuantProcessor:
         dynamic_thresholds=None,
         active_regime_id=None
     ):
-        """
-        Dinamik Rejime Duyarlı Sinyal Çözümleyici
-        """
         t = SIGNAL_THRESHOLDS
         prev = previous_signal if previous_signal else "NÖTR (BEKLE)"
 
