@@ -421,39 +421,64 @@ class PreTradeGatekeeper:
             prev = previous_signals.get(k, "NÖTR (BEKLE)")
             verdicts[k] = self.evaluate_asset_direction(k, previous_signal=prev)
 
-        # İkiz Varlık Konsensüs Kontrolü
-        twin_pairs = [
-            ("SPX", "NQ", 0.35),
-            ("XAU", "XAG", 0.35),
-            ("BTC", "ETH", 0.50)
+        # 🛡️ Çapa Varlık Filtresi & İkiz Konsensüs (Anchor Asset Lead-Lag & Twin Harmonization)
+        twin_configs = [
+            # (anchor, follower, tolerance, cluster_name)
+            ("SPX", "NQ", 0.45, "Hisseler"),
+            ("XAU", "XAG", 0.65, "Değerli Madenler"),
+            ("BTC", "ETH", 0.55, "Kripto Varlıklar")
         ]
-        for a1, a2, tolerance in twin_pairs:
-            v1 = verdicts.get(a1)
-            v2 = verdicts.get(a2)
-            if not v1 or not v2:
-                continue
-            sc1 = float(v1.get("score", 0.0))
-            sc2 = float(v2.get("score", 0.0))
-            diff = abs(sc1 - sc2)
 
+        for anchor, follower, tolerance, cluster_name in twin_configs:
+            v_anc = verdicts.get(anchor)
+            v_fol = verdicts.get(follower)
+            if not v_anc or not v_fol:
+                continue
+
+            sc_anc = float(v_anc.get("score", 0.0))
+            sc_fol = float(v_fol.get("score", 0.0))
+            diff = abs(sc_anc - sc_fol)
+
+            # 1. Tolerans İçi Konsensüs (Aynı yönde harmonizasyon)
             if diff <= tolerance:
-                if sc1 <= -0.40 and sc2 <= -0.40:
-                    if "SAT" in v1["verdict"] or "SAT" in v2["verdict"]:
-                        for v in (v1, v2):
+                if sc_anc <= -0.40 and sc_fol <= -0.40:
+                    if "SAT" in v_anc["verdict"] or "SAT" in v_fol["verdict"]:
+                        for v in (v_anc, v_fol):
                             if "GÜÇLÜ SAT" not in v["verdict"]:
                                 v["verdict"] = "SAT"
                                 v["forecast_direction"] = "SAT"
                                 v["icon"] = "🔴"
                                 v["forecast_icon"] = "🔴"
                                 v["color"] = "red"
-                elif sc1 >= 0.40 and sc2 >= 0.40:
-                    if "AL" in v1["verdict"] or "AL" in v2["verdict"]:
-                        for v in (v1, v2):
+                elif sc_anc >= 0.40 and sc_fol >= 0.40:
+                    if "AL" in v_anc["verdict"] or "AL" in v_fol["verdict"]:
+                        for v in (v_anc, v_fol):
                             if "GÜÇLÜ AL" not in v["verdict"]:
                                 v["verdict"] = "AL"
                                 v["forecast_direction"] = "AL"
                                 v["icon"] = "🟢"
                                 v["forecast_icon"] = "🟢"
                                 v["color"] = "lightgreen"
+
+            # 2. ⚓ ÇAPA VARLIK VETOSU (Anchor Asset Veto):
+            # Çapa varlık (XAU, SPX, BTC) SAT vermiyorken, takipçi varlık tek başına izole SAT veremez!
+            # Çapa varlık düşmüyorken takipçinin aşırı satılması ayı tuzağı (bear trap) riskidir.
+            if "SAT" not in v_anc["verdict"] and "SAT" in v_fol["verdict"]:
+                v_fol["verdict"] = "NÖTR (TESTERE BANDI)"
+                v_fol["forecast_direction"] = "NÖTR (TESTERE BANDI)"
+                v_fol["icon"] = "⚪"
+                v_fol["forecast_icon"] = "⚪"
+                v_fol["color"] = "white"
+                v_fol["cluster_agreement"] = f"{v_fol.get('cluster_agreement', '')} | ⚓ {anchor} Çapa Onayı Yok"
+
+            # Çapa varlık AL vermiyorken, takipçi varlık tek başına aşırı ralli yapıp AL veremez (Boğa tuzağı filtresi)
+            elif "AL" not in v_anc["verdict"] and "AL" in v_fol["verdict"]:
+                if diff > tolerance:
+                    v_fol["verdict"] = "NÖTR (BEKLE)"
+                    v_fol["forecast_direction"] = "NÖTR (BEKLE)"
+                    v_fol["icon"] = "⚪"
+                    v_fol["forecast_icon"] = "⚪"
+                    v_fol["color"] = "white"
+                    v_fol["cluster_agreement"] = f"{v_fol.get('cluster_agreement', '')} | ⚓ {anchor} Çapa Onayı Yok"
 
         return verdicts

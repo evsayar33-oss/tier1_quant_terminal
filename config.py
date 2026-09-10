@@ -96,12 +96,12 @@ ASSET_MATRICES = {
     "XAG": {
         "name": "Ons Gümüş (Silver)",
         "benchmark_symbol": "SI=F",
-        "vol_scale": 1.5,
+        "vol_scale": 1.25,
         "factors": [
-            {"id": "asset_direction", "name": "Gümüş 4H Anlık Fiyat İvmesi", "cluster": "E", "base_weight": 2.30, "base_sign": 1.0},
-            {"id": "gold_sympathy", "name": "🥇 Altın Güç İvmesi (Gold Beta)", "cluster": "E", "base_weight": 1.30, "base_sign": 1.0},
+            {"id": "asset_direction", "name": "Gümüş 4H Anlık Fiyat İvmesi", "cluster": "E", "base_weight": 1.90, "base_sign": 1.0},
+            {"id": "gold_sympathy", "name": "🥇 Altın Güç İvmesi (Gold Beta)", "cluster": "E", "base_weight": 1.80, "base_sign": 1.0},
             {"id": "silver_monetary_catchup", "name": "🥈 Gümüş Parasal Yakalama & Değerleme İvmesi", "cluster": "E", "base_weight": 1.00, "base_sign": 1.0},
-            {"id": "copper_gold", "name": "Bakır/Altın Sanayi Talebi", "cluster": "D", "base_weight": 0.85, "base_sign": 1.0},
+            {"id": "copper_gold", "name": "Bakır/Altın Sanayi Talebi", "cluster": "D", "base_weight": 0.60, "base_sign": 1.0},
             {"id": "silver_copper", "name": "Gümüş / Bakır Sanayi Rotasyonu", "cluster": "D", "base_weight": 0.80, "base_sign": 1.0},
             {"id": "duration_risk", "name": "TLT Tahvil Getiri Baskısı", "cluster": "B", "base_weight": 0.65, "base_sign": 1.0},
             {"id": "real_yield", "name": "10Y Reel Faiz Baskısı (TIP)", "cluster": "B", "base_weight": 0.75, "base_sign": -1.0},
