@@ -1,50 +1,50 @@
 {
-  "last_updated": "2026-09-10T11:30:37.088346+00:00",
-  "active_regime_id": 5,
-  "active_regime_name": "Küresel Likidite Rallisi (Risk-On)",
-  "market_regime": "🟢 [REJİM 5] Küresel Likidite Rallisi (Risk-On)",
-  "active_subtype": "Klasik Goldilocks Risk-On",
+  "last_updated": "2026-09-10T11:44:08.904863+00:00",
+  "active_regime_id": "REJIMSIZ_GECIS",
+  "active_regime_name": "Rejimsiz Geçiş (Makro Denge / Sıkışma)",
+  "market_regime": "⚪ [REJİMSİZ GEÇİŞ] Rejimsiz Geçiş (Makro Denge / Sıkışma)",
+  "active_subtype": "Yönsüz Piyasa & Denge Bandı",
   "dynamic_thresholds": {
-    "name": "Küresel Likidite Rallisi (Risk-On)",
-    "buy_enter": 0.45,
-    "buy_exit": 0.2,
-    "sell_enter": -0.85,
-    "sell_exit": -0.4,
-    "strong_buy_enter": 1.4,
-    "strong_sell_enter": -1.8,
+    "name": "Rejimsiz Geçiş / Makro Denge",
+    "buy_enter": 0.75,
+    "buy_exit": 0.35,
+    "sell_enter": -0.75,
+    "sell_exit": -0.35,
+    "strong_buy_enter": 1.7,
+    "strong_sell_enter": -1.7,
     "min_clusters": 2,
-    "risk_scale": 1.25,
-    "description": "Likidite rallisi: Alışlar erken tetiklenir (0.45), boğa piyasasında erken satışlar engellenir (-0.85)."
+    "risk_scale": 0.85,
+    "description": "Rejimsiz Geçiş / Denge: Testere filtresi devrede, dengeli simetrik eşikler (±0.75)."
   },
   "macro_diagnostics": {
     "version": "1.0",
     "module_name": "macro-event-interpretation-system",
-    "timestamp": "2026-09-10T11:30:36.027924+00:00",
-    "active_regime_id": 5,
-    "active_regime_name": "Küresel Likidite Rallisi (Risk-On)",
-    "active_regime_type": "RISK_ON",
-    "active_regime_subtype": "Klasik Goldilocks Risk-On",
-    "formatted_label": "🟢 [REJİM 5] Küresel Likidite Rallisi (Risk-On)",
+    "timestamp": "2026-09-10T11:44:07.896066+00:00",
+    "active_regime_id": "REJIMSIZ_GECIS",
+    "active_regime_name": "Rejimsiz Geçiş (Makro Denge / Sıkışma)",
+    "active_regime_type": "DENGE / SIKIŞMA",
+    "active_regime_subtype": "Yönsüz Piyasa & Denge Bandı",
+    "formatted_label": "⚪ [REJİMSİZ GEÇİŞ] Rejimsiz Geçiş (Makro Denge / Sıkışma)",
     "is_confirmed": true,
-    "candidate_regime_id": null,
+    "candidate_regime_id": "REJIMSIZ_GECIS",
     "consecutive_hits": 0,
     "hysteresis_confirmation_weeks": 2,
-    "conflict_explanation": "Hiçbir eşik aşılmadı: REJIMSIZ_GECIS (Önceki teyitli rejim histerezis ile korunuyor)",
+    "conflict_explanation": "Hiçbir eşik aşılmadı: REJIMSIZ_GECIS (Makro Denge & Sıkışma Rejimi Aktif)",
     "triggered_regimes": [],
     "dynamic_thresholds": {
-      "name": "Küresel Likidite Rallisi (Risk-On)",
-      "buy_enter": 0.45,
-      "buy_exit": 0.2,
-      "sell_enter": -0.85,
-      "sell_exit": -0.4,
-      "strong_buy_enter": 1.4,
-      "strong_sell_enter": -1.8,
+      "name": "Rejimsiz Geçiş / Makro Denge",
+      "buy_enter": 0.75,
+      "buy_exit": 0.35,
+      "sell_enter": -0.75,
+      "sell_exit": -0.35,
+      "strong_buy_enter": 1.7,
+      "strong_sell_enter": -1.7,
       "min_clusters": 2,
-      "risk_scale": 1.25,
-      "description": "Likidite rallisi: Alışlar erken tetiklenir (0.45), boğa piyasasında erken satışlar engellenir (-0.85)."
+      "risk_scale": 0.85,
+      "description": "Rejimsiz Geçiş / Denge: Testere filtresi devrede, dengeli simetrik eşikler (±0.75)."
     },
     "indicator_z_scores": {
-      "OIL_20D_Z": 0.1,
+      "OIL_20D_Z": 0.08,
       "BDI_LEVEL_Z": -0.68,
       "HY_OAS_Z": -1.22,
       "SPX_UST_CORR": 0.6,
@@ -71,10 +71,10 @@
       "r5_triggers_met": false
     }
   },
-  "composite_usd_risk": 0.34,
+  "composite_usd_risk": 0.36,
   "usd_risk_label": "🟡 NÖTR / DENGELİ USD İKLİMİ",
   "usd_risk_status": "NEUTRAL",
-  "dxy_velocity": 0.64,
+  "dxy_velocity": 0.68,
   "ndl_z": -1.3,
   "current_vix": 16.7,
   "stagflation_z": 0.77,
@@ -84,7 +84,7 @@
   "crisis_state": {
     "is_active": false,
     "consecutive_breaches": 0,
-    "anomaly_score": 0.47,
+    "anomaly_score": 0.49,
     "vix_floor_active": true
   },
   "asset_verdicts": {
@@ -93,33 +93,33 @@
       "current_icon": "⚪",
       "current_color": "gray",
       "current_roc": 0.1,
-      "forecast_direction": "NÖTR (BEKLE)",
-      "forecast_icon": "⚪",
-      "forecast_color": "gray",
-      "verdict": "NÖTR (BEKLE)",
-      "icon": "⚪",
-      "color": "gray",
-      "score": -0.74,
+      "forecast_direction": "SAT",
+      "forecast_icon": "🔴",
+      "forecast_color": "red",
+      "verdict": "SAT",
+      "icon": "🔴",
+      "color": "red",
+      "score": -0.75,
       "cluster_agreement": "0 Boğa / 5 Ayı Kümesi (Aktif: 5)",
       "session_status": "SEANS ÖNCESİ (PRE-MARKET)",
       "adx_val": 80.4,
       "adx_regime": "GÜÇLÜ TREND",
-      "active_regime_id": 5,
-      "active_regime_name": "Küresel Likidite Rallisi (Risk-On)",
-      "active_subtype": "Klasik Goldilocks Risk-On",
+      "active_regime_id": "REJIMSIZ_GECIS",
+      "active_regime_name": "Rejimsiz Geçiş (Makro Denge / Sıkışma)",
+      "active_subtype": "Yönsüz Piyasa & Denge Bandı",
       "dynamic_thresholds": {
-        "name": "Küresel Likidite Rallisi (Risk-On)",
-        "buy_enter": 0.45,
-        "buy_exit": 0.2,
-        "sell_enter": -0.85,
-        "sell_exit": -0.4,
-        "strong_buy_enter": 1.4,
-        "strong_sell_enter": -1.8,
+        "name": "Rejimsiz Geçiş / Makro Denge",
+        "buy_enter": 0.75,
+        "buy_exit": 0.35,
+        "sell_enter": -0.75,
+        "sell_exit": -0.35,
+        "strong_buy_enter": 1.7,
+        "strong_sell_enter": -1.7,
         "min_clusters": 2,
-        "risk_scale": 1.25,
-        "description": "Likidite rallisi: Alışlar erken tetiklenir (0.45), boğa piyasasında erken satışlar engellenir (-0.85)."
+        "risk_scale": 0.85,
+        "description": "Rejimsiz Geçiş / Denge: Testere filtresi devrede, dengeli simetrik eşikler (±0.75)."
       },
-      "composite_usd_risk": 0.34299999999999997,
+      "composite_usd_risk": 0.361,
       "usd_risk_label": "🟡 NÖTR / DENGELİ USD İKLİMİ",
       "details": [
         {
@@ -179,14 +179,14 @@
         {
           "faktör": "VIX Opsiyon Korku Primi",
           "küme": "C",
-          "ham_deger": 0.49,
-          "puan": -0.44
+          "ham_deger": 0.5,
+          "puan": -0.45
         },
         {
           "faktör": "VIX/VIX3M Vade Eğrisi (Kuyruk Riski)",
           "küme": "C",
-          "ham_deger": -0.93,
-          "puan": 0.74
+          "ham_deger": -0.92,
+          "puan": 0.73
         },
         {
           "faktör": "Petrol / Ticaret (IYT) Şoku",
@@ -197,8 +197,8 @@
         {
           "faktör": "DXY Kısa Vade Dolar Baskısı",
           "küme": "A",
-          "ham_deger": 0.64,
-          "puan": -0.48
+          "ham_deger": 0.68,
+          "puan": -0.51
         },
         {
           "faktör": "Fed Net Dolar Likiditesi (NDL)",
@@ -225,27 +225,27 @@
       "verdict": "NÖTR (BEKLE)",
       "icon": "⚪",
       "color": "gray",
-      "score": 0.04,
+      "score": 0.03,
       "cluster_agreement": "1 Boğa / 4 Ayı Kümesi (Aktif: 5)",
       "session_status": "SEANS ÖNCESİ (PRE-MARKET)",
       "adx_val": 32.4,
       "adx_regime": "GÜÇLÜ TREND",
-      "active_regime_id": 5,
-      "active_regime_name": "Küresel Likidite Rallisi (Risk-On)",
-      "active_subtype": "Klasik Goldilocks Risk-On",
+      "active_regime_id": "REJIMSIZ_GECIS",
+      "active_regime_name": "Rejimsiz Geçiş (Makro Denge / Sıkışma)",
+      "active_subtype": "Yönsüz Piyasa & Denge Bandı",
       "dynamic_thresholds": {
-        "name": "Küresel Likidite Rallisi (Risk-On)",
-        "buy_enter": 0.45,
-        "buy_exit": 0.2,
-        "sell_enter": -0.85,
-        "sell_exit": -0.4,
-        "strong_buy_enter": 1.4,
-        "strong_sell_enter": -1.8,
+        "name": "Rejimsiz Geçiş / Makro Denge",
+        "buy_enter": 0.75,
+        "buy_exit": 0.35,
+        "sell_enter": -0.75,
+        "sell_exit": -0.35,
+        "strong_buy_enter": 1.7,
+        "strong_sell_enter": -1.7,
         "min_clusters": 2,
-        "risk_scale": 1.25,
-        "description": "Likidite rallisi: Alışlar erken tetiklenir (0.45), boğa piyasasında erken satışlar engellenir (-0.85)."
+        "risk_scale": 0.85,
+        "description": "Rejimsiz Geçiş / Denge: Testere filtresi devrede, dengeli simetrik eşikler (±0.75)."
       },
-      "composite_usd_risk": 0.34299999999999997,
+      "composite_usd_risk": 0.361,
       "usd_risk_label": "🟡 NÖTR / DENGELİ USD İKLİMİ",
       "details": [
         {
@@ -305,14 +305,14 @@
         {
           "faktör": "Teknoloji Volatilite Baskısı",
           "küme": "C",
-          "ham_deger": 0.49,
-          "puan": -0.44
+          "ham_deger": 0.5,
+          "puan": -0.45
         },
         {
           "faktör": "VIX Vade Eğrisi Stresi (VIX/VIX3M)",
           "küme": "C",
-          "ham_deger": -0.93,
-          "puan": 0.74
+          "ham_deger": -0.92,
+          "puan": 0.73
         },
         {
           "faktör": "Petrol / Enerji Baskısı",
@@ -323,8 +323,8 @@
         {
           "faktör": "DXY Dolar Likidite Sıkışması",
           "küme": "A",
-          "ham_deger": 0.64,
-          "puan": -0.48
+          "ham_deger": 0.68,
+          "puan": -0.51
         },
         {
           "faktör": "Fed Net Dolar Likiditesi (NDL)",
@@ -341,50 +341,50 @@
       ]
     },
     "XAU": {
-      "current_direction": "🔴 AŞAĞI (%-0.68)",
+      "current_direction": "🔴 AŞAĞI (%-0.54)",
       "current_icon": "🔴",
       "current_color": "red",
-      "current_roc": -0.68,
+      "current_roc": -0.54,
       "forecast_direction": "NÖTR (BEKLE)",
       "forecast_icon": "⚪",
       "forecast_color": "gray",
       "verdict": "NÖTR (BEKLE)",
       "icon": "⚪",
       "color": "gray",
-      "score": -0.4,
+      "score": -0.27,
       "cluster_agreement": "2 Boğa / 2 Ayı Kümesi (Aktif: 5)",
       "session_status": "CANLI (24/7)",
       "adx_val": 14.4,
       "adx_regime": "YATAY / TESTERE",
-      "active_regime_id": 5,
-      "active_regime_name": "Küresel Likidite Rallisi (Risk-On)",
-      "active_subtype": "Klasik Goldilocks Risk-On",
+      "active_regime_id": "REJIMSIZ_GECIS",
+      "active_regime_name": "Rejimsiz Geçiş (Makro Denge / Sıkışma)",
+      "active_subtype": "Yönsüz Piyasa & Denge Bandı",
       "dynamic_thresholds": {
-        "name": "Küresel Likidite Rallisi (Risk-On)",
-        "buy_enter": 0.45,
-        "buy_exit": 0.2,
-        "sell_enter": -0.85,
-        "sell_exit": -0.4,
-        "strong_buy_enter": 1.4,
-        "strong_sell_enter": -1.8,
+        "name": "Rejimsiz Geçiş / Makro Denge",
+        "buy_enter": 0.75,
+        "buy_exit": 0.35,
+        "sell_enter": -0.75,
+        "sell_exit": -0.35,
+        "strong_buy_enter": 1.7,
+        "strong_sell_enter": -1.7,
         "min_clusters": 2,
-        "risk_scale": 1.25,
-        "description": "Likidite rallisi: Alışlar erken tetiklenir (0.45), boğa piyasasında erken satışlar engellenir (-0.85)."
+        "risk_scale": 0.85,
+        "description": "Rejimsiz Geçiş / Denge: Testere filtresi devrede, dengeli simetrik eşikler (±0.75)."
       },
-      "composite_usd_risk": 0.34299999999999997,
+      "composite_usd_risk": 0.361,
       "usd_risk_label": "🟡 NÖTR / DENGELİ USD İKLİMİ",
       "details": [
         {
           "faktör": "Altın 4H Anlık Fiyat İvmesi",
           "küme": "E",
-          "ham_deger": -1.6,
-          "puan": -3.68
+          "ham_deger": -1.24,
+          "puan": -2.85
         },
         {
           "faktör": "🏛️ Merkez Bankası & Jeopolitik Rezerv Talebi",
           "küme": "E",
-          "ham_deger": -0.44,
-          "puan": -0.52
+          "ham_deger": -0.28,
+          "puan": -0.34
         },
         {
           "faktör": "10Y Reel Faiz (TIPS Ters Oran)",
@@ -413,14 +413,14 @@
         {
           "faktör": "Jeopolitik & Güvenli Liman",
           "küme": "C",
-          "ham_deger": 0.49,
-          "puan": 0.49
+          "ham_deger": 0.5,
+          "puan": 0.5
         },
         {
           "faktör": "Altın / Petrol Şoku (Stagflasyon)",
           "küme": "D",
-          "ham_deger": -1.1,
-          "puan": -0.83
+          "ham_deger": -0.89,
+          "puan": -0.67
         },
         {
           "faktör": "Bakır/Altın Sanayi Döngüsü",
@@ -431,14 +431,14 @@
         {
           "faktör": "Altın/Gümüş Rasyosu (GSR)",
           "küme": "D",
-          "ham_deger": 1.17,
-          "puan": 0.82
+          "ham_deger": 0.92,
+          "puan": 0.65
         },
         {
           "faktör": "DXY Spot Dolar Baskısı",
           "küme": "A",
-          "ham_deger": 0.64,
-          "puan": -0.54
+          "ham_deger": 0.68,
+          "puan": -0.58
         },
         {
           "faktör": "Dolar Rezerv / Net Likidite İvmesi",
@@ -449,37 +449,37 @@
       ]
     },
     "XAG": {
-      "current_direction": "🔴 GÜÇLÜ AŞAĞI (%-2.57)",
+      "current_direction": "🔴 GÜÇLÜ AŞAĞI (%-2.31)",
       "current_icon": "🔴🔴",
       "current_color": "darkred",
-      "current_roc": -2.57,
+      "current_roc": -2.31,
       "forecast_direction": "NÖTR (TESTERE BANDI)",
       "forecast_icon": "⚪",
       "forecast_color": "red",
       "verdict": "NÖTR (TESTERE BANDI)",
       "icon": "⚪",
       "color": "white",
-      "score": -1.3,
+      "score": -1.18,
       "cluster_agreement": "1 Boğa / 3 Ayı Kümesi (Aktif: 5) | ⚓ XAU Çapa Onayı Yok",
       "session_status": "CANLI (24/7)",
       "adx_val": 20.1,
       "adx_regime": "GELİŞEN TREND",
-      "active_regime_id": 5,
-      "active_regime_name": "Küresel Likidite Rallisi (Risk-On)",
-      "active_subtype": "Klasik Goldilocks Risk-On",
+      "active_regime_id": "REJIMSIZ_GECIS",
+      "active_regime_name": "Rejimsiz Geçiş (Makro Denge / Sıkışma)",
+      "active_subtype": "Yönsüz Piyasa & Denge Bandı",
       "dynamic_thresholds": {
-        "name": "Küresel Likidite Rallisi (Risk-On)",
-        "buy_enter": 0.45,
-        "buy_exit": 0.2,
-        "sell_enter": -0.85,
-        "sell_exit": -0.4,
-        "strong_buy_enter": 1.4,
-        "strong_sell_enter": -1.8,
+        "name": "Rejimsiz Geçiş / Makro Denge",
+        "buy_enter": 0.75,
+        "buy_exit": 0.35,
+        "sell_enter": -0.75,
+        "sell_exit": -0.35,
+        "strong_buy_enter": 1.7,
+        "strong_sell_enter": -1.7,
         "min_clusters": 2,
-        "risk_scale": 1.25,
-        "description": "Likidite rallisi: Alışlar erken tetiklenir (0.45), boğa piyasasında erken satışlar engellenir (-0.85)."
+        "risk_scale": 0.85,
+        "description": "Rejimsiz Geçiş / Denge: Testere filtresi devrede, dengeli simetrik eşikler (±0.75)."
       },
-      "composite_usd_risk": 0.34299999999999997,
+      "composite_usd_risk": 0.361,
       "usd_risk_label": "🟡 NÖTR / DENGELİ USD İKLİMİ",
       "details": [
         {
@@ -491,14 +491,14 @@
         {
           "faktör": "🥇 Altın Güç İvmesi (Gold Beta)",
           "küme": "E",
-          "ham_deger": -1.6,
-          "puan": -2.88
+          "ham_deger": -1.24,
+          "puan": -2.23
         },
         {
           "faktör": "🥈 Gümüş Parasal Yakalama & Değerleme İvmesi",
           "küme": "E",
-          "ham_deger": -1.17,
-          "puan": -1.17
+          "ham_deger": -0.92,
+          "puan": -0.92
         },
         {
           "faktör": "Bakır/Altın Sanayi Talebi",
@@ -539,8 +539,8 @@
         {
           "faktör": "USD Gücü & Dolar Baskısı",
           "küme": "A",
-          "ham_deger": 0.64,
-          "puan": -0.48
+          "ham_deger": 0.68,
+          "puan": -0.51
         },
         {
           "faktör": "Fed Net Dolar Likiditesi (NDL)",
@@ -551,44 +551,44 @@
       ]
     },
     "BTC": {
-      "current_direction": "⚪ YATAY / TESTERE (%-0.12)",
+      "current_direction": "⚪ YATAY / TESTERE (%-0.14)",
       "current_icon": "⚪",
       "current_color": "gray",
-      "current_roc": -0.12,
+      "current_roc": -0.14,
       "forecast_direction": "NÖTR (BEKLE)",
       "forecast_icon": "⚪",
       "forecast_color": "gray",
       "verdict": "NÖTR (BEKLE)",
       "icon": "⚪",
       "color": "gray",
-      "score": -0.36,
+      "score": -0.37,
       "cluster_agreement": "0 Boğa / 4 Ayı Kümesi (Aktif: 4)",
       "session_status": "CANLI (24/7)",
       "adx_val": 53.8,
       "adx_regime": "GÜÇLÜ TREND",
-      "active_regime_id": 5,
-      "active_regime_name": "Küresel Likidite Rallisi (Risk-On)",
-      "active_subtype": "Klasik Goldilocks Risk-On",
+      "active_regime_id": "REJIMSIZ_GECIS",
+      "active_regime_name": "Rejimsiz Geçiş (Makro Denge / Sıkışma)",
+      "active_subtype": "Yönsüz Piyasa & Denge Bandı",
       "dynamic_thresholds": {
-        "name": "Küresel Likidite Rallisi (Risk-On)",
-        "buy_enter": 0.45,
-        "buy_exit": 0.2,
-        "sell_enter": -0.85,
-        "sell_exit": -0.4,
-        "strong_buy_enter": 1.4,
-        "strong_sell_enter": -1.8,
+        "name": "Rejimsiz Geçiş / Makro Denge",
+        "buy_enter": 0.75,
+        "buy_exit": 0.35,
+        "sell_enter": -0.75,
+        "sell_exit": -0.35,
+        "strong_buy_enter": 1.7,
+        "strong_sell_enter": -1.7,
         "min_clusters": 2,
-        "risk_scale": 1.25,
-        "description": "Likidite rallisi: Alışlar erken tetiklenir (0.45), boğa piyasasında erken satışlar engellenir (-0.85)."
+        "risk_scale": 0.85,
+        "description": "Rejimsiz Geçiş / Denge: Testere filtresi devrede, dengeli simetrik eşikler (±0.75)."
       },
-      "composite_usd_risk": 0.34299999999999997,
+      "composite_usd_risk": 0.361,
       "usd_risk_label": "🟡 NÖTR / DENGELİ USD İKLİMİ",
       "details": [
         {
           "faktör": "BTC 4H Anlık Fiyat İvmesi",
           "küme": "E",
-          "ham_deger": -0.65,
-          "puan": -1.5
+          "ham_deger": -0.68,
+          "puan": -1.56
         },
         {
           "faktör": "OKX/Bybit Spot & Vadeli Taker Akışı",
@@ -617,8 +617,8 @@
         {
           "faktör": "BTC Dominansı / Altcoin Rotasyonu",
           "küme": "E",
-          "ham_deger": -0.23,
-          "puan": -0.12
+          "ham_deger": -0.17,
+          "puan": -0.08
         },
         {
           "faktör": "Geleneksel Bankacılık Kaçışı (KRE Ters)",
@@ -647,14 +647,14 @@
         {
           "faktör": "Sistemik Volatilite Baskısı",
           "küme": "C",
-          "ham_deger": 0.49,
-          "puan": -0.29
+          "ham_deger": 0.5,
+          "puan": -0.3
         },
         {
           "faktör": "DXY Dolar Likidite Baskısı",
           "küme": "A",
-          "ham_deger": 0.64,
-          "puan": -0.48
+          "ham_deger": 0.68,
+          "puan": -0.51
         },
         {
           "faktör": "Fed Net Dolar Likiditesi (NDL)",
@@ -671,44 +671,44 @@
       ]
     },
     "ETH": {
-      "current_direction": "⚪ YATAY / OLASI DÜŞÜŞ (%-0.21)",
+      "current_direction": "⚪ YATAY / OLASI DÜŞÜŞ (%-0.25)",
       "current_icon": "⚪",
       "current_color": "gray",
-      "current_roc": -0.21,
+      "current_roc": -0.25,
       "forecast_direction": "NÖTR (BEKLE)",
       "forecast_icon": "⚪",
       "forecast_color": "gray",
       "verdict": "NÖTR (BEKLE)",
       "icon": "⚪",
       "color": "gray",
-      "score": -0.4,
+      "score": -0.43,
       "cluster_agreement": "0 Boğa / 4 Ayı Kümesi (Aktif: 4)",
       "session_status": "CANLI (24/7)",
       "adx_val": 36.6,
       "adx_regime": "GÜÇLÜ TREND",
-      "active_regime_id": 5,
-      "active_regime_name": "Küresel Likidite Rallisi (Risk-On)",
-      "active_subtype": "Klasik Goldilocks Risk-On",
+      "active_regime_id": "REJIMSIZ_GECIS",
+      "active_regime_name": "Rejimsiz Geçiş (Makro Denge / Sıkışma)",
+      "active_subtype": "Yönsüz Piyasa & Denge Bandı",
       "dynamic_thresholds": {
-        "name": "Küresel Likidite Rallisi (Risk-On)",
-        "buy_enter": 0.45,
-        "buy_exit": 0.2,
-        "sell_enter": -0.85,
-        "sell_exit": -0.4,
-        "strong_buy_enter": 1.4,
-        "strong_sell_enter": -1.8,
+        "name": "Rejimsiz Geçiş / Makro Denge",
+        "buy_enter": 0.75,
+        "buy_exit": 0.35,
+        "sell_enter": -0.75,
+        "sell_exit": -0.35,
+        "strong_buy_enter": 1.7,
+        "strong_sell_enter": -1.7,
         "min_clusters": 2,
-        "risk_scale": 1.25,
-        "description": "Likidite rallisi: Alışlar erken tetiklenir (0.45), boğa piyasasında erken satışlar engellenir (-0.85)."
+        "risk_scale": 0.85,
+        "description": "Rejimsiz Geçiş / Denge: Testere filtresi devrede, dengeli simetrik eşikler (±0.75)."
       },
-      "composite_usd_risk": 0.34299999999999997,
+      "composite_usd_risk": 0.361,
       "usd_risk_label": "🟡 NÖTR / DENGELİ USD İKLİMİ",
       "details": [
         {
           "faktör": "ETH 4H Anlık Fiyat İvmesi",
           "küme": "E",
-          "ham_deger": -0.58,
-          "puan": -1.34
+          "ham_deger": -0.62,
+          "puan": -1.43
         },
         {
           "faktör": "OKX/Bybit ETH Taker Alış Akışı",
@@ -725,32 +725,32 @@
         {
           "faktör": "Canlı ETH Fonlama Oranı (Funding Riski)",
           "küme": "E",
-          "ham_deger": -0.22,
-          "puan": 0.18
+          "ham_deger": -0.21,
+          "puan": 0.17
         },
         {
           "faktör": "⚠️ ETH Türev Kaldıraç & Sıkışma Riski",
           "küme": "E",
-          "ham_deger": -0.27,
-          "puan": 0.2
+          "ham_deger": -0.25,
+          "puan": 0.19
         },
         {
           "faktör": "⚡ Bitcoin İtici Gücü (BTC Beta)",
           "küme": "E",
-          "ham_deger": -0.72,
-          "puan": -0.43
+          "ham_deger": -0.75,
+          "puan": -0.45
         },
         {
           "faktör": "ETH/BTC Göreceli Güç (Risk İştahı)",
           "küme": "E",
-          "ham_deger": 0.23,
-          "puan": 0.12
+          "ham_deger": 0.17,
+          "puan": 0.08
         },
         {
           "faktör": "⛓️ L1 Ağ Aktivitesi & DeFi Likidite İvmesi",
           "küme": "E",
-          "ham_deger": 0.79,
-          "puan": 0.55
+          "ham_deger": 0.76,
+          "puan": 0.53
         },
         {
           "faktör": "TLT Likidite Baskısı",
@@ -767,14 +767,14 @@
         {
           "faktör": "Sistemik Volatilite Baskısı",
           "küme": "C",
-          "ham_deger": 0.49,
-          "puan": -0.29
+          "ham_deger": 0.5,
+          "puan": -0.3
         },
         {
           "faktör": "DXY Dolar Likidite Baskısı",
           "küme": "A",
-          "ham_deger": 0.64,
-          "puan": -0.48
+          "ham_deger": 0.68,
+          "puan": -0.51
         },
         {
           "faktör": "Fed Net Dolar Likiditesi (NDL)",
