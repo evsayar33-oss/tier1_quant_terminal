@@ -296,8 +296,11 @@ with col_card2:
         delta=f"Volatilite Çarpanı: x{ASSET_MATRICES[selected_asset].get('vol_scale', 1.0)}"
     )
 
+adx_val = res.get('adx_val', 22.0)
+adx_regime = res.get('adx_regime', 'DENGELİ')
 st.caption(
     f"🕒 Seans: **{res.get('session_status', 'CANLI')}** | "
+    f"🎯 Trend Gücü: **ADX {adx_val} ({adx_regime})** | "
     f"Küme Uyumu: **{res.get('cluster_agreement', '-')}** | "
     f"Son Tarama: **{get_now_tsi_str()}**"
 )

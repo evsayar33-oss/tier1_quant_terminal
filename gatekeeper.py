@@ -87,6 +87,7 @@ class PreTradeGatekeeper:
         symbol = matrix.get("benchmark_symbol", "SPY")
         df_ast = self.grid_1h.get(symbol, pd.DataFrame())
         current_dir, current_icon, current_color, current_roc = self.processor.compute_realtime_price_action(df_ast)
+        adx_val, adx_regime = self.processor.compute_adx(df_ast)
 
         # 1. Kriz Kilidi Kontrolü
         if self.crisis_active:
@@ -254,14 +255,16 @@ class PreTradeGatekeeper:
         bull_clusters = sum(1 for c, sc in cluster_scores.items() if sc > 0.20)
         bear_clusters = sum(1 for c, sc in cluster_scores.items() if sc < -0.20)
 
-        # Sinyal Çözümleme (Histerezis & Küme Teyidi)
+        # Sinyal Çözümleme (Dinamik Rejim & ADX Trend Gücü)
         total_active_clusters = max(len(active_clusters), 2)
         verdict, color, icon = self.processor.resolve_signal_with_hysteresis(
             final_score,
             previous_signal=previous_signal,
             bull_clusters=bull_clusters,
             bear_clusters=bear_clusters,
-            min_clusters=max(2, int(np.ceil(total_active_clusters * 0.45)))
+            min_clusters=max(2, int(np.ceil(total_active_clusters * 0.45))),
+            market_regime=self.market_regime,
+            adx_val=adx_val
         )
 
         return {
@@ -278,6 +281,8 @@ class PreTradeGatekeeper:
             "score": final_score,
             "cluster_agreement": f"{bull_clusters} Boğa / {bear_clusters} Ayı Kümesi (Aktif: {len(active_clusters)})",
             "session_status": session_status,
+            "adx_val": adx_val,
+            "adx_regime": adx_regime,
             "details": details
         }
 

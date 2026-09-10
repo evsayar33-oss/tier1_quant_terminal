@@ -1,5 +1,5 @@
 """
-Robust Quant Processor: Real-Time ETF Metrics & Strict Barra Normalization (v20 Calibrated)
+Robust Quant Processor: Real-Time ETF Metrics & Strict Barra Normalization (v25 Dynamic Adaptive Thresholds & ADX)
 """
 import numpy as np
 import pandas as pd
@@ -44,6 +44,52 @@ class RobustQuantProcessor:
             return f"🔴 AŞAĞI (%{roc_val:+.2f})", "🔴", "red", roc_val
         else:
             return f"⚪ YATAY / NÖTR (%{roc_val:+.2f})", "⚪", "gray", roc_val
+
+    @staticmethod
+    def compute_adx(df_1h, period=14):
+        """
+        Average Directional Index (ADX) Trend Güç Göstergesi:
+        ADX < 20: Yatay / Testere Piyasası (Trend Yok)
+        20 <= ADX < 25: Zayıf / Gelişen Trend
+        ADX >= 25: Güçlü / Kararlı Trend
+        """
+        if df_1h.empty or len(df_1h) < (period * 2):
+            return 25.0, "BELİRSİZ"
+
+        df = df_1h.copy()
+        high = df["High"]
+        low = df["Low"]
+        close = df["Close"]
+
+        tr1 = high - low
+        tr2 = (high - close.shift(1)).abs()
+        tr3 = (low - close.shift(1)).abs()
+        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+
+        up_move = high - high.shift(1)
+        down_move = low.shift(1) - low
+
+        plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
+        minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
+
+        atr = tr.rolling(period).mean()
+        plus_di = 100.0 * (pd.Series(plus_dm, index=df.index).rolling(period).mean() / (atr + 1e-9))
+        minus_di = 100.0 * (pd.Series(minus_dm, index=df.index).rolling(period).mean() / (atr + 1e-9))
+
+        dx = 100.0 * ((plus_di - minus_di).abs() / (plus_di + minus_di + 1e-9))
+        adx_series = dx.rolling(period).mean()
+
+        last_adx = adx_series.iloc[-1]
+        adx_val = round(float(last_adx), 1) if not np.isnan(last_adx) else 25.0
+
+        if adx_val < 20.0:
+            regime = "YATAY / TESTERE"
+        elif adx_val < 25.0:
+            regime = "GELİŞEN TREND"
+        else:
+            regime = "GÜÇLÜ TREND"
+
+        return adx_val, regime
 
     @staticmethod
     def get_asset_session_status(asset_key):
@@ -373,26 +419,50 @@ class RobustQuantProcessor:
         return new_state, anomaly_score, is_vix_above_floor
 
     @staticmethod
-    def resolve_signal_with_hysteresis(current_score, previous_signal="NÖTR (BEKLE)", bull_clusters=0, bear_clusters=0, min_clusters=2):
+    def resolve_signal_with_hysteresis(
+        current_score,
+        previous_signal="NÖTR (BEKLE)",
+        bull_clusters=0,
+        bear_clusters=0,
+        min_clusters=2,
+        market_regime="TREND",
+        adx_val=25.0
+    ):
         t = SIGNAL_THRESHOLDS
         prev = previous_signal if previous_signal else "NÖTR (BEKLE)"
+
+        # 🧠 DİNAMİK REJİM VE ADX TREND GÜÇ EŞİKLERİ
+        is_choppy = ("DENGE" in market_regime or "SIKIŞMA" in market_regime) or (adx_val < 20.0)
+
+        if is_choppy:
+            buy_enter = 0.85
+            sell_enter = -0.85
+            req_clusters = max(min_clusters, 3)
+            buy_exit = 0.35
+            sell_exit = -0.35
+        else:
+            buy_enter = t.get("buy_enter", 0.60)
+            sell_enter = t.get("sell_enter", -0.60)
+            req_clusters = min_clusters
+            buy_exit = t.get("buy_exit", 0.30)
+            sell_exit = t.get("sell_exit", -0.30)
 
         # 1. GÜÇLÜ AL KONTROLÜ
         if prev == "GÜÇLÜ AL":
             if current_score > t.get("strong_buy_exit", 1.0):
                 return "GÜÇLÜ AL", "green", "🟢🟢"
         else:
-            if current_score >= t.get("strong_buy_enter", 1.6) and bull_clusters >= min_clusters:
+            if current_score >= t.get("strong_buy_enter", 1.6) and bull_clusters >= req_clusters:
                 return "GÜÇLÜ AL", "green", "🟢🟢"
 
         # 2. AL KONTROLÜ
         if prev in ["AL", "GÜÇLÜ AL"]:
-            if current_score > t.get("buy_exit", 0.30):
+            if current_score > buy_exit:
                 return "AL", "lightgreen", "🟢"
         else:
-            if current_score >= t.get("buy_enter", 0.60):
+            if current_score >= buy_enter and bull_clusters >= req_clusters:
                 return "AL", "lightgreen", "🟢"
-            if bull_clusters >= 3 and current_score >= 0.50:
+            if not is_choppy and bull_clusters >= 3 and current_score >= 0.50:
                 return "AL", "lightgreen", "🟢"
 
         # 3. GÜÇLÜ SAT KONTROLÜ
@@ -400,17 +470,18 @@ class RobustQuantProcessor:
             if current_score < t.get("strong_sell_exit", -1.0):
                 return "GÜÇLÜ SAT", "darkred", "🔴🔴"
         else:
-            if current_score <= t.get("strong_sell_enter", -1.6) and bear_clusters >= min_clusters:
+            if current_score <= t.get("strong_sell_enter", -1.6) and bear_clusters >= req_clusters:
                 return "GÜÇLÜ SAT", "darkred", "🔴🔴"
 
         # 4. SAT KONTROLÜ
         if prev in ["SAT", "GÜÇLÜ SAT"]:
-            if current_score < t.get("sell_exit", -0.30):
+            if current_score < sell_exit:
                 return "SAT", "red", "🔴"
         else:
-            if current_score <= t.get("sell_enter", -0.60):
+            if current_score <= sell_enter and bear_clusters >= req_clusters:
                 return "SAT", "red", "🔴"
-            if bear_clusters >= 3 and current_score <= -0.50:
+            if not is_choppy and bear_clusters >= 3 and current_score <= -0.50:
                 return "SAT", "red", "🔴"
 
-        return "NÖTR (BEKLE)", "gray", "⚪"
+        neutral_label = "NÖTR (TESTERE BANDI)" if (is_choppy and abs(current_score) > 0.40) else "NÖTR (BEKLE)"
+        return neutral_label, "gray", "⚪"

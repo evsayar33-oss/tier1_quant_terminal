@@ -1,3 +1,22 @@
+
+def test_dynamic_adaptive_thresholds():
+    qp = RobustQuantProcessor()
+    
+    # 1. Choppy regime -> 0.70 score is blocked as NÖTR (TESTERE BANDI)
+    sig_chop, _, _ = qp.resolve_signal_with_hysteresis(
+        0.70, previous_signal="NÖTR (BEKLE)", bull_clusters=2,
+        market_regime="⚪ MAKRO DENGE / SIKIŞMA", adx_val=16.0
+    )
+    assert "NÖTR" in sig_chop, f"Expected NÖTR in choppy regime, got {sig_chop}"
+    
+    # 2. Trending regime -> 0.70 score successfully triggers AL
+    sig_trend, _, _ = qp.resolve_signal_with_hysteresis(
+        0.70, previous_signal="NÖTR (BEKLE)", bull_clusters=2,
+        market_regime="🟢 KÜRESEL LİKİDİTE RALLİSİ (RISK-ON)", adx_val=32.0
+    )
+    assert sig_trend == "AL", f"Expected AL in trending regime, got {sig_trend}"
+    
+    print("✅ Dynamic Adaptive Thresholds Test Passed!")
 """
 Automated Test Suite for Tier-1 Quant Terminal
 """
