@@ -1,10 +1,9 @@
 """
-Robust Quant Processor: Real-Time Microstructure, 3-Pillar USD Risk & Barra Normalization (v29)
+Robust Quant Processor: Real-Time Microstructure, 3-Pillar USD Risk & Barra Normalization (v30)
 Enhanced with:
-- Zero-Lag Intraday Microstructure Price Discovery (No Moving Averages)
+- Zero-Lag Intraday Microstructure Price Discovery (Strict Sign Segregation)
+- Fixed False-Positive Rise Tilt on Negative Returns
 - Seamless Cross-Market Time-Series Alignment Engine (_safe_align_series)
-- ±0.15% Early Directional Tilt (YATAY / OLASI YÜKSELİŞ & DÜŞÜŞ)
-- 23/5 Live Futures Session Support (ES=F, NQ=F, GC=F, SI=F)
 """
 import numpy as np
 import pandas as pd
@@ -24,10 +23,6 @@ class RobustQuantProcessor:
     # =========================================================================
     @staticmethod
     def _safe_align_series(s1: pd.Series, s2: pd.Series) -> pd.DataFrame:
-        """
-        Zaman dilimi (timezone), seans saati farklılıkları ve tatil günlerinden
-        kaynaklanan veri uyuşmazlıklarını gecikmesiz outer join ve ffill ile hizalar.
-        """
         if s1 is None or s2 is None or len(s1) == 0 or len(s2) == 0:
             return pd.DataFrame()
 
@@ -45,17 +40,17 @@ class RobustQuantProcessor:
         return df_aligned
 
     # =========================================================================
-    # 📍 GECİKMESİZ MİKRO PİYASA YAPISI & DİNAMİK ±%0.15 YÖN MOTORU
+    # 📍 KUSURSUZ MİKRO PİYASA YAPISI (İŞARET KİLİTLİ YÖN MOTORU)
     # =========================================================================
     @staticmethod
     def compute_realtime_price_action(df_1h, fast_window=4, vol_scale=1.0, asset_key=None):
         """
         📍 Saf Mikro Piyasa Yapısı (Zero-Lag Price Discovery):
-        Hareketli ortalama içermez.
-        - ±%0.15 eşiği aşıldığında erken eğilim verir: YATAY / OLASI YÜKSELİŞ veya OLASI DÜŞÜŞ
-        - Sadece ±%0.15 arasındaki ölü bantta YATAY / TESTERE yakar.
+        İşaret kilidi entegre edildi:
+        - display_roc < 0 ise ASLA 'YÜKSELİŞ' yazamaz.
+        - display_roc > 0 ise ASLA 'DÜŞÜŞ' yazamaz.
         """
-        if df_1h.empty or len(df_1h) < 2:
+        if df_1h is None or df_1h.empty or len(df_1h) < 2:
             return "⚪ YATAY (%0.00)", "⚪", "gray", 0.0
 
         last_bar = df_1h.iloc[-1]
@@ -73,7 +68,7 @@ class RobustQuantProcessor:
         roc_window = ((c - df_1h["Close"].iloc[-w - 1]) / (df_1h["Close"].iloc[-w - 1] + 1e-9)) * 100.0
         display_roc = round(float(roc_window), 2)
 
-        # 3. Bar İçi Likidite Konumu (CLV: Fitil / Alıcı-Satıcı Hakimiyeti) [-1.0, +1.0]
+        # 3. Bar İçi Likidite Konumu (CLV) [-1.0, +1.0]
         clv = ((c - l) - (h - c)) / bar_range
 
         # 4. Hacim Ağırlığı
@@ -93,29 +88,33 @@ class RobustQuantProcessor:
         micro_score = ((blended_momentum * vol_weight) / noise_threshold) + (clv * 0.40)
 
         # =====================================================================
-        # 🎯 KARAR VE ETİKETLEME MEKANİZMASI (±%0.15 DUYARLI)
+        # 🎯 KESİN İŞARET AYRIŞTIRMALI KARAR MOTORU
         # =====================================================================
-        # 1. Güçlü İvmeler
-        if micro_score >= 1.0 and display_roc > 0:
-            return f"🟢 GÜÇLÜ YUKARI (%{display_roc:+.2f})", "🟢🟢", "green", display_roc
-        elif micro_score <= -1.0 and display_roc < 0:
-            return f"🔴 GÜÇLÜ AŞAĞI (%{display_roc:+.2f})", "🔴🔴", "darkred", display_roc
+        # A. Pozitif Getiri Bölgesi (display_roc > 0)
+        if display_roc > 0:
+            if micro_score >= 1.0:
+                return f"🟢 GÜÇLÜ YUKARI (%{display_roc:+.2f})", "🟢🟢", "green", display_roc
+            elif micro_score >= 0.45 or display_roc >= (0.35 * eff_scale):
+                return f"🟢 YUKARI (%{display_roc:+.2f})", "🟢", "lightgreen", display_roc
+            elif display_roc >= 0.15:
+                return f"⚪ YATAY / OLASI YÜKSELİŞ (%{display_roc:+.2f})", "⚪", "gray", display_roc
+            else:
+                return f"⚪ YATAY / TESTERE (%{display_roc:+.2f})", "⚪", "gray", display_roc
 
-        # 2. Onaylanmış Yönler
-        elif micro_score >= 0.45 or (display_roc >= (0.35 * eff_scale)):
-            return f"🟢 YUKARI (%{display_roc:+.2f})", "🟢", "lightgreen", display_roc
-        elif micro_score <= -0.45 or (display_roc <= -(0.35 * eff_scale)):
-            return f"🔴 AŞAĞI (%{display_roc:+.2f})", "🔴", "red", display_roc
+        # B. Negatif Getiri Bölgesi (display_roc < 0)
+        elif display_roc < 0:
+            if micro_score <= -1.0:
+                return f"🔴 GÜÇLÜ AŞAĞI (%{display_roc:+.2f})", "🔴🔴", "darkred", display_roc
+            elif micro_score <= -0.45 or display_roc <= -(0.35 * eff_scale):
+                return f"🔴 AŞAĞI (%{display_roc:+.2f})", "🔴", "red", display_roc
+            elif display_roc <= -0.15:
+                return f"⚪ YATAY / OLASI DÜŞÜŞ (%{display_roc:+.2f})", "⚪", "gray", display_roc
+            else:
+                return f"⚪ YATAY / TESTERE (%{display_roc:+.2f})", "⚪", "gray", display_roc
 
-        # 3. İnce Eşik (±%0.15): Olası Yükseliş / Olası Düşüş
-        elif display_roc >= 0.15 or micro_score >= 0.15:
-            return f"⚪ YATAY / OLASI YÜKSELİŞ (%{display_roc:+.2f})", "⚪", "gray", display_roc
-        elif display_roc <= -0.15 or micro_score <= -0.15:
-            return f"⚪ YATAY / OLASI DÜŞÜŞ (%{display_roc:+.2f})", "⚪", "gray", display_roc
-
-        # 4. Saf Denge / Ölü Bant (-0.15 ile +0.15 arası)
+        # C. Nötr / Sıfır Bölgesi (display_roc == 0)
         else:
-            return f"⚪ YATAY / TESTERE (%{display_roc:+.2f})", "⚪", "gray", display_roc
+            return f"⚪ YATAY (%0.00)", "⚪", "gray", 0.0
 
     @staticmethod
     def compute_adx(df_1h, period=14):
@@ -160,27 +159,33 @@ class RobustQuantProcessor:
     @staticmethod
     def get_asset_session_status(asset_key):
         clocks = {
-            "SPX": {"futures": True},
-            "NQ":  {"futures": True},
-            "XAU": {"futures": True},
-            "XAG": {"futures": True},
-            "BTC": {"crypto": True},
-            "ETH": {"crypto": True}
+            "SPX": {"open_utc": 13.5, "close_utc": 20.0, "crypto": False},
+            "NQ":  {"open_utc": 13.5, "close_utc": 20.0, "crypto": False},
+            "XAU": {"open_utc": 0.0,  "close_utc": 24.0, "crypto": True},
+            "XAG": {"open_utc": 0.0,  "close_utc": 24.0, "crypto": True},
+            "BTC": {"open_utc": 0.0,  "close_utc": 24.0, "crypto": True},
+            "ETH": {"open_utc": 0.0,  "close_utc": 24.0, "crypto": True}
         }
         clock = clocks.get(asset_key, {})
         if clock.get("crypto", False):
             return "CANLI (24/7)", 1.0
 
         now = datetime.now(timezone.utc)
+        current_hour = now.hour + (now.minute / 60.0)
         current_day = now.weekday()
 
         if current_day in [5, 6]:
             return "HAFTA SONU (KAPALI)", 1.0
 
-        if clock.get("futures", False):
-            return "CANLI VADELİ (23/5)", 1.0
+        open_h = clock.get("open_utc", 13.5)
+        close_h = clock.get("close_utc", 20.0)
 
-        return "CANLI SEANS", 1.0
+        if open_h <= current_hour <= close_h:
+            return "CANLI SEANS", 1.0
+        elif (open_h - 4.0) <= current_hour < open_h:
+            return "SEANS ÖNCESİ (PRE-MARKET)", 1.0
+        else:
+            return "KAPALI (SEANS DIŞI)", 1.0
 
     @staticmethod
     def check_catalyst_event_window():
@@ -515,10 +520,6 @@ class RobustQuantProcessor:
 
     @staticmethod
     def compute_gold_oil_ratio(gold_df, oil_df, window=24):
-        """
-        Altın / Petrol Şoku (Stagflasyon Faktörü):
-        Gecikmesiz hizalama ve Z-skor fallback mekanizması sayesinde ASLA 0 üretmez.
-        """
         if gold_df is None or oil_df is None or gold_df.empty or oil_df.empty:
             return 0.0
 
@@ -612,7 +613,7 @@ class RobustQuantProcessor:
         if df_num.empty or df_denom.empty:
             return 0.0
         s1 = df_num["Close"] if "Close" in df_num.columns else df_num.iloc[:, 0]
-        s2 = df_denom["Close"] if "Close" in df_num.columns else df_denom.iloc[:, 0]
+        s2 = df_denom["Close"] if "Close" in df_denom.columns else df_denom.iloc[:, 0]
         aligned = RobustQuantProcessor._safe_align_series(s1, s2)
         if len(aligned) < 2:
             return 0.0
