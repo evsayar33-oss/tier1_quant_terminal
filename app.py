@@ -1,6 +1,9 @@
 """
-Streamlit UI: Tier-1 Normalized Macro & Confirmation Gate Terminal (v25)
-Enhanced with Macro Event Interpretation System v1.0 & Calibrated Dynamic Thresholds.
+Streamlit UI: Tier-1 Normalized Macro & Confirmation Gate Terminal (v27)
+Enhanced with:
+- Macro Event Interpretation System v1.0 & Calibrated Dynamic Thresholds
+- 3-Pillar USD Risk Architecture (Spot DXY, Net Dollar Liquidity NDL, USD/JPY Carry)
+- Idiosyncratic Asset-Specific Risk Models (Duration Drag, Mega-Cap Dispersion, Sovereign Decoupling, Squeeze Risk)
 """
 import streamlit as st
 import json
@@ -10,7 +13,6 @@ import importlib
 import pandas as pd
 from datetime import datetime, timezone, timedelta
 
-# Streamlit Cloud üzerinde modül önbellek çakışmalarını önlemek için dinamik reload
 import config
 import quant_processor
 import data_engine
@@ -70,6 +72,14 @@ fred_key_input = st.sidebar.text_input(
 )
 
 st.sidebar.markdown("---")
+st.sidebar.markdown("### 💵 3-Pillar USD Risk Modeli")
+st.sidebar.caption(
+    "**1. DXY Spot İvmesi:** Dolar endeksinin kısa vadeli ivmesi\n"
+    "**2. Fed Net Likiditesi (NDL):** Bilanço - Hazine Hesabı - Ters Repo\n"
+    "**3. USD/JPY Carry:** FX arbitraj ve tasfiye baskısı"
+)
+
+st.sidebar.markdown("---")
 st.sidebar.markdown("### 🌐 Makro Rejimler & Dinamik Eşikler")
 for r_key, r_cfg in REGIME_DYNAMIC_THRESHOLDS.items():
     lbl = f"Rejim {r_key}" if isinstance(r_key, int) else r_key
@@ -124,7 +134,7 @@ if fred_key_input and hasattr(gk, "data_engine"):
 col_title, col_btn = st.columns([3, 1])
 with col_title:
     st.title("🧭 Tier-1 Öncü Makro Şok & Piyasa Yön Terminali")
-    st.caption("Makro Olay Yorumlama Sistemi v1.0, Barra Normalizasyonlu, Volatilite Ölçekli & Dinamik Eşik Korumalı")
+    st.caption("Makro Olay Yorumlama Sistemi v1.0, 3-Pillar USD Risk Modeli & Varlığa Özel İdiosinkratik Risk Analizi")
 
 with col_btn:
     st.write("")
@@ -133,7 +143,7 @@ with col_btn:
 
 # Canlı yenileme tetiklendiğinde veya ilk kurulumda veri yoksa
 if live_refresh or not st.session_state.state_data:
-    with st.spinner("Piyasa verileri toplanıyor, 52 haftalık z-skorları ve dinamik rejim eşikleri hesaplanıyor..."):
+    with st.spinner("Piyasa verileri toplanıyor, 3-Pillar USD riski ve varlığa özel riskler hesaplanıyor..."):
         prev_verdicts = st.session_state.state_data.get("asset_verdicts", {})
         gk.refresh_market()
 
@@ -152,6 +162,10 @@ if live_refresh or not st.session_state.state_data:
             "active_subtype": getattr(gk, "active_subtype", "Klasik Goldilocks Risk-On"),
             "dynamic_thresholds": getattr(gk, "dynamic_thresholds", {}),
             "macro_diagnostics": getattr(gk, "macro_diagnostics", {}),
+            "composite_usd_risk": round(getattr(gk, "composite_usd_risk", 0.0), 2),
+            "usd_risk_label": getattr(gk, "usd_risk_label", "🟡 NÖTR / DENGELİ USD İKLİMİ"),
+            "dxy_velocity": round(getattr(gk, "dxy_velocity", 0.0), 2),
+            "ndl_z": round(getattr(gk, "ndl_z", 0.25), 2),
             "current_vix": round(getattr(gk, "current_vix", 16.0), 1),
             "stagflation_z": round(getattr(gk, "stagflation_z", 0.0), 2),
             "yen_carry_z": round(getattr(gk, "yen_carry_z", 0.0), 2),
@@ -180,6 +194,11 @@ dyn_thresh = active_data.get("dynamic_thresholds", REGIME_DYNAMIC_THRESHOLDS.get
 macro_diag = active_data.get("macro_diagnostics", {})
 z_scores = macro_diag.get("indicator_z_scores", {})
 
+composite_usd_risk = float(active_data.get("composite_usd_risk", 0.0))
+usd_risk_label = active_data.get("usd_risk_label", "🟡 NÖTR / DENGELİ USD İKLİMİ")
+dxy_vel = float(active_data.get("dxy_velocity", 0.0))
+ndl_val = float(active_data.get("ndl_z", 0.25))
+
 vix_val = float(active_data.get("current_vix", 16.0))
 stagflation_z = float(active_data.get("stagflation_z", 0.0))
 yen_carry_z = float(active_data.get("yen_carry_z", 0.0))
@@ -204,16 +223,14 @@ if is_catalyst:
 
 
 # =============================================================================
-# 🌐 1. MAKRO OLAY YORUMLAMA SİSTEMİ (v1.0) & GÜNÜN ÖNCÜ MAKRO RADARLARI
+# 🌐 1. MAKRO OLAY YORUMLAMA SİSTEMİ (v1.0) & REJİM TEŞHİSİ
 # =============================================================================
-st.subheader("🌐 Makro Olay Yorumlama Sistemi (v1.0)")
+st.subheader("🌐 1. Makro Olay Yorumlama Sistemi (v1.0)")
 
-# Rejim Kartı & Durum Bildirimi
 col_reg1, col_reg2, col_reg3 = st.columns([2, 1, 1])
 
 with col_reg1:
     is_shock = (regime_id in [1, 2, 3, 4])
-    badge_color = "red" if is_shock else ("green" if regime_id == 5 else "gray")
     st.markdown(f"### Aktif Makro Rejim: **{regime}**")
     st.caption(
         f"🏷️ **Rejim Tipi:** `{'ŞOK REJİMİ' if is_shock else ('RİSK-ON' if regime_id == 5 else 'REJİMSİZ GEÇİŞ')}` | "
@@ -230,11 +247,11 @@ with col_reg2:
     st.caption(f"🛡️ **Gerekli Küme:** `{dyn_thresh.get('min_clusters', 2)}` | **Risk Çarpanı:** `x{dyn_thresh.get('risk_scale', 1.0)}`")
 
 with col_reg3:
-    st.markdown("#### ⚡ Öncü Göstergeler")
-    st.metric("VIX Opsiyon Primi", f"{vix_val:.1f}", delta="🛡️ Sakin (<20)" if vix_val < 20.0 else "⚠️ Yüksek")
+    st.markdown("#### ⚡ Şok Göstergeleri")
+    st.metric("VIX Opsiyon Korku Primi", f"{vix_val:.1f}", delta="🛡️ Sakin (<20)" if vix_val < 20.0 else "⚠️ Yüksek")
     st.metric("Petrol / Ticaret Şoku", f"{stagflation_z:+.2f}σ", delta="⚠️ Enflasyon Şoku" if stagflation_z > 1.0 else "✅ Dengeli", delta_color="inverse")
 
-# 52 Haftalık Z-Skor Detay Radarı
+# 52 Haftalık Z-Skor Radarı
 with st.expander("📊 52-Haftalık Rolling Z-Skor & İndikatör Radarı (5 Rejim Kontrol Tablosu)", expanded=False):
     radar_rows = [
         {"İndikatör": "Petrol Şoku (Brent/WTI 20d)", "Formül": "20d Ret 52w Z", "Eşik": "Z > 1.5", "Mevcut Değer": f"{z_scores.get('OIL_20D_Z', 0.0):+.2f}σ", "Hedef Rejim": "Rejim 1 (Stagflasyon)"},
@@ -256,9 +273,51 @@ st.divider()
 
 
 # =============================================================================
-# 📊 2. TÜM VARLIKLARIN CANLI SİNYAL TABLOSU
+# 💵 2. BİLEŞİK 3-PILLAR USD RİSK & KÜRESEL LİKİDİTE RADARI
 # =============================================================================
-st.subheader("📊 6 Varlık Canlı Yön Tablosu (Dinamik Rejim Eşiklerine Duyarlı)")
+st.subheader("💵 2. 3-Pillar USD Risk & Küresel Dolar Likiditesi Radarı")
+
+col_usd1, col_usd2, col_usd3, col_usd4 = st.columns([2, 1, 1, 1])
+
+with col_usd1:
+    st.metric(
+        "Bileşik USD Risk Endeksi [-2.0, +2.0]",
+        f"{composite_usd_risk:+.2f}σ",
+        delta=usd_risk_label,
+        delta_color="inverse"
+    )
+    st.caption("Dolar sıkışması arttığında (+), küresel risk varlıklarında çarpan daralması ve fonlama maliyeti baskısı oluşur.")
+
+with col_usd2:
+    st.metric(
+        "1. DXY Spot İvmesi (4H ROC)",
+        f"{dxy_vel:+.2f}σ",
+        delta="Dolar Güçleniyor" if dxy_vel > 0.3 else ("Dolar Zayıf" if dxy_vel < -0.3 else "Yatay"),
+        delta_color="inverse"
+    )
+
+with col_usd3:
+    st.metric(
+        "2. Fed Net Likiditesi (NDL Z)",
+        f"{ndl_val:+.2f}σ",
+        delta="Likidite Genişliyor" if ndl_val > 0.2 else ("Likidite Daralıyor" if ndl_val < -0.2 else "Dengeli")
+    )
+
+with col_usd4:
+    st.metric(
+        "3. USD/JPY Carry İvmesi",
+        f"{yen_carry_z:+.2f}σ",
+        delta="Carry Çöküşü Riski" if yen_carry_z < -1.0 else "Arbitraj Sakin",
+        delta_color="inverse"
+    )
+
+st.divider()
+
+
+# =============================================================================
+# 📊 3. TÜM VARLIKLARIN CANLI SİNYAL TABLOSU
+# =============================================================================
+st.subheader("📊 3. 6 Varlık Canlı Yön Tablosu (Barra Normalleştirilmiş & Dinamik Eşik Duyarlı)")
 
 summary_rows = []
 for k in ASSET_MATRICES.keys():
@@ -295,16 +354,16 @@ st.dataframe(df_summary, use_container_width=True, hide_index=True)
 
 st.caption(
     "💡 **Çift Ufuk Kılavuzu:** **📍 Şu Anki Yön**, grafikte anlık gördüğünüz 4 saatlik fiyat hareketidir. "
-    "**🔮 Olası Gelecek Yön**, aktif makro rejimin kalibre edilmiş dinamik eşikleri altında kurumsal nakit akışlarının öngördüğü yönü ifade eder."
+    "**🔮 Olası Gelecek Yön**, 3-Pillar USD Riski, faiz getiri eğrisi ve varlığa özel kurumsal akışların öngördüğü istatistiksel baskıdır."
 )
 
 st.divider()
 
 
 # =============================================================================
-# 🔍 3. TEKİL VARLIK VE FAKTÖR DAĞILIMI
+# 🔍 4. TEKİL VARLIK VE FAKTÖR DAĞILIMI
 # =============================================================================
-st.subheader("🔍 Varlık Derinlik ve Faktör Analizi")
+st.subheader("🔍 4. Varlık Derinlik & İdiosinkratik Risk Analizi")
 
 selected_asset = st.selectbox(
     "Detayını İncelemek İstediğiniz Varlık:",
@@ -317,7 +376,6 @@ verdict = res.get("verdict", "NÖTR (BEKLE)")
 icon = res.get("icon", "⚪")
 score = float(res.get("score", 0.0))
 
-# Varlık Sinyal Kartı
 col_card1, col_card2 = st.columns([2, 1])
 with col_card1:
     curr_dir = res.get("current_direction")
@@ -363,7 +421,7 @@ st.caption(
 # Faktör Dağılım Tablosu
 details = res.get("details", [])
 if details:
-    with st.expander(f"📋 {selected_asset} Faktör Dağılım Tablosu ({len(details)} Faktör)", expanded=True):
+    with st.expander(f"📋 {selected_asset} Çok Faktörlü Risk & Getiri Dağılım Tablosu ({len(details)} Faktör)", expanded=True):
         df_det = pd.DataFrame(details)
         st.dataframe(
             df_det.rename(columns={

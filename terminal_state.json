@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-09-10T08:41:02.998675+00:00",
+  "last_updated": "2026-09-10T08:51:16.740528+00:00",
   "active_regime_id": 5,
   "active_regime_name": "Küresel Likidite Rallisi (Risk-On)",
   "market_regime": "🟢 [REJİM 5] Küresel Likidite Rallisi (Risk-On)",
@@ -19,7 +19,7 @@
   "macro_diagnostics": {
     "version": "1.0",
     "module_name": "macro-event-interpretation-system",
-    "timestamp": "2026-09-10T08:41:02.348778+00:00",
+    "timestamp": "2026-09-10T08:51:16.053409+00:00",
     "active_regime_id": 5,
     "active_regime_name": "Küresel Likidite Rallisi (Risk-On)",
     "active_regime_type": "RISK_ON",
@@ -94,8 +94,8 @@
       "verdict": "NÖTR (BEKLE)",
       "icon": "⚪",
       "color": "gray",
-      "score": -0.04,
-      "cluster_agreement": "0 Boğa / 1 Ayı Kümesi (Aktif: 1)",
+      "score": 0.01,
+      "cluster_agreement": "1 Boğa / 0 Ayı Kümesi (Aktif: 1)",
       "session_status": "KAPALI (SEANS DIŞI)",
       "adx_val": 25.0,
       "adx_regime": "BELİRSİZ",
@@ -114,6 +114,8 @@
         "risk_scale": 1.25,
         "description": "Likidite rallisi: Alışlar erken tetiklenir (0.45), boğa piyasasında erken satışlar engellenir (-0.85)."
       },
+      "composite_usd_risk": -0.0875,
+      "usd_risk_label": "🟡 NÖTR / DENGELİ USD İKLİMİ",
       "details": [
         {
           "faktör": "SPY 4H Anlık Fiyat Hızı",
@@ -144,6 +146,12 @@
           "küme": "E",
           "ham_deger": 0.0,
           "puan": 0.0
+        },
+        {
+          "faktör": "10Y Reel Faiz Değerleme Baskısı",
+          "küme": "B",
+          "ham_deger": 0.18,
+          "puan": -0.14
         },
         {
           "faktör": "TLT/SHY Uzun Vade Tahvil Süre Riski",
@@ -182,16 +190,22 @@
           "puan": -0.0
         },
         {
-          "faktör": "Dolar Likidite Baskısı (DXY)",
+          "faktör": "DXY Kısa Vade Dolar Baskısı",
           "küme": "A",
           "ham_deger": 0.0,
           "puan": -0.0
         },
         {
-          "faktör": "10Y Reel Faiz Baskısı (TIP)",
-          "küme": "B",
-          "ham_deger": 0.45,
-          "puan": -0.34
+          "faktör": "Fed Net Dolar Likiditesi (NDL)",
+          "küme": "A",
+          "ham_deger": 0.25,
+          "puan": 0.21
+        },
+        {
+          "faktör": "USD/JPY Carry & Küresel Likidite",
+          "küme": "A",
+          "ham_deger": 0.0,
+          "puan": 0.0
         }
       ]
     },
@@ -206,8 +220,8 @@
       "verdict": "NÖTR (BEKLE)",
       "icon": "⚪",
       "color": "gray",
-      "score": -0.04,
-      "cluster_agreement": "0 Boğa / 1 Ayı Kümesi (Aktif: 1)",
+      "score": 0.01,
+      "cluster_agreement": "1 Boğa / 0 Ayı Kümesi (Aktif: 2)",
       "session_status": "KAPALI (SEANS DIŞI)",
       "adx_val": 25.0,
       "adx_regime": "BELİRSİZ",
@@ -226,6 +240,8 @@
         "risk_scale": 1.25,
         "description": "Likidite rallisi: Alışlar erken tetiklenir (0.45), boğa piyasasında erken satışlar engellenir (-0.85)."
       },
+      "composite_usd_risk": -0.0875,
+      "usd_risk_label": "🟡 NÖTR / DENGELİ USD İKLİMİ",
       "details": [
         {
           "faktör": "QQQ 4H Anlık Fiyat Hızı",
@@ -240,7 +256,13 @@
           "puan": 0.0
         },
         {
-          "faktör": "RSP/SPY Piyasa Katılım Genişliği",
+          "faktör": "Çip & Yüksek Beta Ayrışması",
+          "küme": "E",
+          "ham_deger": 0.0,
+          "puan": 0.0
+        },
+        {
+          "faktör": "ARKK/QQQ Yüksek Beta Spekülasyon",
           "küme": "E",
           "ham_deger": 0.0,
           "puan": 0.0
@@ -252,13 +274,13 @@
           "puan": -0.0
         },
         {
-          "faktör": "ARKK/QQQ Yüksek Beta Spekülasyon",
-          "küme": "E",
-          "ham_deger": 0.0,
-          "puan": 0.0
+          "faktör": "Teknoloji Değerleme / Reel Getiri Baskısı",
+          "küme": "B",
+          "ham_deger": 0.18,
+          "puan": -0.16
         },
         {
-          "faktör": "TLT Tahvil Süre (Duration) Duyarlılığı",
+          "faktör": "TLT Tahvil Süre Duyarlılığı",
           "küme": "B",
           "ham_deger": 0.0,
           "puan": 0.0
@@ -300,10 +322,16 @@
           "puan": -0.0
         },
         {
-          "faktör": "10Y Reel Faiz Baskısı (TIP)",
-          "küme": "B",
-          "ham_deger": 0.45,
-          "puan": -0.38
+          "faktör": "Fed Net Dolar Likiditesi (NDL)",
+          "küme": "A",
+          "ham_deger": 0.25,
+          "puan": 0.21
+        },
+        {
+          "faktör": "USD/JPY Carry Tasfiye Riski",
+          "küme": "A",
+          "ham_deger": 0.0,
+          "puan": 0.0
         }
       ]
     },
@@ -318,8 +346,8 @@
       "verdict": "NÖTR (BEKLE)",
       "icon": "⚪",
       "color": "gray",
-      "score": 0.02,
-      "cluster_agreement": "0 Boğa / 0 Ayı Kümesi (Aktif: 0)",
+      "score": 0.04,
+      "cluster_agreement": "0 Boğa / 0 Ayı Kümesi (Aktif: 1)",
       "session_status": "CANLI (24/7)",
       "adx_val": 25.0,
       "adx_regime": "BELİRSİZ",
@@ -338,6 +366,8 @@
         "risk_scale": 1.25,
         "description": "Likidite rallisi: Alışlar erken tetiklenir (0.45), boğa piyasasında erken satışlar engellenir (-0.85)."
       },
+      "composite_usd_risk": -0.0875,
+      "usd_risk_label": "🟡 NÖTR / DENGELİ USD İKLİMİ",
       "details": [
         {
           "faktör": "Altın 4H Anlık Fiyat İvmesi",
@@ -346,16 +376,22 @@
           "puan": 0.0
         },
         {
+          "faktör": "🏛️ Merkez Bankası & Jeopolitik Rezerv Talebi",
+          "küme": "E",
+          "ham_deger": 0.0,
+          "puan": 0.0
+        },
+        {
           "faktör": "10Y Reel Faiz (TIPS Ters Oran)",
           "küme": "B",
           "ham_deger": 0.45,
-          "puan": -0.5
+          "puan": -0.45
         },
         {
           "faktör": "Enflasyon Beklenti Kalkanı",
           "küme": "B",
           "ham_deger": 0.65,
-          "puan": 0.62
+          "puan": 0.59
         },
         {
           "faktör": "TLT Uzun Vade Tahvil Gücü",
@@ -366,12 +402,6 @@
         {
           "faktör": "Bankacılık Güven Krizi Primi (KRE)",
           "küme": "C",
-          "ham_deger": 0.0,
-          "puan": -0.0
-        },
-        {
-          "faktör": "USD Gücü & Dolar Baskısı",
-          "küme": "A",
           "ham_deger": 0.0,
           "puan": -0.0
         },
@@ -398,6 +428,18 @@
           "küme": "D",
           "ham_deger": 0.0,
           "puan": 0.0
+        },
+        {
+          "faktör": "DXY Spot Dolar Baskısı",
+          "küme": "A",
+          "ham_deger": 0.0,
+          "puan": -0.0
+        },
+        {
+          "faktör": "Dolar Rezerv / Net Likidite İvmesi",
+          "küme": "A",
+          "ham_deger": 0.25,
+          "puan": 0.19
         }
       ]
     },
@@ -412,8 +454,8 @@
       "verdict": "NÖTR (BEKLE)",
       "icon": "⚪",
       "color": "gray",
-      "score": 0.02,
-      "cluster_agreement": "0 Boğa / 0 Ayı Kümesi (Aktif: 0)",
+      "score": 0.04,
+      "cluster_agreement": "0 Boğa / 0 Ayı Kümesi (Aktif: 1)",
       "session_status": "CANLI (24/7)",
       "adx_val": 25.0,
       "adx_regime": "BELİRSİZ",
@@ -432,6 +474,8 @@
         "risk_scale": 1.25,
         "description": "Likidite rallisi: Alışlar erken tetiklenir (0.45), boğa piyasasında erken satışlar engellenir (-0.85)."
       },
+      "composite_usd_risk": -0.0875,
+      "usd_risk_label": "🟡 NÖTR / DENGELİ USD İKLİMİ",
       "details": [
         {
           "faktör": "Gümüş 4H Anlık Fiyat İvmesi",
@@ -441,6 +485,12 @@
         },
         {
           "faktör": "🥇 Altın Güç İvmesi (Gold Beta)",
+          "küme": "E",
+          "ham_deger": 0.0,
+          "puan": 0.0
+        },
+        {
+          "faktör": "🥈 Gümüş Parasal Yakalama & Değerleme İvmesi",
           "küme": "E",
           "ham_deger": 0.0,
           "puan": 0.0
@@ -467,13 +517,19 @@
           "faktör": "10Y Reel Faiz Baskısı (TIP)",
           "küme": "B",
           "ham_deger": 0.45,
-          "puan": -0.38
+          "puan": -0.34
         },
         {
           "faktör": "Enflasyon Beklenti Kalkanı",
           "küme": "B",
           "ham_deger": 0.65,
-          "puan": 0.49
+          "puan": 0.45
+        },
+        {
+          "faktör": "Küresel Kredi & Sanayi İştahı",
+          "küme": "C",
+          "ham_deger": 0.0,
+          "puan": 0.0
         },
         {
           "faktör": "USD Gücü & Dolar Baskısı",
@@ -482,10 +538,10 @@
           "puan": -0.0
         },
         {
-          "faktör": "Küresel Kredi & Sanayi İştahı",
-          "küme": "C",
-          "ham_deger": 0.0,
-          "puan": 0.0
+          "faktör": "Fed Net Dolar Likiditesi (NDL)",
+          "küme": "A",
+          "ham_deger": 0.25,
+          "puan": 0.17
         }
       ]
     },
@@ -500,8 +556,8 @@
       "verdict": "NÖTR (BEKLE)",
       "icon": "⚪",
       "color": "gray",
-      "score": -0.05,
-      "cluster_agreement": "0 Boğa / 1 Ayı Kümesi (Aktif: 1)",
+      "score": 0.01,
+      "cluster_agreement": "1 Boğa / 1 Ayı Kümesi (Aktif: 2)",
       "session_status": "CANLI (24/7)",
       "adx_val": 25.0,
       "adx_regime": "BELİRSİZ",
@@ -520,6 +576,8 @@
         "risk_scale": 1.25,
         "description": "Likidite rallisi: Alışlar erken tetiklenir (0.45), boğa piyasasında erken satışlar engellenir (-0.85)."
       },
+      "composite_usd_risk": -0.0875,
+      "usd_risk_label": "🟡 NÖTR / DENGELİ USD İKLİMİ",
       "details": [
         {
           "faktör": "BTC 4H Anlık Fiyat İvmesi",
@@ -534,7 +592,19 @@
           "puan": 0.0
         },
         {
+          "faktör": "💵 Kripto-Yerel USD Likiditesi & Taker İştahı",
+          "küme": "E",
+          "ham_deger": 0.1,
+          "puan": 0.11
+        },
+        {
           "faktör": "Türev Fonlama Oranı (Kaldıraç Riski)",
+          "küme": "E",
+          "ham_deger": 0.0,
+          "puan": -0.0
+        },
+        {
+          "faktör": "⚠️ Likidasyon & Kaldıraç Sıkışması Riski",
           "küme": "E",
           "ham_deger": 0.0,
           "puan": -0.0
@@ -564,22 +634,34 @@
           "puan": 0.0
         },
         {
-          "faktör": "DXY Dolar Likidite Baskısı",
-          "küme": "A",
-          "ham_deger": 0.0,
-          "puan": -0.0
-        },
-        {
           "faktör": "Reel Getiri Baskısı (TIP)",
           "küme": "B",
           "ham_deger": 0.45,
-          "puan": -0.32
+          "puan": -0.27
         },
         {
           "faktör": "Sistemik Volatilite Baskısı",
           "küme": "C",
           "ham_deger": 0.0,
           "puan": -0.0
+        },
+        {
+          "faktör": "DXY Dolar Likidite Baskısı",
+          "küme": "A",
+          "ham_deger": 0.0,
+          "puan": -0.0
+        },
+        {
+          "faktör": "Fed Net Dolar Likiditesi (NDL)",
+          "küme": "A",
+          "ham_deger": 0.25,
+          "puan": 0.24
+        },
+        {
+          "faktör": "USD/JPY Carry & Risk-On Likiditesi",
+          "küme": "A",
+          "ham_deger": 0.0,
+          "puan": 0.0
         }
       ]
     },
@@ -594,8 +676,8 @@
       "verdict": "NÖTR (BEKLE)",
       "icon": "⚪",
       "color": "gray",
-      "score": 0.0,
-      "cluster_agreement": "0 Boğa / 0 Ayı Kümesi (Aktif: 0)",
+      "score": 0.04,
+      "cluster_agreement": "1 Boğa / 0 Ayı Kümesi (Aktif: 1)",
       "session_status": "CANLI (24/7)",
       "adx_val": 25.0,
       "adx_regime": "BELİRSİZ",
@@ -614,6 +696,8 @@
         "risk_scale": 1.25,
         "description": "Likidite rallisi: Alışlar erken tetiklenir (0.45), boğa piyasasında erken satışlar engellenir (-0.85)."
       },
+      "composite_usd_risk": -0.0875,
+      "usd_risk_label": "🟡 NÖTR / DENGELİ USD İKLİMİ",
       "details": [
         {
           "faktör": "ETH 4H Anlık Fiyat İvmesi",
@@ -628,7 +712,19 @@
           "puan": 0.0
         },
         {
+          "faktör": "💵 Kripto-Yerel USD Likiditesi & Stabilcoin Akışı",
+          "küme": "E",
+          "ham_deger": 0.1,
+          "puan": 0.1
+        },
+        {
           "faktör": "Canlı ETH Fonlama Oranı (Funding Riski)",
+          "küme": "E",
+          "ham_deger": 0.0,
+          "puan": -0.0
+        },
+        {
+          "faktör": "⚠️ ETH Türev Kaldıraç & Sıkışma Riski",
           "küme": "E",
           "ham_deger": 0.0,
           "puan": -0.0
@@ -646,6 +742,12 @@
           "puan": 0.0
         },
         {
+          "faktör": "⛓️ L1 Ağ Aktivitesi & DeFi Likidite İvmesi",
+          "küme": "E",
+          "ham_deger": 0.0,
+          "puan": 0.0
+        },
+        {
           "faktör": "TLT Likidite Baskısı",
           "küme": "B",
           "ham_deger": 0.0,
@@ -658,16 +760,28 @@
           "puan": 0.0
         },
         {
+          "faktör": "Sistemik Volatilite Baskısı",
+          "küme": "C",
+          "ham_deger": 0.0,
+          "puan": -0.0
+        },
+        {
           "faktör": "DXY Dolar Likidite Baskısı",
           "küme": "A",
           "ham_deger": 0.0,
           "puan": -0.0
         },
         {
-          "faktör": "Sistemik Volatilite Baskısı",
-          "küme": "C",
+          "faktör": "Fed Net Dolar Likiditesi (NDL)",
+          "küme": "A",
+          "ham_deger": 0.25,
+          "puan": 0.23
+        },
+        {
+          "faktör": "USD/JPY Carry Likiditesi",
+          "küme": "A",
           "ham_deger": 0.0,
-          "puan": -0.0
+          "puan": 0.0
         }
       ]
     }

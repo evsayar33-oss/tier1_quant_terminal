@@ -1,6 +1,9 @@
 """
-Robust Quant Processor: Real-Time ETF Metrics, Macro Event Interpretation & Strict Barra Normalization (v26)
-Incorporates Calibrated Dynamic Thresholds for Macro Event Interpretation System v1.0.
+Robust Quant Processor: Real-Time ETF Metrics, 3-Pillar USD Risk & Barra Normalization (v27)
+Enhanced with:
+- Unified 3-Pillar USD Risk Architecture (Spot DXY, Net Dollar Liquidity NDL, USD/JPY FX Carry)
+- Idiosyncratic Asset-Specific Risk Models (Duration Drag, Mega-Cap Dispersion, Sovereign Decoupling, Squeeze Risk)
+- Dynamic Regime Adaptation and Hysteresis Deadband Engine
 """
 import numpy as np
 import pandas as pd
@@ -87,8 +90,8 @@ class RobustQuantProcessor:
         clocks = {
             "SPX": {"open_utc": 13.5, "close_utc": 20.0, "crypto": False},
             "NQ":  {"open_utc": 13.5, "close_utc": 20.0, "crypto": False},
-            "XAU": {"open_utc": 0.0,  "close_utc": 24.0, "crypto": True},  # COMEX 23H Futures
-            "XAG": {"open_utc": 0.0,  "close_utc": 24.0, "crypto": True},  # COMEX 23H Futures
+            "XAU": {"open_utc": 0.0,  "close_utc": 24.0, "crypto": True},
+            "XAG": {"open_utc": 0.0,  "close_utc": 24.0, "crypto": True},
             "BTC": {"open_utc": 0.0,  "close_utc": 24.0, "crypto": True},
             "ETH": {"open_utc": 0.0,  "close_utc": 24.0, "crypto": True}
         }
@@ -125,6 +128,163 @@ class RobustQuantProcessor:
                 return True, "Fed / FOMC Karar Saati"
         return False, "Sakin Veri Dönemi"
 
+    # =========================================================================
+    # 💵 3-PILLAR USD RISK VE KÜRESEL LİKİDİTE HESAPLAMALARI
+    # =========================================================================
+    @staticmethod
+    def compute_composite_usd_risk(dxy_velocity, ndl_z, usdjpy_1d_z):
+        """
+        Bileşik 3-Pillar USD Risk Endeksi [-2.0, +2.0]:
+        1. DXY Kısa Vade İvmesi (Spot momentum)
+        2. Fed Net Dolar Likiditesi (NDL Z-skoru - Ters yönlü etki)
+        3. USD/JPY Carry Yayılımı (Carry çöküşünde küresel USD tasfiyesi)
+        """
+        dxy_term = float(np.clip(dxy_velocity * 0.45, -1.0, 1.0))
+        ndl_term = float(np.clip(-ndl_z * 0.35, -1.0, 1.0))
+        carry_term = float(np.clip(-usdjpy_1d_z * 0.20, -0.8, 0.8))
+
+        composite_score = float(np.clip(dxy_term + ndl_term + carry_term, -2.0, 2.0))
+
+        if composite_score > 0.50:
+            label = "🔴 YÜKSEK DOLAR SIKIŞMASI (Likidite Daralması)"
+            status = "STRESS"
+        elif composite_score < -0.50:
+            label = "🟢 DÜŞÜK USD BASKISI (Küresel Likidite Bol)"
+            status = "EXPANSION"
+        else:
+            label = "🟡 NÖTR / DENGELİ USD İKLİMİ"
+            status = "NEUTRAL"
+
+        return composite_score, label, status
+
+    @staticmethod
+    def compute_usd_strength_impulse(dxy_df_1h, window=4):
+        if dxy_df_1h.empty or len(dxy_df_1h) < 2:
+            return 0.0
+        close = dxy_df_1h["Close"]
+        w = min(window, len(close) - 1)
+        roc_4h = ((close.iloc[-1] - close.iloc[-w - 1]) / (close.iloc[-w - 1] + 1e-9)) * 100.0
+        return float(np.clip(roc_4h * 3.5, -2.0, 2.0))
+
+    # =========================================================================
+    # 🎯 VARLIĞA ÖZEL İDİOSİNKRATİK RİSK MODELLERİ
+    # =========================================================================
+    @staticmethod
+    def compute_equity_duration_drag(df_asset, real_yield_z):
+        """
+        Hisse Senedi Değerleme & Süre Baskısı (Equity Duration Drag):
+        TIPS 10Y Reel Getiri arttığında hisse çarpanlarında (F/K) sıkışma riskini ölçer.
+        """
+        if real_yield_z > 0.30:
+            drag = (real_yield_z - 0.30) * 1.2
+            return float(np.clip(drag, 0.0, 2.0))
+        elif real_yield_z < -0.30:
+            boost = (real_yield_z + 0.30) * 0.9
+            return float(np.clip(boost, -2.0, 0.0))
+        return 0.0
+
+    @staticmethod
+    def compute_tech_breadth_dispersion(smh_df, arkk_df, qqq_df, window=24):
+        """
+        Teknoloji Katılım & Çip İvmesi Ayrışması:
+        SMH (Çip) ve ARKK (Yüksek Beta) öncülüğünü QQQ ile kıyaslar.
+        """
+        if smh_df.empty or qqq_df.empty:
+            return 0.0
+        s_smh = smh_df["Close"]
+        s_qqq = qqq_df["Close"]
+        aligned = pd.concat([s_smh, s_qqq], axis=1, join="inner").dropna()
+        if len(aligned) < 2:
+            return 0.0
+        ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
+        w = min(window, len(ratio) - 1)
+        roc = ((ratio.iloc[-1] - ratio.iloc[-w - 1]) / (ratio.iloc[-w - 1] + 1e-9)) * 100.0
+        return float(np.clip(roc * 2.2, -1.8, 1.8))
+
+    @staticmethod
+    def compute_gold_sovereign_decoupling(gold_df, real_yield_z, dxy_df, window=24):
+        """
+        Altın Merkez Bankası & Jeopolitik Rezerv Talebi (Sovereign Decoupling):
+        Altının klasik finans kurallarını aşarak reel faiz veya DXY artarken bile
+        güçlü kalmasını ölçer (De-dolarizasyon ve egemen rezerv birikimi).
+        """
+        if gold_df.empty or len(gold_df) < 2:
+            return 0.0
+        close = gold_df["Close"]
+        w = min(window, len(close) - 1)
+        gold_roc = ((close.iloc[-1] - close.iloc[-w - 1]) / (close.iloc[-w - 1] + 1e-9)) * 100.0
+
+        # Eğer reel getiri pozitifken altın yükseliyorsa egemen rezerv talebi çok güçlüdür
+        if real_yield_z > 0.40 and gold_roc > 0.0:
+            sovereign_bonus = (gold_roc * 1.5) + (real_yield_z * 0.8)
+            return float(np.clip(sovereign_bonus, 0.2, 2.0))
+        elif real_yield_z < -0.40 and gold_roc > 0.0:
+            return float(np.clip(gold_roc * 1.2, -2.0, 2.0))
+        else:
+            return float(np.clip(gold_roc * 1.1 - (real_yield_z * 0.5), -2.0, 2.0))
+
+    @staticmethod
+    def compute_silver_monetary_catchup(silver_df, gold_df, copper_df, window=24):
+        """
+        Gümüş Parasal Yakalama & Değerleme İvmesi:
+        Gümüşün hem parasal altın rallisine hem de bakır sanayi talebine göre
+        göreceli iskonto/prim hızını hesaplar.
+        """
+        if silver_df.empty or gold_df.empty:
+            return 0.0
+        s_ag = silver_df["Close"]
+        s_au = gold_df["Close"]
+        aligned = pd.concat([s_ag, s_au], axis=1, join="inner").dropna()
+        if len(aligned) < 2:
+            return 0.0
+        ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
+        w = min(window, len(ratio) - 1)
+        roc = ((ratio.iloc[-1] - ratio.iloc[-w - 1]) / (ratio.iloc[-w - 1] + 1e-9)) * 100.0
+        return float(np.clip(roc * 2.0, -1.8, 1.8))
+
+    @staticmethod
+    def compute_crypto_stablecoin_usd_impulse(flow_ratio, funding_rate, ndl_z):
+        """
+        Kripto-Yerel USD Likiditesi & Taker İştahı:
+        Spot taker hacmi, türev fonlama primi ve Fed net dolar likiditesini sentezler.
+        """
+        taker_term = np.tanh(np.log(flow_ratio + 1e-6) * 2.0) * 1.3
+        ndl_term = np.clip(ndl_z * 0.4, -0.6, 0.6)
+        fr_term = np.clip((funding_rate - 0.0001) * 1500.0, -0.5, 0.5)
+        blended = taker_term + ndl_term + fr_term
+        return float(np.clip(blended, -2.0, 2.0))
+
+    @staticmethod
+    def compute_liquidation_squeeze_risk(funding_rate, df_crypto, window=24):
+        """
+        Türev Kaldıraç & Likidasyon Sıkışması Riski:
+        Aşırı pozitif fonlama (>%0.04) long tasfiye riski yaratır.
+        Aşırı negatif fonlama (<-%0.02) short squeeze yakıtı üretir.
+        """
+        excess_funding = funding_rate - 0.0001
+        stress = excess_funding * 6000.0
+        return float(np.clip(stress, -2.0, 2.0))
+
+    @staticmethod
+    def compute_eth_staking_utility_drift(eth_df, btc_df, window=24):
+        """
+        ETH/BTC Ağ Aktivitesi & Göreceli Değer İvmesi:
+        """
+        if eth_df.empty or btc_df.empty:
+            return 0.0
+        s_eth = eth_df["Close"]
+        s_btc = btc_df["Close"]
+        aligned = pd.concat([s_eth, s_btc], axis=1, join="inner").dropna()
+        if len(aligned) < 2:
+            return 0.0
+        ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
+        w = min(window, len(ratio) - 1)
+        roc = ((ratio.iloc[-1] - ratio.iloc[-w - 1]) / (ratio.iloc[-w - 1] + 1e-9)) * 100.0
+        return float(np.clip(roc * 2.5, -1.8, 1.8))
+
+    # =========================================================================
+    # 📈 STANDART FAKTÖR VE PİYASA BİLEŞENLERİ
+    # =========================================================================
     @staticmethod
     def compute_intraday_direction_momentum(df_1h, fast_window=4, slow_window=24, vol_scale=1.0):
         if df_1h.empty or len(df_1h) < 2:
@@ -153,15 +313,6 @@ class RobustQuantProcessor:
         w = min(window, len(vol) - 1)
         rvol = vol.iloc[-1] / (vol.tail(w).mean() + 1e-9)
         return float(np.clip(clv * min(max(rvol, 0.5), 2.5), -1.8, 1.8))
-
-    @staticmethod
-    def compute_usd_strength_impulse(dxy_df_1h, window=4):
-        if dxy_df_1h.empty or len(dxy_df_1h) < 2:
-            return 0.0
-        close = dxy_df_1h["Close"]
-        w = min(window, len(close) - 1)
-        roc_4h = ((close.iloc[-1] - close.iloc[-w - 1]) / (close.iloc[-w - 1] + 1e-9)) * 100.0
-        return float(np.clip(roc_4h * 3.5, -2.0, 2.0))
 
     @staticmethod
     def compute_market_breadth(rsp_df, spy_df, window=24):

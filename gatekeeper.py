@@ -1,5 +1,5 @@
 """
-Gatekeeper: Multi-Asset Engine with Macro Event Interpretation System v1.0 & Strict Barra Normalization (v24)
+Gatekeeper: Multi-Asset Engine with 3-Pillar USD Risk, Idiosyncratic Asset Models & Macro Interpretation (v27)
 """
 import numpy as np
 import pandas as pd
@@ -26,6 +26,12 @@ class PreTradeGatekeeper:
         self.active_subtype = "Klasik Goldilocks Risk-On"
         self.dynamic_thresholds = REGIME_DYNAMIC_THRESHOLDS.get(5, {})
         self.macro_diagnostics = {}
+
+        # 💵 3-Pillar USD Risk Değişkenleri
+        self.composite_usd_risk = 0.0
+        self.usd_risk_label = "🟡 NÖTR / DENGELİ USD İKLİMİ"
+        self.usd_risk_status = "NEUTRAL"
+        self.ndl_z = 0.25
 
         self.current_vix = 16.0
         self.stagflation_z = 0.0
@@ -67,6 +73,12 @@ class PreTradeGatekeeper:
         self.breakeven_z = fred_metrics.get("t10yie_z", 0.65)
         self.dfii10_z = self.real_yield_z
         self.curve_label = fred_metrics.get("curve_label", "DÜZ EĞRİ")
+        self.ndl_z = fred_metrics.get("ndl_z", 0.25)
+
+        # 💵 3-Pillar USD Risk Hesaplaması
+        self.composite_usd_risk, self.usd_risk_label, self.usd_risk_status = self.processor.compute_composite_usd_risk(
+            self.dxy_velocity, self.ndl_z, self.yen_carry_z
+        )
 
         # Macro Event Interpretation System v1.0 Değerlendirmesi
         macro_payload = {
@@ -130,6 +142,8 @@ class PreTradeGatekeeper:
                 "active_regime_id": self.active_macro_regime_id,
                 "active_regime_name": self.active_macro_regime_name,
                 "dynamic_thresholds": self.dynamic_thresholds,
+                "composite_usd_risk": self.composite_usd_risk,
+                "usd_risk_label": self.usd_risk_label,
                 "details": []
             }
 
@@ -140,6 +154,11 @@ class PreTradeGatekeeper:
         cluster_scores = {c: 0.0 for c in CLUSTERS.keys()}
         details = []
 
+        # Taker ve Fonlama önbelleği
+        ccy = matrix.get("crypto_ccy", "BTC")
+        crypto_flow = None
+        crypto_fr = None
+
         for factor in matrix.get("factors", []):
             f_id = factor["id"]
             cluster = factor["cluster"]
@@ -148,19 +167,35 @@ class PreTradeGatekeeper:
 
             val = 0.0
 
-            # Dinamik Kurumsal Risk Hesaplamaları
+            # -----------------------------------------------------------------
+            # 1. VARLIĞA ÖZEL İDİOSİNKRATİK & TEKNİK FAKTÖRLER
+            # -----------------------------------------------------------------
             if f_id == "asset_direction":
                 vol_scale = matrix.get("vol_scale", 1.0)
                 val = self.processor.compute_intraday_direction_momentum(df_ast, vol_scale=vol_scale)
             elif f_id == "crypto_taker":
-                ccy = matrix.get("crypto_ccy", "BTC")
-                flow = self.data_engine.fetch_crypto_taker_flow(ccy)
-                raw_ratio = flow.get("value", 1.0)
+                if crypto_flow is None:
+                    crypto_flow = self.data_engine.fetch_crypto_taker_flow(ccy)
+                raw_ratio = crypto_flow.get("value", 1.0)
                 val = float(np.tanh(np.log(raw_ratio + 1e-6) * 2.0) * 1.5)
             elif f_id == "funding_stress":
-                ccy = matrix.get("crypto_ccy", "BTC")
-                fr = self.data_engine.fetch_crypto_funding_rate(ccy)
-                val = self.processor.compute_crypto_funding_stress(fr.get("rate", 0.0001))
+                if crypto_fr is None:
+                    crypto_fr = self.data_engine.fetch_crypto_funding_rate(ccy)
+                val = self.processor.compute_crypto_funding_stress(crypto_fr.get("rate", 0.0001))
+            elif f_id == "stablecoin_usd_impulse":
+                if crypto_flow is None:
+                    crypto_flow = self.data_engine.fetch_crypto_taker_flow(ccy)
+                if crypto_fr is None:
+                    crypto_fr = self.data_engine.fetch_crypto_funding_rate(ccy)
+                val = self.processor.compute_crypto_stablecoin_usd_impulse(
+                    crypto_flow.get("value", 1.0),
+                    crypto_fr.get("rate", 0.0001),
+                    self.ndl_z
+                )
+            elif f_id == "liquidation_squeeze_risk":
+                if crypto_fr is None:
+                    crypto_fr = self.data_engine.fetch_crypto_funding_rate(ccy)
+                val = self.processor.compute_liquidation_squeeze_risk(crypto_fr.get("rate", 0.0001), df_ast)
             elif f_id == "btc_dominance":
                 val = self.processor.compute_ratio_z(
                     self.grid_1h.get("BTC-USD", pd.DataFrame()),
@@ -170,6 +205,28 @@ class PreTradeGatekeeper:
                 val = self.processor.compute_ratio_z(
                     self.grid_1h.get("SMH", pd.DataFrame()),
                     self.grid_1h.get("QQQ", pd.DataFrame())
+                )
+            elif f_id == "tech_breadth_dispersion":
+                val = self.processor.compute_tech_breadth_dispersion(
+                    self.grid_1h.get("SMH", pd.DataFrame()),
+                    self.grid_1h.get("ARKK", pd.DataFrame()),
+                    self.grid_1h.get("QQQ", pd.DataFrame())
+                )
+            elif f_id == "equity_duration_drag":
+                val = self.processor.compute_equity_duration_drag(df_ast, self.real_yield_z)
+            elif f_id == "gold_sovereign_decoupling":
+                val = self.processor.compute_gold_sovereign_decoupling(
+                    df_ast, self.real_yield_z, self.grid_1h.get("DXY", pd.DataFrame())
+                )
+            elif f_id == "silver_monetary_catchup":
+                val = self.processor.compute_silver_monetary_catchup(
+                    df_ast,
+                    self.grid_1h.get("GC", self.grid_1h.get("GC=F", pd.DataFrame())),
+                    self.grid_1h.get("HG", self.grid_1h.get("HG=F", pd.DataFrame()))
+                )
+            elif f_id == "eth_staking_utility_drift":
+                val = self.processor.compute_eth_staking_utility_drift(
+                    df_ast, self.grid_1h.get("BTC-USD", pd.DataFrame())
                 )
             elif f_id == "market_breadth":
                 val = self.processor.compute_market_breadth(
@@ -238,8 +295,20 @@ class PreTradeGatekeeper:
                     self.grid_1h.get("ETH-USD", pd.DataFrame()),
                     self.grid_1h.get("BTC-USD", pd.DataFrame())
                 )
+
+            # -----------------------------------------------------------------
+            # 2. 💵 3-PILLAR USD RISK VE LİKİDİTE FAKTÖRLERİ (CLUSTER A)
+            # -----------------------------------------------------------------
             elif f_id == "usd_strength":
                 val = self.dxy_velocity
+            elif f_id == "net_dollar_liquidity":
+                val = float(np.clip(self.ndl_z, -2.0, 2.0))
+            elif f_id == "usd_jpy_carry":
+                val = self.yen_carry_z
+
+            # -----------------------------------------------------------------
+            # 3. DİĞER MAKRO VE SİSTEMİK FAKTÖRLER
+            # -----------------------------------------------------------------
             elif f_id == "credit_spread":
                 val = self.credit_velocity
             elif f_id == "vix_strain":
@@ -281,7 +350,7 @@ class PreTradeGatekeeper:
         # 🧠 Sinyal Çözümleme (Aktif Makro Rejime ve Kalibre Edilmiş Dinamik Eşiklere Bağlı)
         total_active_clusters = max(len(active_clusters), 2)
         min_cluster_req = max(2, int(np.ceil(total_active_clusters * 0.45)))
-        
+
         verdict, color, icon = self.processor.resolve_signal_with_hysteresis(
             final_score,
             previous_signal=previous_signal,
@@ -314,6 +383,8 @@ class PreTradeGatekeeper:
             "active_regime_name": self.active_macro_regime_name,
             "active_subtype": self.active_subtype,
             "dynamic_thresholds": self.dynamic_thresholds,
+            "composite_usd_risk": self.composite_usd_risk,
+            "usd_risk_label": self.usd_risk_label,
             "details": details
         }
 
