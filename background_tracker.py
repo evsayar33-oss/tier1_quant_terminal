@@ -1,12 +1,13 @@
 """
-Tier-1 Quant Terminal - Headless Background Tracker (Zero Crash Guarantee) (v18)
+Tier-1 Quant Terminal - Headless Background Tracker (Zero Crash Guarantee) (v20)
+Enhanced with Macro Event Interpretation System v1.0 & Calibrated Dynamic Thresholds.
 """
 import os
 import json
 import requests
 import pandas as pd
 from datetime import datetime, timezone
-from config import ASSET_MATRICES
+from config import ASSET_MATRICES, REGIME_DYNAMIC_THRESHOLDS
 from gatekeeper import PreTradeGatekeeper
 
 STATE_FILE = "terminal_state.json"
@@ -53,7 +54,12 @@ def run_background_cycle():
 
     new_state = {
         "last_updated": datetime.now(timezone.utc).isoformat(),
-        "market_regime": getattr(gk, "market_regime", "MAKRO DENGE / SIKIŞMA"),
+        "active_regime_id": getattr(gk, "active_macro_regime_id", 5),
+        "active_regime_name": getattr(gk, "active_macro_regime_name", "Küresel Likidite Rallisi (Risk-On)"),
+        "market_regime": getattr(gk, "market_regime", "🟢 [REJİM 5] Küresel Likidite Rallisi (Risk-On)"),
+        "active_subtype": getattr(gk, "active_subtype", "Klasik Goldilocks Risk-On"),
+        "dynamic_thresholds": getattr(gk, "dynamic_thresholds", REGIME_DYNAMIC_THRESHOLDS.get(5, {})),
+        "macro_diagnostics": getattr(gk, "macro_diagnostics", {}),
         "current_vix": round(getattr(gk, "current_vix", 16.0), 1),
         "stagflation_z": round(getattr(gk, "stagflation_z", 0.0), 2),
         "yen_carry_z": round(getattr(gk, "yen_carry_z", 0.0), 2),
@@ -76,7 +82,8 @@ def run_background_cycle():
         "anomaly_score": getattr(gk, "anomaly_score", 0.0),
         "current_vix": getattr(gk, "current_vix", 16.0),
         "crisis_active": gk.crisis_active,
-        "market_regime": getattr(gk, "market_regime", "MAKRO DENGE / SIKIŞMA")
+        "market_regime": getattr(gk, "market_regime", "🟢 [REJİM 5] Küresel Likidite Rallisi (Risk-On)"),
+        "active_regime_id": getattr(gk, "active_macro_regime_id", 5)
     }
     df_new = pd.DataFrame([history_row])
     if os.path.exists(HISTORY_FILE):

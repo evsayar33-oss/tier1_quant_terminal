@@ -1,11 +1,14 @@
 """
-Gatekeeper: Multi-Asset Engine with Strict Barra Risk-Parity Normalization & FRED Integration (v23 Dual-Horizon Precision)
+Gatekeeper: Multi-Asset Engine with Macro Event Interpretation System v1.0 & Strict Barra Normalization (v24)
 """
 import numpy as np
 import pandas as pd
-from config import ASSET_MATRICES, CLUSTERS
+from typing import Dict, Any, Optional
+
+from config import ASSET_MATRICES, CLUSTERS, REGIME_DYNAMIC_THRESHOLDS
 from data_engine import ResilientDataEngine
 from quant_processor import RobustQuantProcessor
+from macro_regime_engine import MacroRegimeEngine
 
 
 class PreTradeGatekeeper:
@@ -14,8 +17,16 @@ class PreTradeGatekeeper:
             fred_api_key = kwargs["fred_api_key"]
         self.data_engine = ResilientDataEngine(fred_api_key=fred_api_key)
         self.processor = RobustQuantProcessor()
+        self.macro_engine = MacroRegimeEngine(fred_api_key=fred_api_key)
+
         self.grid_1h = {}
-        self.market_regime = "MAKRO DENGE / SIKIŞMA"
+        self.active_macro_regime_id = 5
+        self.active_macro_regime_name = "Küresel Likidite Rallisi (Risk-On)"
+        self.market_regime = "🟢 [REJİM 5] Küresel Likidite Rallisi (Risk-On)"
+        self.active_subtype = "Klasik Goldilocks Risk-On"
+        self.dynamic_thresholds = REGIME_DYNAMIC_THRESHOLDS.get(5, {})
+        self.macro_diagnostics = {}
+
         self.current_vix = 16.0
         self.stagflation_z = 0.0
         self.yen_carry_z = 0.0
@@ -45,23 +56,33 @@ class PreTradeGatekeeper:
 
         # Şok İndikatörleri
         self.stagflation_z = self.processor.compute_stagflation_shock(
-            self.grid_1h.get("USO", pd.DataFrame()),
-            self.grid_1h.get("IYT", pd.DataFrame())
+            self.grid_1h.get("USO", self.grid_1h.get("CL", pd.DataFrame())),
+            self.grid_1h.get("IYT", self.grid_1h.get("BDRY", pd.DataFrame()))
         )
         self.yen_carry_z = self.processor.compute_yen_carry_shock(self.grid_1h.get("USDJPY", pd.DataFrame()))
 
-        # FRED Entegrasyonu
-        fred_metrics = self.data_engine.fetch_fred_macro_metrics()
+        # FRED & Macro Engine Entegrasyonu
+        fred_metrics = self.data_engine.fetch_fred_macro_metrics(market_grid=self.grid_1h)
         self.real_yield_z = fred_metrics.get("dfii10_z", 0.45)
         self.breakeven_z = fred_metrics.get("t10yie_z", 0.65)
         self.dfii10_z = self.real_yield_z
         self.curve_label = fred_metrics.get("curve_label", "DÜZ EĞRİ")
 
-        # Makro Rejim Tespiti
-        self.market_regime = self.processor.detect_realtime_macro_regime(
-            self.dxy_velocity, self.credit_velocity, self.real_yield_z,
-            z_vix, self.stagflation_z, self.yen_carry_z
-        )
+        # Macro Event Interpretation System v1.0 Değerlendirmesi
+        macro_payload = {
+            **fred_metrics,
+            "dxy_velocity_z": self.dxy_velocity,
+            "credit_velocity_z": self.credit_velocity,
+            "z_vix": z_vix,
+            "oil_z": self.stagflation_z,
+            "yen_carry_z": self.yen_carry_z
+        }
+        self.macro_diagnostics = self.macro_engine.evaluate(macro_payload)
+        self.active_macro_regime_id = self.macro_diagnostics["active_regime_id"]
+        self.active_macro_regime_name = self.macro_diagnostics["active_regime_name"]
+        self.market_regime = self.macro_diagnostics["formatted_label"]
+        self.active_subtype = self.macro_diagnostics["active_regime_subtype"]
+        self.dynamic_thresholds = self.macro_diagnostics["dynamic_thresholds"]
 
         # Kriz Kilidi Değerlendirmesi
         self.crisis_active, self.anomaly_score, _ = self.processor.evaluate_crisis_lock_with_hysteresis(
@@ -85,7 +106,8 @@ class PreTradeGatekeeper:
             }
 
         symbol = matrix.get("benchmark_symbol", "SPY")
-        df_ast = self.grid_1h.get(symbol, pd.DataFrame())
+        clean_sym = symbol.replace("^", "").replace("=X", "").replace("=F", "")
+        df_ast = self.grid_1h.get(clean_sym, self.grid_1h.get(symbol, pd.DataFrame()))
         current_dir, current_icon, current_color, current_roc = self.processor.compute_realtime_price_action(df_ast)
         adx_val, adx_regime = self.processor.compute_adx(df_ast)
 
@@ -105,6 +127,9 @@ class PreTradeGatekeeper:
                 "score": 0.0,
                 "cluster_agreement": "Tüm Pozisyonlar Askıda",
                 "session_status": "KİLİTLİ",
+                "active_regime_id": self.active_macro_regime_id,
+                "active_regime_name": self.active_macro_regime_name,
+                "dynamic_thresholds": self.dynamic_thresholds,
                 "details": []
             }
 
@@ -123,9 +148,7 @@ class PreTradeGatekeeper:
 
             val = 0.0
 
-            # -------------------------------------------------------------
-            # DİNAMİK 360 DERECE KURUMSAL RİSK HESAPLAMALARI
-            # -------------------------------------------------------------
+            # Dinamik Kurumsal Risk Hesaplamaları
             if f_id == "asset_direction":
                 vol_scale = matrix.get("vol_scale", 1.0)
                 val = self.processor.compute_intraday_direction_momentum(df_ast, vol_scale=vol_scale)
@@ -186,26 +209,26 @@ class PreTradeGatekeeper:
                 )
             elif f_id == "copper_gold":
                 val = self.processor.compute_ratio_z(
-                    self.grid_1h.get("HG=F", pd.DataFrame()),
-                    self.grid_1h.get("GC=F", pd.DataFrame())
+                    self.grid_1h.get("HG", self.grid_1h.get("HG=F", pd.DataFrame())),
+                    self.grid_1h.get("GC", self.grid_1h.get("GC=F", pd.DataFrame()))
                 )
             elif f_id == "gsr_velocity":
                 val = self.processor.compute_gsr_velocity(
-                    self.grid_1h.get("GC=F", pd.DataFrame()),
-                    self.grid_1h.get("SI=F", pd.DataFrame())
+                    self.grid_1h.get("GC", self.grid_1h.get("GC=F", pd.DataFrame())),
+                    self.grid_1h.get("SI", self.grid_1h.get("SI=F", pd.DataFrame()))
                 )
             elif f_id == "gold_oil_ratio":
                 val = self.processor.compute_gold_oil_ratio(
-                    self.grid_1h.get("GC=F", pd.DataFrame()),
-                    self.grid_1h.get("USO", pd.DataFrame())
+                    self.grid_1h.get("GC", self.grid_1h.get("GC=F", pd.DataFrame())),
+                    self.grid_1h.get("USO", self.grid_1h.get("CL", pd.DataFrame()))
                 )
             elif f_id == "silver_copper":
                 val = self.processor.compute_silver_copper_ratio(
-                    self.grid_1h.get("SI=F", pd.DataFrame()),
-                    self.grid_1h.get("HG=F", pd.DataFrame())
+                    self.grid_1h.get("SI", self.grid_1h.get("SI=F", pd.DataFrame())),
+                    self.grid_1h.get("HG", self.grid_1h.get("HG=F", pd.DataFrame()))
                 )
             elif f_id == "gold_sympathy":
-                df_gc = self.grid_1h.get("GC=F", pd.DataFrame())
+                df_gc = self.grid_1h.get("GC", self.grid_1h.get("GC=F", pd.DataFrame()))
                 val = self.processor.compute_intraday_direction_momentum(df_gc, vol_scale=1.0)
             elif f_id == "btc_sympathy":
                 df_btc = self.grid_1h.get("BTC-USD", pd.DataFrame())
@@ -245,7 +268,7 @@ class PreTradeGatekeeper:
                 "puan": round(f_score, 2)
             })
 
-        # ⚖️ BARRA AĞIRLIKLI ORTALAMA NORMALİZASYONU
+        # Barra Ağırlıklı Ortalama
         weighted_avg = weighted_sum / (total_weights + 1e-9)
         normalized_score = round(float(np.clip(weighted_avg * 1.5, -3.5, 3.5)), 2)
         final_score = normalized_score
@@ -255,16 +278,20 @@ class PreTradeGatekeeper:
         bull_clusters = sum(1 for c, sc in cluster_scores.items() if sc > 0.20)
         bear_clusters = sum(1 for c, sc in cluster_scores.items() if sc < -0.20)
 
-        # Sinyal Çözümleme (Dinamik Rejim & ADX Trend Gücü)
+        # 🧠 Sinyal Çözümleme (Aktif Makro Rejime ve Kalibre Edilmiş Dinamik Eşiklere Bağlı)
         total_active_clusters = max(len(active_clusters), 2)
+        min_cluster_req = max(2, int(np.ceil(total_active_clusters * 0.45)))
+        
         verdict, color, icon = self.processor.resolve_signal_with_hysteresis(
             final_score,
             previous_signal=previous_signal,
             bull_clusters=bull_clusters,
             bear_clusters=bear_clusters,
-            min_clusters=max(2, int(np.ceil(total_active_clusters * 0.45))),
+            min_clusters=min_cluster_req,
             market_regime=self.market_regime,
-            adx_val=adx_val
+            adx_val=adx_val,
+            dynamic_thresholds=self.dynamic_thresholds,
+            active_regime_id=self.active_macro_regime_id
         )
 
         return {
@@ -283,6 +310,10 @@ class PreTradeGatekeeper:
             "session_status": session_status,
             "adx_val": adx_val,
             "adx_regime": adx_regime,
+            "active_regime_id": self.active_macro_regime_id,
+            "active_regime_name": self.active_macro_regime_name,
+            "active_subtype": self.active_subtype,
+            "dynamic_thresholds": self.dynamic_thresholds,
             "details": details
         }
 
@@ -294,11 +325,11 @@ class PreTradeGatekeeper:
             prev = previous_signals.get(k, "NÖTR (BEKLE)")
             verdicts[k] = self.evaluate_asset_direction(k, previous_signal=prev)
 
-        # 🤝 İKİZ VARLIK KONSENSÜS KONTROLÜ
+        # İkiz Varlık Konsensüs Kontrolü
         twin_pairs = [
             ("SPX", "NQ", 0.35),
             ("XAU", "XAG", 0.35),
-            ("BTC", "ETH", 0.50)  # Kripto ikiz toleransı genişletildi
+            ("BTC", "ETH", 0.50)
         ]
         for a1, a2, tolerance in twin_pairs:
             v1 = verdicts.get(a1)
@@ -310,7 +341,6 @@ class PreTradeGatekeeper:
             diff = abs(sc1 - sc2)
 
             if diff <= tolerance:
-                # İkisi de negatif bölgedeyse ve en az biri SAT ise
                 if sc1 <= -0.40 and sc2 <= -0.40:
                     if "SAT" in v1["verdict"] or "SAT" in v2["verdict"]:
                         for v in (v1, v2):
@@ -320,7 +350,6 @@ class PreTradeGatekeeper:
                                 v["icon"] = "🔴"
                                 v["forecast_icon"] = "🔴"
                                 v["color"] = "red"
-                # İkisi de pozitif bölgedeyse ve en az biri AL ise
                 elif sc1 >= 0.40 and sc2 >= 0.40:
                     if "AL" in v1["verdict"] or "AL" in v2["verdict"]:
                         for v in (v1, v2):

@@ -1,26 +1,17 @@
 """
-Robust Quant Processor: Real-Time ETF Metrics & Strict Barra Normalization (v25 Dynamic Adaptive Thresholds & ADX)
+Robust Quant Processor: Real-Time ETF Metrics, Macro Event Interpretation & Strict Barra Normalization (v26)
+Incorporates Calibrated Dynamic Thresholds for Macro Event Interpretation System v1.0.
 """
 import numpy as np
 import pandas as pd
 from datetime import datetime, timezone
+from typing import Optional, Dict, Any, Tuple
 
-try:
-    from config import CRISIS_CONFIG, SIGNAL_THRESHOLDS, ASSET_CLOCKS, CATALYST_WINDOWS_UTC
-except Exception:
-    CRISIS_CONFIG = {
-        "upper_threshold": 2.2, "lower_threshold": 1.5,
-        "enter_consecutive_bars": 3, "vix_spike_threshold": 2.5,
-        "vix_absolute_floor": 20.0
-    }
-    SIGNAL_THRESHOLDS = {
-        "strong_buy_enter": 1.6, "strong_buy_exit": 1.0,
-        "buy_enter": 0.6, "buy_exit": 0.30,
-        "strong_sell_enter": -1.6, "strong_sell_exit": -1.0,
-        "sell_enter": -0.6, "sell_exit": -0.30
-    }
-    ASSET_CLOCKS = {}
-    CATALYST_WINDOWS_UTC = []
+from config import (
+    CRISIS_CONFIG, SIGNAL_THRESHOLDS, ASSET_CLOCKS,
+    REGIME_DYNAMIC_THRESHOLDS
+)
+CATALYST_WINDOWS_UTC = []
 
 
 class RobustQuantProcessor:
@@ -143,9 +134,8 @@ class RobustQuantProcessor:
         roc_4h = ((close.iloc[-1] - close.iloc[-w_fast - 1]) / (close.iloc[-w_fast - 1] + 1e-9)) * 100.0
         w_slow = min(slow_window, len(close) - 1)
         roc_24h = ((close.iloc[-1] - close.iloc[-w_slow - 1]) / (close.iloc[-w_slow - 1] + 1e-9)) * 100.0
-        
-        blended = (roc_4h * 1.5) + (roc_24h * 0.5)
 
+        blended = (roc_4h * 1.5) + (roc_24h * 0.5)
         scale = max(float(vol_scale), 0.5)
         norm_blended = (blended / scale) * 1.3
         return float(np.clip(norm_blended, -2.0, 2.0))
@@ -380,16 +370,16 @@ class RobustQuantProcessor:
     @staticmethod
     def detect_realtime_macro_regime(dxy_velocity, credit_velocity, real_yield_z, z_vix, stagflation_z, yen_carry_z):
         if stagflation_z > 1.35:
-            return "🛢️ KÜRESEL STAGFLASYON ŞOKU (PETROL BASKISI)"
+            return "🛢️ [REJİM 1] Küresel Enflasyon & Stagflasyon Şoku"
         elif (dxy_velocity > 0.8 and credit_velocity < -0.6) or (yen_carry_z < -1.2 and z_vix > 0.8):
-            return "🚨 SİSTEMİK LİKİDİTE ŞOKU (NAKDE KAÇIŞ)"
+            return "🚨 [REJİM 2] Sistemik Likidite Şoku & Carry Çöküşü"
         elif real_yield_z > 1.2:
-            return "⚡ TAHVİL REEL GETİRİ ŞOKU (TECH BASKISI)"
+            return "⚡ [REJİM 3] Reel Faiz Şoku"
         elif credit_velocity < -1.0:
-            return "⚠️ KREDİ PİYASASI TEMERRÜT STRESİ"
+            return "⚠️ [REJİM 4] Kredi Temerrüt Baskısı"
         elif dxy_velocity < -0.4 and credit_velocity > 0.4:
-            return "🟢 KÜRESEL LİKİDİTE RALLİSİ (RISK-ON)"
-        return "⚪ MAKRO DENGE / SIKIŞMA"
+            return "🟢 [REJİM 5] Küresel Likidite Rallisi (Risk-On)"
+        return "⚪ REJIMSIZ_GECIS (Makro Denge / Sıkışma)"
 
     @staticmethod
     def evaluate_crisis_lock_with_hysteresis(credit_velocity, z_vix, z_real_rate, dxy_velocity, current_vix_val, current_state=False, consecutive_breaches=0):
@@ -426,33 +416,60 @@ class RobustQuantProcessor:
         bear_clusters=0,
         min_clusters=2,
         market_regime="TREND",
-        adx_val=25.0
+        adx_val=25.0,
+        dynamic_thresholds=None,
+        active_regime_id=None
     ):
+        """
+        Dinamik Rejime Duyarlı Sinyal Çözümleyici:
+        Aktif makro rejime (1..5 veya REJIMSIZ_GECIS) göre kalibre edilmiş dinamik eşikleri uygular.
+        """
         t = SIGNAL_THRESHOLDS
         prev = previous_signal if previous_signal else "NÖTR (BEKLE)"
 
-        # 🧠 DİNAMİK REJİM VE ADX TREND GÜÇ EŞİKLERİ
-        is_choppy = ("DENGE" in market_regime or "SIKIŞMA" in market_regime) or (adx_val < 20.0)
+        # 🧠 DİNAMİK REJİM KALİBRASYON ENTEGRASYONU
+        dyn = dynamic_thresholds
+        if dyn is None and active_regime_id is not None:
+            dyn = REGIME_DYNAMIC_THRESHOLDS.get(active_regime_id)
+        elif dyn is None and market_regime:
+            for r_id in [1, 2, 3, 4, 5, "REJIMSIZ_GECIS"]:
+                if f"REJİM {r_id}" in market_regime or f"REJİM_{r_id}" in market_regime:
+                    dyn = REGIME_DYNAMIC_THRESHOLDS.get(r_id)
+                    break
 
-        if is_choppy:
+        is_choppy = ("DENGE" in market_regime or "SIKIŞMA" in market_regime or "REJIMSIZ_GECIS" in market_regime) or (adx_val < 20.0)
+
+        if dyn is not None:
+            buy_enter = dyn.get("buy_enter", 0.60)
+            sell_enter = dyn.get("sell_enter", -0.60)
+            buy_exit = dyn.get("buy_exit", 0.30)
+            sell_exit = dyn.get("sell_exit", -0.30)
+            strong_buy_enter = dyn.get("strong_buy_enter", 1.60)
+            strong_sell_enter = dyn.get("strong_sell_enter", -1.60)
+            req_clusters = max(min_clusters, dyn.get("min_clusters", 2))
+        elif is_choppy:
             buy_enter = 0.85
             sell_enter = -0.85
             req_clusters = max(min_clusters, 3)
             buy_exit = 0.35
             sell_exit = -0.35
+            strong_buy_enter = 1.70
+            strong_sell_enter = -1.70
         else:
             buy_enter = t.get("buy_enter", 0.60)
             sell_enter = t.get("sell_enter", -0.60)
             req_clusters = min_clusters
             buy_exit = t.get("buy_exit", 0.30)
             sell_exit = t.get("sell_exit", -0.30)
+            strong_buy_enter = t.get("strong_buy_enter", 1.60)
+            strong_sell_enter = t.get("strong_sell_enter", -1.60)
 
         # 1. GÜÇLÜ AL KONTROLÜ
         if prev == "GÜÇLÜ AL":
-            if current_score > t.get("strong_buy_exit", 1.0):
+            if current_score > max(buy_exit, 0.50):
                 return "GÜÇLÜ AL", "green", "🟢🟢"
         else:
-            if current_score >= t.get("strong_buy_enter", 1.6) and bull_clusters >= req_clusters:
+            if current_score >= strong_buy_enter and bull_clusters >= req_clusters:
                 return "GÜÇLÜ AL", "green", "🟢🟢"
 
         # 2. AL KONTROLÜ
@@ -462,15 +479,15 @@ class RobustQuantProcessor:
         else:
             if current_score >= buy_enter and bull_clusters >= req_clusters:
                 return "AL", "lightgreen", "🟢"
-            if not is_choppy and bull_clusters >= 3 and current_score >= 0.50:
+            if not is_choppy and bull_clusters >= 3 and current_score >= max(buy_enter - 0.10, 0.40):
                 return "AL", "lightgreen", "🟢"
 
         # 3. GÜÇLÜ SAT KONTROLÜ
         if prev == "GÜÇLÜ SAT":
-            if current_score < t.get("strong_sell_exit", -1.0):
+            if current_score < min(sell_exit, -0.50):
                 return "GÜÇLÜ SAT", "darkred", "🔴🔴"
         else:
-            if current_score <= t.get("strong_sell_enter", -1.6) and bear_clusters >= req_clusters:
+            if current_score <= strong_sell_enter and bear_clusters >= req_clusters:
                 return "GÜÇLÜ SAT", "darkred", "🔴🔴"
 
         # 4. SAT KONTROLÜ
@@ -480,7 +497,7 @@ class RobustQuantProcessor:
         else:
             if current_score <= sell_enter and bear_clusters >= req_clusters:
                 return "SAT", "red", "🔴"
-            if not is_choppy and bear_clusters >= 3 and current_score <= -0.50:
+            if not is_choppy and bear_clusters >= 3 and current_score <= min(sell_enter + 0.10, -0.40):
                 return "SAT", "red", "🔴"
 
         neutral_label = "NÖTR (TESTERE BANDI)" if (is_choppy and abs(current_score) > 0.40) else "NÖTR (BEKLE)"

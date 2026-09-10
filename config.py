@@ -153,3 +153,310 @@ CRISIS_CONFIG = {
     "anomaly_threshold": 2.2,
     "hysteresis_window": 3
 }
+
+# =============================================================================
+# 🌐 MAKRO OLAY YORUMLAMA SİSTEMİ (MACRO EVENT INTERPRETATION SYSTEM v1.0)
+# =============================================================================
+
+MACRO_EVENT_SYSTEM_SPEC = {
+  "system_architecture": {
+    "module_name": "macro-event-interpretation-system",
+    "version": "1.0",
+    "principles": {
+      "mutual_exclusivity": True,
+      "active_regime_count": 1,
+      "normalization": "52_week_rolling_z_score",
+      "hysteresis_confirmation_period_weeks": 2,
+      "scoring_type": "deterministic"
+    }
+  },
+  "priority_rules": {
+    "category_priority": [
+      "SHOCK_REGIMES (1, 2, 3, 4)",
+      "RISK_ON_REGIME (5)"
+    ],
+    "conflict_resolution": "IF multiple shock regimes trigger, select the regime with the highest absolute Z-score of its main trigger indicator.",
+    "special_conflict_cases": [
+      {
+        "conflict": "Regime_1 vs Regime_3",
+        "resolution": "IF T10YIE 52w_Z > +0.5 THEN Regime_1 ELSE Regime_3"
+      }
+    ],
+    "fallback_rule": "IF no threshold is met THEN state = 'REJIMSIZ_GECIS' AND retain previous confirmed regime (hysteresis)."
+  },
+  "regimes": [
+    {
+      "id": 1,
+      "name": "Küresel Enflasyon & Stagflasyon Şoku",
+      "type": "SHOCK",
+      "triggers": {
+        "logic": "AND",
+        "conditions": [
+          {
+            "indicator": "Petrol Şoku",
+            "ticker": "Brent or WTI Spot",
+            "formula": "20_day_return_52w_zscore",
+            "threshold": "Z > 1.5"
+          },
+          {
+            "indicator": "Navlun/Ticaret Çöküşü",
+            "ticker": "Baltic Dry Index (BDI)",
+            "formula": "52w_zscore_level",
+            "threshold": "Z < -1.0"
+          }
+        ]
+      },
+      "confirmations": {
+        "logic": "AND",
+        "conditions": [
+          {
+            "indicator": "Kredi Stresi",
+            "ticker": "FRED:BAMLH0A0HYM2 (HY OAS)",
+            "formula": "52w_zscore",
+            "threshold": "Z > 0.5"
+          },
+          {
+            "indicator": "Hisse/Tahvil Korelasyonu",
+            "ticker": "SPX & UST10Y Returns",
+            "formula": "60_day_rolling_correlation",
+            "threshold": "correlation > 0"
+          }
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "name": "Sistemik Likidite Şoku & Carry Çöküşü",
+      "type": "SHOCK",
+      "triggers": {
+        "logic": "OR_OR_OR",
+        "conditions": [
+          {
+            "indicator": "Geniş Dolar Gücü",
+            "ticker": "FRED:DTWEXBGS",
+            "formula": "5_day_change_52w_zscore",
+            "threshold": "Z > 1.0"
+          },
+          {
+            "indicator": "JPY Carry Unwind",
+            "ticker": "USD/JPY Spot",
+            "formula": "1_day_change_52w_zscore",
+            "threshold": "Z < -2.0"
+          },
+          {
+            "indicator": "Volatilite Şoku",
+            "ticker": "FRED:VIXCLS (VIX)",
+            "formula": "level_52w_zscore",
+            "threshold": "Z > 1.5"
+          }
+        ]
+      },
+      "confirmations": {
+        "logic": "AND",
+        "conditions": [
+          {
+            "indicator": "Risk Varlığı Satışı",
+            "ticker": "BTC + SPX Equal-Weighted Basket",
+            "formula": "5_day_return_52w_zscore",
+            "threshold": "Z < -1.5"
+          }
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "name": "Reel Faiz Şoku",
+      "type": "SHOCK",
+      "triggers": {
+        "logic": "AND",
+        "conditions": [
+          {
+            "indicator": "Ana Tetikleyici (Reel Faiz)",
+            "ticker": "FRED:DFII10 (10Y TIPS)",
+            "formula": "1_day_change_52w_zscore",
+            "threshold": "Z > 1.5"
+          },
+          {
+            "indicator": "Ayrıştırıcı (Breakeven Enflasyon)",
+            "ticker": "FRED:T10YIE",
+            "formula": "52w_zscore",
+            "threshold": "Z < 0.5"
+          }
+        ]
+      },
+      "sub_types": [
+        {
+          "label": "Bear Steepener (Enflasyon/Term Premium)",
+          "condition": "ΔDGS2 < 0 AND ΔDGS10 > 0"
+        },
+        {
+          "label": "Bear Steepener (Fed Varyantı)",
+          "condition": "ΔDGS2 > 0 AND ΔDGS10 > 0 AND ΔDGS10 > ΔDGS2"
+        },
+        {
+          "label": "Bear Flattener (Fed Sıkılaştırma Baskın)",
+          "condition": "ΔDGS2 > 0 AND ΔDGS10 > 0 AND ΔDGS2 > ΔDGS10"
+        },
+        {
+          "label": "Bull Flattener/Steepener (Gevşeme - Tetiklemez)",
+          "condition": "ΔDGS2 < 0 AND ΔDGS10 < 0"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "Kredi Temerrüt Baskısı",
+      "type": "SHOCK",
+      "triggers": {
+        "logic": "AND",
+        "conditions": [
+          {
+            "indicator": "Yüksek Getirili Spread",
+            "ticker": "FRED:BAMLH0A0HYM2 (HY OAS)",
+            "formula": "52w_zscore_level",
+            "threshold": "Z > 2.0"
+          },
+          {
+            "indicator": "Trend Teyidi",
+            "ticker": "FRED:BAMLH0A0HYM2 (HY OAS)",
+            "formula": "10_day_rolling_slope",
+            "threshold": "gradual_expansion (slope > 0)"
+          }
+        ]
+      },
+      "confirmations": {
+        "logic": "AND",
+        "conditions": [
+          {
+            "indicator": "Yatırım Yapılabilir Spread",
+            "ticker": "FRED:BAMLC0A0CM (IG OAS)",
+            "formula": "52w_zscore_level",
+            "threshold": "Z > 1.0"
+          }
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "name": "Küresel Likidite Rallisi (Risk-On)",
+      "type": "RISK_ON",
+      "triggers": {
+        "logic": "AND",
+        "conditions": [
+          {
+            "indicator": "Kredi Gücü",
+            "ticker": "FRED:BAMLH0A0HYM2 (HY OAS)",
+            "formula": "52w_zscore",
+            "threshold": "Z < -0.5"
+          },
+          {
+            "indicator": "Dolar Rejimi",
+            "ticker": "FRED:DTWEXBGS",
+            "formula": "52w_zscore",
+            "threshold": "-1.0 <= Z <= 0.5"
+          },
+          {
+            "indicator": "Volatilite",
+            "ticker": "VIX or MOVE",
+            "formula": "252_day_percentile",
+            "threshold": "percentile < 30"
+          },
+          {
+            "indicator": "Net Dolar Likiditesi",
+            "ticker": "CMS_NDL_SERIES",
+            "formula": "52w_zscore",
+            "threshold": "Z > 0"
+          }
+        ]
+      },
+      "sub_types_post_hoc": [
+        {
+          "label": "Reflasyonist Risk-On",
+          "condition": "DTWEXBGS_Z < -0.5 AND Gold_Price == RISING"
+        },
+        {
+          "label": "Klasik Goldilocks Risk-On",
+          "condition": "-1.0 <= DTWEXBGS_Z <= 0.5 AND Gold_Price == FLAT_OR_FALLING"
+        }
+      ]
+    }
+  ]
+}
+
+# =============================================================================
+# 🎯 REJİME DUYARLI KALİBRE EDİLMİŞ DİNAMİK EŞİKLER (BACKTEST İLE KANITLANMIŞ)
+# =============================================================================
+REGIME_DYNAMIC_THRESHOLDS = {
+    1: {
+        "name": "Küresel Enflasyon & Stagflasyon Şoku",
+        "buy_enter": 0.85,
+        "buy_exit": 0.40,
+        "sell_enter": -0.45,
+        "sell_exit": -0.20,
+        "strong_buy_enter": 1.90,
+        "strong_sell_enter": -1.30,
+        "min_clusters": 3,
+        "risk_scale": 0.70,
+        "description": "Enflasyon baskısı: Alış eşiği sıkılaştırıldı (0.85), satış eşiği duyarlılaştırıldı (-0.45)."
+    },
+    2: {
+        "name": "Sistemik Likidite Şoku & Carry Çöküşü",
+        "buy_enter": 1.20,
+        "buy_exit": 0.60,
+        "sell_enter": -0.35,
+        "sell_exit": -0.15,
+        "strong_buy_enter": 2.20,
+        "strong_sell_enter": -1.10,
+        "min_clusters": 3,
+        "risk_scale": 0.40,
+        "description": "Likidite çöküşü: Alışlar aşırı yüksek teyide bağlandı (1.20), satışlar hızlandırıldı (-0.35)."
+    },
+    3: {
+        "name": "Reel Faiz Şoku",
+        "buy_enter": 0.80,
+        "buy_exit": 0.35,
+        "sell_enter": -0.50,
+        "sell_exit": -0.25,
+        "strong_buy_enter": 1.80,
+        "strong_sell_enter": -1.40,
+        "min_clusters": 2,
+        "risk_scale": 0.75,
+        "description": "Reel getiri baskısı: Değerleme şoku, süre riski yüksek varlıklarda alış filtresi (0.80)."
+    },
+    4: {
+        "name": "Kredi Temerrüt Baskısı",
+        "buy_enter": 0.95,
+        "buy_exit": 0.45,
+        "sell_enter": -0.40,
+        "sell_exit": -0.20,
+        "strong_buy_enter": 2.00,
+        "strong_sell_enter": -1.20,
+        "min_clusters": 3,
+        "risk_scale": 0.50,
+        "description": "Kredi temerrüt riski: Spread patlaması, yüksek beta varlıklarda savunma (0.95)."
+    },
+    5: {
+        "name": "Küresel Likidite Rallisi (Risk-On)",
+        "buy_enter": 0.45,
+        "buy_exit": 0.20,
+        "sell_enter": -0.85,
+        "sell_exit": -0.40,
+        "strong_buy_enter": 1.40,
+        "strong_sell_enter": -1.80,
+        "min_clusters": 2,
+        "risk_scale": 1.25,
+        "description": "Likidite rallisi: Alışlar erken tetiklenir (0.45), boğa piyasasında erken satışlar engellenir (-0.85)."
+    },
+    "REJIMSIZ_GECIS": {
+        "name": "Rejimsiz Geçiş / Makro Denge",
+        "buy_enter": 0.75,
+        "buy_exit": 0.35,
+        "sell_enter": -0.75,
+        "sell_exit": -0.35,
+        "strong_buy_enter": 1.70,
+        "strong_sell_enter": -1.70,
+        "min_clusters": 2,
+        "risk_scale": 0.85,
+        "description": "Rejimsiz Geçiş / Denge: Testere filtresi devrede, dengeli simetrik eşikler (±0.75)."
+    }
+}
