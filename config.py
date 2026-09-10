@@ -1,10 +1,5 @@
 """
-Configuration: Asset Matrices, Risk Clusters & Barra Normalization Weights (v27 24/7 Futures & Asset-Specific Precision)
-Enhanced with:
-- 24/7 Live Futures Benchmarks for Equities (ES=F for S&P 500, NQ=F for Nasdaq 100)
-- 3-Pillar USD Risk Architecture (Spot DXY, Net Dollar Liquidity NDL, USD/JPY Carry)
-- Idiosyncratic Asset-Specific Risk Models
-- Macro Event Interpretation System v1.0 & Calibrated Dynamic Thresholds
+Configuration: Asset Matrices, Risk Clusters & Barra Normalization Weights (v28 Restored Native Benchmarks)
 """
 
 CLUSTERS = {
@@ -15,7 +10,7 @@ CLUSTERS = {
     "E": "Varlığa Özel İtici Güç & İdiosinkratik Riskler (Taker, Sıkışma, Çip, Ayrışma)"
 }
 
-# Kalibre Edilmiş Sinyal Eşikleri (±0.60 Giriş, ±0.30 Çıkış)
+# Kalibre Edilmiş Sinyal Eşikleri
 SIGNAL_THRESHOLDS = {
     "strong_buy_enter": 1.60,
     "strong_buy_exit": 1.00,
@@ -30,10 +25,10 @@ SIGNAL_THRESHOLDS = {
 ASSET_MATRICES = {
     "SPX": {
         "name": "S&P 500 Index",
-        "benchmark_symbol": "ES=F",
+        "benchmark_symbol": "SPY",
         "vol_scale": 1.0,
         "factors": [
-            {"id": "asset_direction", "name": "ES 4H Anlık Fiyat Hızı", "cluster": "E", "base_weight": 2.20, "base_sign": 1.0},
+            {"id": "asset_direction", "name": "SPY 4H Anlık Fiyat Hızı", "cluster": "E", "base_weight": 2.20, "base_sign": 1.0},
             {"id": "semi_lead", "name": "SMH Çip / AI Sektör İvmesi", "cluster": "E", "base_weight": 1.20, "base_sign": 1.0},
             {"id": "market_breadth", "name": "RSP/SPY Piyasa Katılım Genişliği", "cluster": "E", "base_weight": 0.70, "base_sign": 1.0},
             {"id": "defensive_flight", "name": "XLU/SPY Kurumsal Defansif Kaçış", "cluster": "E", "base_weight": 0.70, "base_sign": -1.0},
@@ -52,10 +47,10 @@ ASSET_MATRICES = {
     },
     "NQ": {
         "name": "NASDAQ 100",
-        "benchmark_symbol": "NQ=F",
+        "benchmark_symbol": "QQQ",
         "vol_scale": 1.2,
         "factors": [
-            {"id": "asset_direction", "name": "NQ 4H Anlık Fiyat Hızı", "cluster": "E", "base_weight": 2.20, "base_sign": 1.0},
+            {"id": "asset_direction", "name": "QQQ 4H Anlık Fiyat Hızı", "cluster": "E", "base_weight": 2.20, "base_sign": 1.0},
             {"id": "semi_lead", "name": "SMH Çip / AI Sektör İvmesi", "cluster": "E", "base_weight": 1.30, "base_sign": 1.0},
             {"id": "tech_breadth_dispersion", "name": "Çip & Yüksek Beta Ayrışması", "cluster": "E", "base_weight": 0.80, "base_sign": 1.0},
             {"id": "speculative_beta", "name": "ARKK/QQQ Yüksek Beta Spekülasyon", "cluster": "E", "base_weight": 0.80, "base_sign": 1.0},
@@ -156,12 +151,12 @@ ASSET_MATRICES = {
 }
 
 ASSET_CLOCKS = {
-    "SPX": {"open_utc": 0.0, "close_utc": 24.0, "type": "FUTURES_23H"},
-    "NQ":  {"open_utc": 0.0, "close_utc": 24.0, "type": "FUTURES_23H"},
-    "XAU": {"open_utc": 0.0, "close_utc": 24.0, "type": "FUTURES_23H"},
-    "XAG": {"open_utc": 0.0, "close_utc": 24.0, "type": "FUTURES_23H"},
-    "BTC": {"open_utc": 0.0, "close_utc": 24.0, "type": "CRYPTO_24_7"},
-    "ETH": {"open_utc": 0.0, "close_utc": 24.0, "type": "CRYPTO_24_7"}
+    "SPX": {"open_utc": 13.5, "close_utc": 20.0, "type": "TRADITIONAL"},
+    "NQ":  {"open_utc": 13.5, "close_utc": 20.0, "type": "TRADITIONAL"},
+    "XAU": {"open_utc": 0.0,  "close_utc": 24.0, "type": "FUTURES_23H"},
+    "XAG": {"open_utc": 0.0,  "close_utc": 24.0, "type": "FUTURES_23H"},
+    "BTC": {"open_utc": 0.0,  "close_utc": 24.0, "type": "CRYPTO_24_7"},
+    "ETH": {"open_utc": 0.0,  "close_utc": 24.0, "type": "CRYPTO_24_7"}
 }
 
 CRISIS_CONFIG = {
@@ -175,10 +170,6 @@ CRISIS_CONFIG = {
     "anomaly_threshold": 2.2,
     "hysteresis_window": 3
 }
-
-# =============================================================================
-# 🌐 MAKRO OLAY YORUMLAMA SİSTEMİ (MACRO EVENT INTERPRETATION SYSTEM v1.0)
-# =============================================================================
 
 MACRO_EVENT_SYSTEM_SPEC = {
   "system_architecture": {
