@@ -1,10 +1,9 @@
 """
 Configuration: Calibrated Asset Matrices, Barra Cluster Parity & Risk Normalization (v34)
 Enhanced with:
-- ENTRY_GATES_CONFIG: Quantitative Volatility & Volume Shock Thresholds (2019-2026 Calibration)
+- ENTRY_GATES_CONFIG & ENTRY_FILTER_CONFIG (Dual alias for 100% crash-proof imports)
 - Live 24/7 Futures Benchmarks (ES=F for S&P 500, NQ=F for Nasdaq 100)
 - Globex 23/5 Continuous Asset Clocks (Eliminates 16:30 TSI Freeze)
-- Calibrated Dynamic Thresholds & Multi-Regime Support
 """
 
 CLUSTERS = {
@@ -28,13 +27,16 @@ SIGNAL_THRESHOLDS = {
 
 # 🚀 2019-2026 Kurumsal Giriş Analizi ve Şok Koruma Eşikleri
 ENTRY_GATES_CONFIG = {
-    "vol_shock_high": 2.20,       # ATR_14 / SMA(ATR_14, 20) > 2.20 -> Volatilite Şoku (Giriş Engellenir)
-    "vol_shock_low": 0.65,        # ATR_14 / SMA(ATR_14, 20) < 0.65 -> Sıkışma / Ölü Piyasa (Giriş Engellenir)
+    "vol_shock_high": 2.20,       # ATR_14 / SMA(ATR_14, 20) > 2.20 -> Volatilite Şoku
+    "vol_shock_low": 0.65,        # ATR_14 / SMA(ATR_14, 20) < 0.65 -> Sıkışma / Ölü Piyasa
     "rvol_strong_min": 1.25,      # Güçlü Al / Güçlü Sat için zorunlu taban kurumsal hacim çarpanı
-    "rvol_climax_shock": 3.20,    # Climax / Tükeniş hacmi şoku (Giriş Engellenir)
-    "rvol_illiquid": 0.50,        # Düşük likidite / piyasa ilgisizliği (Giriş Engellenir)
+    "rvol_climax_shock": 3.20,    # Climax / Tükeniş hacmi şoku
+    "rvol_illiquid": 0.50,        # Düşük likidite
     "mad_z_threshold": 1.96       # Robust MAD Z-Score ayrışma eşiği
 }
+
+# 🛡️ Dual Alias: quant_processor.py veya gatekeeper.py hangisini çağırırsa çağırsın hata vermez!
+ENTRY_FILTER_CONFIG = ENTRY_GATES_CONFIG
 
 ASSET_MATRICES = {
     "SPX": {
@@ -164,7 +166,6 @@ ASSET_MATRICES = {
     }
 }
 
-# 🚀 24/5 Globex Vadeli Seans Eşleştirmesi (16:30 öncesi donmayı kökten önler)
 ASSET_CLOCKS = {
     "SPX": {"open_utc": 0.0, "close_utc": 24.0, "type": "FUTURES_23H", "continuous": True},
     "NQ":  {"open_utc": 0.0, "close_utc": 24.0, "type": "FUTURES_23H", "continuous": True},
