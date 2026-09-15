@@ -1,6 +1,5 @@
 """
-Gatekeeper: Multi-Asset Engine with 3-Pillar USD Risk, Entry Quality Gating & Macro Interpretation (v34)
-Crash-Proof Version with Safe Config Fallback
+Gatekeeper: Multi-Asset Engine with 3-Pillar USD Risk, Live Entry Quality Gating & Macro Interpretation (v35)
 """
 import os
 import numpy as np
@@ -9,18 +8,21 @@ from typing import Dict, Any, Optional
 
 from config import ASSET_MATRICES, CLUSTERS, REGIME_DYNAMIC_THRESHOLDS
 
-# 🛡️ Crash-Proof Import: config.py güncellenmemiş olsa dahi asla çökmez!
 try:
-    from config import ENTRY_GATES_CONFIG
+    from config import ENTRY_FILTER_CONFIG
 except ImportError:
-    ENTRY_GATES_CONFIG = {
-        "vol_shock_high": 2.20,
-        "vol_shock_low": 0.65,
-        "rvol_strong_min": 1.25,
-        "rvol_climax_shock": 3.20,
-        "rvol_illiquid": 0.50,
-        "mad_z_threshold": 1.96
-    }
+    try:
+        from config import ENTRY_GATES_CONFIG as ENTRY_FILTER_CONFIG
+    except ImportError:
+        ENTRY_FILTER_CONFIG = {
+            "vol_shock_high": 2.20,
+            "vol_shock_low": 0.65,
+            "rvol_strong_min": 1.25,
+            "rvol_climax_shock": 3.20,
+            "rvol_illiquid": 0.50,
+            "mad_z_threshold": 1.96
+        }
+ENTRY_GATES_CONFIG = ENTRY_FILTER_CONFIG
 
 from data_engine import ResilientDataEngine
 from quant_processor import RobustQuantProcessor
@@ -153,17 +155,19 @@ class PreTradeGatekeeper:
         clean_sym = symbol.replace("^", "").replace("=X", "").replace("=F", "")
         df_ast = self.grid_1h.get(clean_sym, self.grid_1h.get(symbol, pd.DataFrame()))
 
+        # 🎯 Doğru Yön Analizi (Eşikler gerçekçi)
         current_dir, current_icon, current_color, current_roc = self.processor.compute_realtime_price_action(
-            df_ast, vol_scale=matrix.get("vol_scale", 1.0)
+            df_ast, vol_scale=matrix.get("vol_scale", 1.0), asset_key=asset_key
         )
         adx_val, adx_regime = self.processor.compute_adx(df_ast)
 
-        # 🚀 Giriş Analizi
-        entry_allowed, entry_reason, atr_ratio, rvol = self.processor.evaluate_trade_entry_gate(df_ast)
+        # 🚀 Dinamik Giriş Analizi (ATR ve RVOL canlı hesaplanır)
+        entry_allowed, entry_reason, atr_ratio, rvol = self.processor.evaluate_trade_entry_gate(
+            df_ast, asset_key=asset_key
+        )
 
-        # Hacim ve Volatilite Teyidi
-        volume_supports = rvol >= ENTRY_GATES_CONFIG.get("rvol_strong_min", 1.25)
-        volatility_supports = (ENTRY_GATES_CONFIG.get("vol_shock_low", 0.65) <= atr_ratio <= ENTRY_GATES_CONFIG.get("vol_shock_high", 2.20))
+        volume_supports = rvol >= ENTRY_FILTER_CONFIG.get("rvol_strong_min", 1.25)
+        volatility_supports = (ENTRY_FILTER_CONFIG.get("vol_shock_low", 0.65) <= atr_ratio <= ENTRY_FILTER_CONFIG.get("vol_shock_high", 2.20))
 
         if self.crisis_active:
             return {
@@ -180,7 +184,7 @@ class PreTradeGatekeeper:
                 "score": 0.0,
                 "entry_allowed": False,
                 "entry_reason": "Sistemik Kriz Kilidi Devrede: Yeni pozisyon açılamaz!",
-                "entry_status": "İşleme Giriş Önerilmez",
+                "entry_status": "🔴 İŞLEME GİRİŞ ÖNERİLMEZ",
                 "volume_supports": False,
                 "volatility_supports": False,
                 "rvol": round(rvol, 2),
