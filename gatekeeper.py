@@ -1,12 +1,27 @@
 """
 Gatekeeper: Multi-Asset Engine with 3-Pillar USD Risk, Entry Quality Gating & Macro Interpretation (v34)
+Crash-Proof Version with Safe Config Fallback
 """
 import os
 import numpy as np
 import pandas as pd
 from typing import Dict, Any, Optional
 
-from config import ASSET_MATRICES, CLUSTERS, REGIME_DYNAMIC_THRESHOLDS, ENTRY_GATES_CONFIG
+from config import ASSET_MATRICES, CLUSTERS, REGIME_DYNAMIC_THRESHOLDS
+
+# 🛡️ Crash-Proof Import: config.py güncellenmemiş olsa dahi asla çökmez!
+try:
+    from config import ENTRY_GATES_CONFIG
+except ImportError:
+    ENTRY_GATES_CONFIG = {
+        "vol_shock_high": 2.20,
+        "vol_shock_low": 0.65,
+        "rvol_strong_min": 1.25,
+        "rvol_climax_shock": 3.20,
+        "rvol_illiquid": 0.50,
+        "mad_z_threshold": 1.96
+    }
+
 from data_engine import ResilientDataEngine
 from quant_processor import RobustQuantProcessor
 from macro_regime_engine import MacroRegimeEngine
@@ -137,18 +152,18 @@ class PreTradeGatekeeper:
         symbol = matrix.get("benchmark_symbol", "ES=F")
         clean_sym = symbol.replace("^", "").replace("=X", "").replace("=F", "")
         df_ast = self.grid_1h.get(clean_sym, self.grid_1h.get(symbol, pd.DataFrame()))
-        
+
         current_dir, current_icon, current_color, current_roc = self.processor.compute_realtime_price_action(
             df_ast, vol_scale=matrix.get("vol_scale", 1.0)
         )
         adx_val, adx_regime = self.processor.compute_adx(df_ast)
 
-        # 🚀 Giriş Analizi (Volatilite ve Hacim Şok/Uygunluk Filtresi)
+        # 🚀 Giriş Analizi
         entry_allowed, entry_reason, atr_ratio, rvol = self.processor.evaluate_trade_entry_gate(df_ast)
 
-        # Hacim ve Volatilite Teyidi (Güçlü Al/Sat için zorunlu koşullar)
-        volume_supports = rvol >= ENTRY_GATES_CONFIG["rvol_strong_min"]
-        volatility_supports = (ENTRY_GATES_CONFIG["vol_shock_low"] <= atr_ratio <= ENTRY_GATES_CONFIG["vol_shock_high"])
+        # Hacim ve Volatilite Teyidi
+        volume_supports = rvol >= ENTRY_GATES_CONFIG.get("rvol_strong_min", 1.25)
+        volatility_supports = (ENTRY_GATES_CONFIG.get("vol_shock_low", 0.65) <= atr_ratio <= ENTRY_GATES_CONFIG.get("vol_shock_high", 2.20))
 
         if self.crisis_active:
             return {
@@ -417,7 +432,6 @@ class PreTradeGatekeeper:
             prev = previous_signals.get(k, "NÖTR (BEKLE)")
             verdicts[k] = self.evaluate_asset_direction(k, previous_signal=prev)
 
-        # 🛡️ Çapa Varlık Filtresi & İkiz Konsensüs
         twin_configs = [
             ("SPX", "NQ", 0.50, "Hisseler"),
             ("XAU", "XAG", 0.70, "Değerli Madenler"),
@@ -454,7 +468,6 @@ class PreTradeGatekeeper:
                                 v["forecast_icon"] = "🟢"
                                 v["color"] = "lightgreen"
 
-            # ⚓ Çapa Varlık Vetosu
             if "SAT" not in v_anc["verdict"] and "SAT" in v_fol["verdict"]:
                 v_fol["verdict"] = "NÖTR (TESTERE BANDI)"
                 v_fol["forecast_direction"] = "NÖTR (TESTERE BANDI)"
