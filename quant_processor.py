@@ -1,12 +1,10 @@
 """
-Robust Quant Processor: Institutional Barra Engine & Gamma Microstructure (v33)
+Robust Quant Processor: Institutional Barra Engine & Gamma Microstructure (v34)
 Enhanced with:
-- Stabilized Calm Price Action Engine (75% Anchor on 4H Return, Prevents Nervous Jitter)
-- Live Candle Drift Attenuation (No more hyperactive tick-by-tick flipping)
-- Session-Adaptive ETF Liquidity Dampener (Immune to Pre-Market Distortions)
-- Continuous Real Yield Duration Engine (Zero-Deadband Elimination)
-- Market Maker Dealer Gamma Exposure & Tail Risk Architecture
-- Seamless Time-Series Alignment Engine (_safe_align_series)
+- Noise-Filtered Robust Divergence Engine (Median Absolute Deviation - MAD)
+- Dynamic Pre-Market / Globex Active Price Action (Fixes the 16:30 TSI Sideways Bug)
+- Full Volatility & Volume Gatekeeper (Trade Entry Suitability Engine)
+- Strict Institutional 'GÜÇLÜ AL' / 'GÜÇLÜ SAT' Multi-Factor Confirmation Gate
 """
 import numpy as np
 import pandas as pd
@@ -15,15 +13,12 @@ from typing import Optional, Dict, Any, Tuple
 
 from config import (
     CRISIS_CONFIG, SIGNAL_THRESHOLDS, ASSET_CLOCKS,
-    REGIME_DYNAMIC_THRESHOLDS
+    REGIME_DYNAMIC_THRESHOLDS, ENTRY_FILTER_CONFIG
 )
 CATALYST_WINDOWS_UTC = []
 
 
 class RobustQuantProcessor:
-    # =========================================================================
-    # 🛠️ GECİKMESİZ ZAMAN SERİSİ HİZALAYICI (0 VERİ HATASINI KÖKTEN ÇÖZER)
-    # =========================================================================
     @staticmethod
     def _safe_align_series(s1: pd.Series, s2: pd.Series) -> pd.DataFrame:
         if s1 is None or s2 is None or len(s1) == 0 or len(s2) == 0:
@@ -42,29 +37,22 @@ class RobustQuantProcessor:
         df_aligned = df_aligned.ffill().bfill().dropna()
         return df_aligned
 
-    # =========================================================================
-    # 🕒 SEANS LİKİDİTE GÜVENİLİRLİK FİLTRESİ (PRE-MARKET YANILGISINI ÖNLER)
-    # =========================================================================
     @staticmethod
     def _get_cash_session_liquidity_multiplier() -> float:
+        """
+        Vadeli kontratlar ve küresel makro veriler için seans ölçekleyicisi.
+        """
         now = datetime.now(timezone.utc)
         if now.weekday() in [5, 6]:
-            return 0.50
-        cur_hour = now.hour + (now.minute / 60.0)
-        if 13.5 <= cur_hour <= 20.0:
-            return 1.0
-        return 0.50
+            return 0.70
+        return 1.0
 
-    # =========================================================================
-    # 📍 SAKİN & STABİLİZE EDİLMİŞ MİKRO PİYASA YAPISI (GÜRÜLTÜ FİLTRELİ)
-    # =========================================================================
     @staticmethod
     def compute_realtime_price_action(df_1h, fast_window=4, vol_scale=1.0, asset_key=None):
         """
-        📍 Stabilize Edilmiş Fiyat Hareketi Motoru (Sakin & Güvenilir):
-        - Fiyatın her 5 saniyelik tik takında yön değiştirmesini engeller.
-        - Ana omurgayı %75 ile oturaklı 4 saatlik seans getirisine bağlar.
-        - Henüz kapanmamış canlı barın içsel gürültüsünü törpüler.
+        📍 Stabilize Edilmiş & Seans Duyarlı Fiyat Hareketi Motoru:
+        - 16:30 TSİ öncesi vadeli barlarındaki gerçek hareketi algılar.
+        - Tek barlık rastgele iğneleri eler, seans momentumunu yansıtır.
         """
         if df_1h is None or df_1h.empty or len(df_1h) < 2:
             return "⚪ YATAY (%0.00)", "⚪", "gray", 0.0
@@ -72,23 +60,23 @@ class RobustQuantProcessor:
         close = df_1h["Close"]
         c = float(close.iloc[-1])
 
-        # 1. Ana Oturaklı Çapa: 4 Saatlik Seans Getirisi (Stabil)
+        # 1. 4 Saatlik Seans Getirisi (Oturaklı Gövde)
         w = min(fast_window, len(df_1h) - 1)
         roc_window = ((c - close.iloc[-w - 1]) / (close.iloc[-w - 1] + 1e-9)) * 100.0
         display_roc = round(float(roc_window), 2)
 
-        # 2. Canlı Bar İtki Düzeltmesi (Sadece mikro teyit için, ana yönü bozamaz)
+        # 2. Canlı Bar Sapması (İç Gürültü Filtreli)
         last_bar = df_1h.iloc[-1]
         o = float(last_bar["Open"]) if "Open" in df_1h.columns else float(close.iloc[-2])
         instant_drift = ((c - o) / (o + 1e-9)) * 100.0
 
-        # 3. Bar İçi Likidite Konumu (CLV) - Törpülenmiş mikro etki (%5)
+        # 3. Bar İçi Kapanış Konumu (CLV)
         h = float(last_bar["High"]) if "High" in df_1h.columns else max(c, o)
         l = float(last_bar["Low"]) if "Low" in df_1h.columns else min(c, o)
         bar_range = max(h - l, 1e-9)
         clv = ((c - l) - (h - c)) / bar_range
 
-        # 4. Hacim Teyidi
+        # 4. Hacim Ağırlığı
         vol_weight = 1.0
         if "Volume" in df_1h.columns and len(df_1h) >= 12:
             avg_vol = df_1h["Volume"].tail(12).mean()
@@ -96,23 +84,18 @@ class RobustQuantProcessor:
                 cur_vol = float(last_bar["Volume"])
                 vol_weight = float(np.clip(cur_vol / avg_vol, 0.7, 1.5))
 
-        # 5. Dinamik Volatilite Normalizasyonu
         eff_scale = max(float(vol_scale), 0.5)
-        noise_threshold = 0.35 * eff_scale
+        noise_threshold = 0.25 * eff_scale
 
-        # 6. STABİL MİKRO SKOR (%75 4H Seans Getirisi + %20 Canlı Mum İtkisi + %5 CLV)
         blended_momentum = (roc_window * 0.75) + (instant_drift * 0.20)
         micro_score = ((blended_momentum * vol_weight) / noise_threshold) + (clv * 0.05)
 
-        # =====================================================================
-        # 🎯 KARAR VE ETİKETLEME MEKANİZMASI (STABİL & SAKİN)
-        # =====================================================================
         if display_roc > 0:
             if micro_score >= 1.0:
                 return f"🟢 GÜÇLÜ YUKARI (%{display_roc:+.2f})", "🟢🟢", "green", display_roc
-            elif micro_score >= 0.45 or display_roc >= (0.35 * eff_scale):
+            elif micro_score >= 0.40 or display_roc >= (0.25 * eff_scale):
                 return f"🟢 YUKARI (%{display_roc:+.2f})", "🟢", "lightgreen", display_roc
-            elif display_roc >= 0.15:
+            elif display_roc >= 0.10:
                 return f"⚪ YATAY / OLASI YÜKSELİŞ (%{display_roc:+.2f})", "⚪", "gray", display_roc
             else:
                 return f"⚪ YATAY / TESTERE (%{display_roc:+.2f})", "⚪", "gray", display_roc
@@ -120,19 +103,140 @@ class RobustQuantProcessor:
         elif display_roc < 0:
             if micro_score <= -1.0:
                 return f"🔴 GÜÇLÜ AŞAĞI (%{display_roc:+.2f})", "🔴🔴", "darkred", display_roc
-            elif micro_score <= -0.45 or display_roc <= -(0.35 * eff_scale):
+            elif micro_score <= -0.40 or display_roc <= -(0.25 * eff_scale):
                 return f"🔴 AŞAĞI (%{display_roc:+.2f})", "🔴", "red", display_roc
-            elif display_roc <= -0.15:
+            elif display_roc <= -0.10:
                 return f"⚪ YATAY / OLASI DÜŞÜŞ (%{display_roc:+.2f})", "⚪", "gray", display_roc
             else:
                 return f"⚪ YATAY / TESTERE (%{display_roc:+.2f})", "⚪", "gray", display_roc
 
         else:
-            return f"⚪ YATAY (%0.00)", "⚪", "gray", 0.0
+            return "⚪ YATAY (%0.00)", "⚪", "gray", 0.0
+
+    # =========================================================================
+    # 🛡️ GİRİŞ ANALİZİ MOTORU (VOLATİLİTE & HACİM ŞOK KAPISI)
+    # =========================================================================
+    @staticmethod
+    def compute_asset_volatility_metrics(df_1h, period=14) -> Tuple[float, bool, str]:
+        """
+        Varlığın anlık ATR oranını ve şok durumunu hesaplar.
+        """
+        if df_1h is None or df_1h.empty or len(df_1h) < (period + 10):
+            return 1.0, True, "Normal Volatilite"
+
+        high = df_1h["High"] if "High" in df_1h.columns else df_1h["Close"]
+        low = df_1h["Low"] if "Low" in df_1h.columns else df_1h["Close"]
+        close = df_1h["Close"]
+
+        tr1 = high - low
+        tr2 = (high - close.shift(1)).abs()
+        tr3 = (low - close.shift(1)).abs()
+        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+
+        atr_14 = tr.rolling(period).mean()
+        atr_sma = atr_14.rolling(20).mean()
+
+        last_atr = float(atr_14.iloc[-1])
+        last_sma = float(atr_sma.iloc[-1]) if not np.isnan(atr_sma.iloc[-1]) and atr_sma.iloc[-1] > 0 else last_atr
+        atr_ratio = float(np.clip(last_atr / (last_sma + 1e-9), 0.1, 5.0))
+
+        cfg = ENTRY_FILTER_CONFIG
+        if atr_ratio > cfg["vol_shock_high"]:
+            return atr_ratio, False, f"Volatilite Şoku (ATR Oranı: {atr_ratio:.2f} > {cfg['vol_shock_high']}) - Yüksek Slippage Riski!"
+        elif atr_ratio < cfg["vol_shock_low"]:
+            return atr_ratio, False, f"Volatilite Yetersiz (ATR Oranı: {atr_ratio:.2f} < {cfg['vol_shock_low']}) - Sıkışma & Sahte Kırılım Tuzağı!"
+        else:
+            return atr_ratio, True, f"Volatilite Uygun ({atr_ratio:.2f})"
+
+    @staticmethod
+    def compute_asset_volume_metrics(df_1h, window=20) -> Tuple[float, bool, str]:
+        """
+        Göreceli Seans Hacmini (RVOL) hesaplar ve şok/likidite durumunu denetler.
+        """
+        if df_1h is None or df_1h.empty or "Volume" not in df_1h.columns or len(df_1h) < (window + 2):
+            return 1.0, True, "Normal Hacim"
+
+        vol = df_1h["Volume"]
+        cur_vol = float(vol.iloc[-1])
+        avg_vol = float(vol.tail(window).mean())
+
+        rvol = float(np.clip(cur_vol / (avg_vol + 1e-9), 0.1, 10.0))
+        cfg = ENTRY_FILTER_CONFIG
+
+        if rvol > cfg["rvol_climax_shock"]:
+            return rvol, False, f"Hacim Şoku / Climax Tükenişi (RVOL: {rvol:.2f} > {cfg['rvol_climax_shock']}) - Tükeniş Riski!"
+        elif rvol < cfg["rvol_illiquid"]:
+            return rvol, False, f"Yetersiz Hacim / Likidite Boşluğu (RVOL: {rvol:.2f} < {cfg['rvol_illiquid']}) - Kurumsal İlgi Yok!"
+        else:
+            return rvol, True, f"Hacim Uygun ({rvol:.2f})"
+
+    @staticmethod
+    def evaluate_entry_analysis(df_1h, asset_key="SPX") -> Dict[str, Any]:
+        """
+        Yönden bağımsız olarak piyasanın işleme giriş güvenliğini test eder.
+        """
+        atr_ratio, vol_ok, vol_msg = RobustQuantProcessor.compute_asset_volatility_metrics(df_1h)
+        rvol, volume_ok, volume_msg = RobustQuantProcessor.compute_asset_volume_metrics(df_1h)
+
+        entry_allowed = vol_ok and volume_ok
+        if entry_allowed:
+            verdict = "İşleme Giriş Önerilir"
+            reason = f"Volatilite ({atr_ratio:.2f}) ve Hacim ({rvol:.2f}) dengeli ve kurumsal akışa uygun."
+            color = "lightgreen"
+            icon = "✅"
+        else:
+            verdict = "İşleme Giriş Önerilmez"
+            failed_reasons = []
+            if not vol_ok: failed_reasons.append(vol_msg)
+            if not volume_ok: failed_reasons.append(volume_msg)
+            reason = " | ".join(failed_reasons)
+            color = "red"
+            icon = "🚫"
+
+        return {
+            "verdict": verdict,
+            "entry_allowed": entry_allowed,
+            "reason": reason,
+            "color": color,
+            "icon": icon,
+            "atr_ratio": round(atr_ratio, 2),
+            "rvol": round(rvol, 2),
+            "vol_supported": (ENTRY_FILTER_CONFIG["vol_healthy_min"] <= atr_ratio <= ENTRY_FILTER_CONFIG["vol_healthy_max"]),
+            "volume_supported": (rvol >= ENTRY_FILTER_CONFIG["rvol_strong_min"])
+        }
+
+    # =========================================================================
+    # 🎯 ROBUST AYRIŞMA HESAPLAYICI (MAD FİLTRELİ - ABARTMAYI ÖNLER)
+    # =========================================================================
+    @staticmethod
+    def _compute_robust_divergence_z(series1: pd.Series, series2: pd.Series, window=24) -> float:
+        """
+        İki seri arasındaki ayrışmayı klasik ROC patlaması yerine
+        Median Absolute Deviation (MAD) ile hesaplar. Anlık iğneleri filtreler.
+        """
+        aligned = RobustQuantProcessor._safe_align_series(series1, series2)
+        if len(aligned) < 4:
+            return 0.0
+
+        # Rasyoyu yumuşat (3 barlık EMA)
+        ratio = (aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)).ewm(span=3, adjust=False).mean()
+        w = min(window, len(ratio) - 1)
+        if w < 3:
+            return 0.0
+
+        # Robust Z-Score: Median ve MAD
+        recent_window = ratio.tail(w)
+        median_val = float(recent_window.median())
+        mad_val = float((recent_window - median_val).abs().median())
+        mad_val = 1e-6 if mad_val == 0 else mad_val
+
+        # 1.4826 normal dağılım tutarlılık ölçeğidir
+        robust_z = (ratio.iloc[-1] - median_val) / (1.4826 * mad_val)
+        return float(np.clip(robust_z * 0.75, -1.8, 1.8))
 
     @staticmethod
     def compute_adx(df_1h, period=14):
-        if df_1h.empty or len(df_1h) < (period * 2):
+        if df_1h is None or df_1h.empty or len(df_1h) < (period * 2):
             return 25.0, "BELİRSİZ"
 
         df = df_1h.copy()
@@ -172,34 +276,21 @@ class RobustQuantProcessor:
 
     @staticmethod
     def get_asset_session_status(asset_key):
-        clocks = {
-            "SPX": {"open_utc": 13.5, "close_utc": 20.0, "crypto": False},
-            "NQ":  {"open_utc": 13.5, "close_utc": 20.0, "crypto": False},
-            "XAU": {"open_utc": 0.0,  "close_utc": 24.0, "crypto": True},
-            "XAG": {"open_utc": 0.0,  "close_utc": 24.0, "crypto": True},
-            "BTC": {"open_utc": 0.0,  "close_utc": 24.0, "crypto": True},
-            "ETH": {"open_utc": 0.0,  "close_utc": 24.0, "crypto": True}
-        }
-        clock = clocks.get(asset_key, {})
-        if clock.get("crypto", False):
+        """
+        SPX ve NQ vadeli seansına göre ayarlandı (23 saat canlı).
+        """
+        clocks = ASSET_CLOCKS.get(asset_key, {})
+        c_type = clocks.get("type", "FUTURES_23H")
+        if c_type == "CRYPTO_24_7":
             return "CANLI (24/7)", 1.0
 
         now = datetime.now(timezone.utc)
-        current_hour = now.hour + (now.minute / 60.0)
         current_day = now.weekday()
-
         if current_day in [5, 6]:
             return "HAFTA SONU (KAPALI)", 1.0
 
-        open_h = clock.get("open_utc", 13.5)
-        close_h = clock.get("close_utc", 20.0)
-
-        if open_h <= current_hour <= close_h:
-            return "CANLI SEANS", 1.0
-        elif (open_h - 4.0) <= current_hour < open_h:
-            return "SEANS ÖNCESİ (PRE-MARKET)", 1.0
-        else:
-            return "KAPALI (SEANS DIŞI)", 1.0
+        # Globex vadeli seansı
+        return "CANLI (VADELİ/GLOBEX)", 1.0
 
     @staticmethod
     def check_catalyst_event_window():
@@ -245,14 +336,8 @@ class RobustQuantProcessor:
         roc_4h = ((close.iloc[-1] - close.iloc[-w - 1]) / (close.iloc[-w - 1] + 1e-9)) * 100.0
         return float(np.clip(roc_4h * 3.5, -2.0, 2.0))
 
-    # =========================================================================
-    # 🎯 VARLIĞA ÖZEL İDİOSİNKRATİK & MODERNLEŞTİRİLMİŞ RİSK MODELLERİ
-    # =========================================================================
     @staticmethod
     def compute_equity_duration_drag(df_asset, real_yield_z):
-        """
-        KESİNTİSİZ 10Y Reel Faiz Değerleme Motoru (Ölü Bant Hatası Yok)
-        """
         z_val = float(real_yield_z) if real_yield_z is not None else 0.0
         drag = z_val * 0.85
         return float(np.clip(drag, -2.0, 2.0))
@@ -263,15 +348,7 @@ class RobustQuantProcessor:
             return 0.0
         s_smh = smh_df["Close"] if "Close" in smh_df.columns else smh_df.iloc[:, 0]
         s_qqq = qqq_df["Close"] if "Close" in qqq_df.columns else qqq_df.iloc[:, 0]
-        aligned = RobustQuantProcessor._safe_align_series(s_smh, s_qqq)
-        if len(aligned) < 2:
-            return 0.0
-        ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
-        w = min(window, len(ratio) - 1)
-        if w < 1:
-            return 0.0
-        roc = ((ratio.iloc[-1] - ratio.iloc[-w - 1]) / (ratio.iloc[-w - 1] + 1e-9)) * 100.0
-        return float(np.clip(roc * 2.2, -1.8, 1.8))
+        return RobustQuantProcessor._compute_robust_divergence_z(s_smh, s_qqq, window=window)
 
     @staticmethod
     def compute_gold_sovereign_decoupling(gold_df, real_yield_z, dxy_df, window=24):
@@ -295,15 +372,7 @@ class RobustQuantProcessor:
             return 0.0
         s_ag = silver_df["Close"] if "Close" in silver_df.columns else silver_df.iloc[:, 0]
         s_au = gold_df["Close"] if "Close" in gold_df.columns else gold_df.iloc[:, 0]
-        aligned = RobustQuantProcessor._safe_align_series(s_ag, s_au)
-        if len(aligned) < 2:
-            return 0.0
-        ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
-        w = min(window, len(ratio) - 1)
-        if w < 1:
-            return 0.0
-        roc = ((ratio.iloc[-1] - ratio.iloc[-w - 1]) / (ratio.iloc[-w - 1] + 1e-9)) * 100.0
-        return float(np.clip(roc * 2.0, -1.8, 1.8))
+        return RobustQuantProcessor._compute_robust_divergence_z(s_ag, s_au, window=window)
 
     @staticmethod
     def compute_crypto_stablecoin_usd_impulse(flow_ratio, funding_rate, ndl_z):
@@ -325,19 +394,8 @@ class RobustQuantProcessor:
             return 0.0
         s_eth = eth_df["Close"] if "Close" in eth_df.columns else eth_df.iloc[:, 0]
         s_btc = btc_df["Close"] if "Close" in btc_df.columns else btc_df.iloc[:, 0]
-        aligned = RobustQuantProcessor._safe_align_series(s_eth, s_btc)
-        if len(aligned) < 2:
-            return 0.0
-        ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
-        w = min(window, len(ratio) - 1)
-        if w < 1:
-            return 0.0
-        roc = ((ratio.iloc[-1] - ratio.iloc[-w - 1]) / (ratio.iloc[-w - 1] + 1e-9)) * 100.0
-        return float(np.clip(roc * 2.5, -1.8, 1.8))
+        return RobustQuantProcessor._compute_robust_divergence_z(s_eth, s_btc, window=window)
 
-    # =========================================================================
-    # 📈 SEANS DUYARLI ROTASYON & MODERN PİYASA YAPICI (GAMMA) MODELLERİ
-    # =========================================================================
     @staticmethod
     def compute_intraday_direction_momentum(df_1h, fast_window=4, slow_window=24, vol_scale=1.0):
         if df_1h.empty or len(df_1h) < 2:
@@ -354,37 +412,12 @@ class RobustQuantProcessor:
         return float(np.clip(norm_blended, -2.0, 2.0))
 
     @staticmethod
-    def compute_asset_volume_liquidity_flow(df_1h, window=24):
-        if df_1h.empty or len(df_1h) < 4 or "Volume" not in df_1h.columns:
-            return 0.0
-        close = df_1h["Close"]
-        high = df_1h["High"]
-        low = df_1h["Low"]
-        vol = df_1h["Volume"]
-        range_span = high.iloc[-1] - low.iloc[-1]
-        clv = ((close.iloc[-1] - low.iloc[-1]) - (high.iloc[-1] - close.iloc[-1])) / (range_span + 1e-9)
-        w = min(window, len(vol) - 1)
-        rvol = vol.iloc[-1] / (vol.tail(w).mean() + 1e-9)
-        return float(np.clip(clv * min(max(rvol, 0.5), 2.5), -1.8, 1.8))
-
-    @staticmethod
     def compute_market_breadth(rsp_df, spy_df, window=24):
         if rsp_df.empty or spy_df.empty:
             return 0.0
         s1 = rsp_df["Close"] if "Close" in rsp_df.columns else rsp_df.iloc[:, 0]
         s2 = spy_df["Close"] if "Close" in spy_df.columns else spy_df.iloc[:, 0]
-        aligned = RobustQuantProcessor._safe_align_series(s1, s2)
-        if len(aligned) < 2:
-            return 0.0
-        ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
-        w = min(window, len(ratio) - 1)
-        if w < 1:
-            return 0.0
-        roc = ((ratio.iloc[-1] - ratio.iloc[-w - 1]) / (ratio.iloc[-w - 1] + 1e-9)) * 100.0
-
-        session_mult = RobustQuantProcessor._get_cash_session_liquidity_multiplier()
-        raw_val = roc * 2.0 * session_mult
-        return float(np.clip(raw_val, -1.8, 1.8))
+        return RobustQuantProcessor._compute_robust_divergence_z(s1, s2, window=window)
 
     @staticmethod
     def compute_gsr_velocity(xau_df, xag_df, window=24):
@@ -392,21 +425,7 @@ class RobustQuantProcessor:
             return 0.0
         s1 = xau_df["Close"] if "Close" in xau_df.columns else xau_df.iloc[:, 0]
         s2 = xag_df["Close"] if "Close" in xag_df.columns else xag_df.iloc[:, 0]
-        aligned = RobustQuantProcessor._safe_align_series(s1, s2)
-        if len(aligned) < 2:
-            return 0.0
-        ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
-        w = min(window, len(ratio) - 1)
-        if w < 1:
-            return 0.0
-        roc = ((ratio.iloc[-1] - ratio.iloc[-w - 1]) / (ratio.iloc[-w - 1] + 1e-9)) * 100.0
-        if abs(roc) < 1e-5:
-            w_z = min(48, len(ratio))
-            mean_val = ratio.tail(w_z).mean()
-            std_val = ratio.tail(w_z).std() + 1e-9
-            z_val = (ratio.iloc[-1] - mean_val) / std_val
-            return float(np.clip(z_val, -1.5, 1.5))
-        return float(np.clip(roc * 2.0, -1.5, 1.5))
+        return RobustQuantProcessor._compute_robust_divergence_z(s1, s2, window=window)
 
     @staticmethod
     def compute_bond_duration_risk(tlt_df, shy_df, window=24):
@@ -414,21 +433,7 @@ class RobustQuantProcessor:
             return 0.0
         s1 = tlt_df["Close"] if "Close" in tlt_df.columns else tlt_df.iloc[:, 0]
         s2 = shy_df["Close"] if "Close" in shy_df.columns else shy_df.iloc[:, 0]
-        aligned = RobustQuantProcessor._safe_align_series(s1, s2)
-        if len(aligned) < 2:
-            return 0.0
-        ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
-        w = min(window, len(ratio) - 1)
-        if w < 1:
-            return 0.0
-        roc = ((ratio.iloc[-1] - ratio.iloc[-w - 1]) / (ratio.iloc[-w - 1] + 1e-9)) * 100.0
-        if abs(roc) < 1e-5:
-            w_z = min(48, len(ratio))
-            mean_val = ratio.tail(w_z).mean()
-            std_val = ratio.tail(w_z).std() + 1e-9
-            z_val = (ratio.iloc[-1] - mean_val) / std_val
-            return float(np.clip(z_val, -1.8, 1.8))
-        return float(np.clip(roc * 2.0, -1.8, 1.8))
+        return RobustQuantProcessor._compute_robust_divergence_z(s1, s2, window=window)
 
     @staticmethod
     def compute_banking_stress(kre_df, spy_df, window=24):
@@ -436,17 +441,7 @@ class RobustQuantProcessor:
             return 0.0
         s1 = kre_df["Close"] if "Close" in kre_df.columns else kre_df.iloc[:, 0]
         s2 = spy_df["Close"] if "Close" in spy_df.columns else spy_df.iloc[:, 0]
-        aligned = RobustQuantProcessor._safe_align_series(s1, s2)
-        if len(aligned) < 2:
-            return 0.0
-        ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
-        w = min(window, len(ratio) - 1)
-        if w < 1:
-            return 0.0
-        roc = ((ratio.iloc[-1] - ratio.iloc[-w - 1]) / (ratio.iloc[-w - 1] + 1e-9)) * 100.0
-        session_mult = RobustQuantProcessor._get_cash_session_liquidity_multiplier()
-        raw_val = roc * 2.0 * session_mult
-        return float(np.clip(raw_val, -1.8, 1.8))
+        return RobustQuantProcessor._compute_robust_divergence_z(s1, s2, window=window)
 
     @staticmethod
     def compute_defensive_flight(xlu_df, benchmark_df, window=24):
@@ -454,17 +449,7 @@ class RobustQuantProcessor:
             return 0.0
         s1 = xlu_df["Close"] if "Close" in xlu_df.columns else xlu_df.iloc[:, 0]
         s2 = benchmark_df["Close"] if "Close" in benchmark_df.columns else benchmark_df.iloc[:, 0]
-        aligned = RobustQuantProcessor._safe_align_series(s1, s2)
-        if len(aligned) < 2:
-            return 0.0
-        ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
-        w = min(window, len(ratio) - 1)
-        if w < 1:
-            return 0.0
-        roc = ((ratio.iloc[-1] - ratio.iloc[-w - 1]) / (ratio.iloc[-w - 1] + 1e-9)) * 100.0
-        session_mult = RobustQuantProcessor._get_cash_session_liquidity_multiplier()
-        raw_val = roc * 2.0 * session_mult
-        return float(np.clip(raw_val, -1.8, 1.8))
+        return RobustQuantProcessor._compute_robust_divergence_z(s1, s2, window=window)
 
     @staticmethod
     def compute_consumer_confidence(xly_df, xlp_df, window=24):
@@ -472,17 +457,7 @@ class RobustQuantProcessor:
             return 0.0
         s1 = xly_df["Close"] if "Close" in xly_df.columns else xly_df.iloc[:, 0]
         s2 = xlp_df["Close"] if "Close" in xlp_df.columns else xlp_df.iloc[:, 0]
-        aligned = RobustQuantProcessor._safe_align_series(s1, s2)
-        if len(aligned) < 2:
-            return 0.0
-        ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
-        w = min(window, len(ratio) - 1)
-        if w < 1:
-            return 0.0
-        roc = ((ratio.iloc[-1] - ratio.iloc[-w - 1]) / (ratio.iloc[-w - 1] + 1e-9)) * 100.0
-        session_mult = RobustQuantProcessor._get_cash_session_liquidity_multiplier()
-        raw_val = roc * 2.0 * session_mult
-        return float(np.clip(raw_val, -1.8, 1.8))
+        return RobustQuantProcessor._compute_robust_divergence_z(s1, s2, window=window)
 
     @staticmethod
     def compute_vix_stress(vix_df, window=48):
@@ -520,29 +495,9 @@ class RobustQuantProcessor:
     def compute_gold_oil_ratio(gold_df, oil_df, window=24):
         if gold_df is None or oil_df is None or gold_df.empty or oil_df.empty:
             return 0.0
-
         s1 = gold_df["Close"] if "Close" in gold_df.columns else gold_df.iloc[:, 0]
         s2 = oil_df["Close"] if "Close" in oil_df.columns else oil_df.iloc[:, 0]
-
-        aligned = RobustQuantProcessor._safe_align_series(s1, s2)
-        if len(aligned) < 2:
-            return 0.0
-
-        ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
-        w = min(window, len(ratio) - 1)
-        if w < 1:
-            return 0.0
-
-        roc = ((ratio.iloc[-1] - ratio.iloc[-w - 1]) / (ratio.iloc[-w - 1] + 1e-9)) * 100.0
-
-        if abs(roc) < 1e-5:
-            w_z = min(48, len(ratio))
-            mean_val = ratio.tail(w_z).mean()
-            std_val = ratio.tail(w_z).std() + 1e-9
-            z_val = (ratio.iloc[-1] - mean_val) / std_val
-            return float(np.clip(z_val, -1.8, 1.8))
-
-        return float(np.clip(roc * 1.5, -1.8, 1.8))
+        return RobustQuantProcessor._compute_robust_divergence_z(s1, s2, window=window)
 
     @staticmethod
     def compute_silver_copper_ratio(silver_df, copper_df, window=24):
@@ -550,21 +505,7 @@ class RobustQuantProcessor:
             return 0.0
         s1 = silver_df["Close"] if "Close" in silver_df.columns else silver_df.iloc[:, 0]
         s2 = copper_df["Close"] if "Close" in copper_df.columns else copper_df.iloc[:, 0]
-        aligned = RobustQuantProcessor._safe_align_series(s1, s2)
-        if len(aligned) < 2:
-            return 0.0
-        ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
-        w = min(window, len(ratio) - 1)
-        if w < 1:
-            return 0.0
-        roc = ((ratio.iloc[-1] - ratio.iloc[-w - 1]) / (ratio.iloc[-w - 1] + 1e-9)) * 100.0
-        if abs(roc) < 1e-5:
-            w_z = min(48, len(ratio))
-            mean_val = ratio.tail(w_z).mean()
-            std_val = ratio.tail(w_z).std() + 1e-9
-            z_val = (ratio.iloc[-1] - mean_val) / std_val
-            return float(np.clip(z_val, -1.8, 1.8))
-        return float(np.clip(roc * 1.8, -1.8, 1.8))
+        return RobustQuantProcessor._compute_robust_divergence_z(s1, s2, window=window)
 
     @staticmethod
     def compute_credit_intraday_velocity(hyg_df, lqd_df, window=4):
@@ -572,15 +513,7 @@ class RobustQuantProcessor:
             return 0.0
         s1 = hyg_df["Close"] if "Close" in hyg_df.columns else hyg_df.iloc[:, 0]
         s2 = lqd_df["Close"] if "Close" in lqd_df.columns else lqd_df.iloc[:, 0]
-        aligned = RobustQuantProcessor._safe_align_series(s1, s2)
-        if len(aligned) < 2:
-            return 0.0
-        ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
-        w = min(window, len(ratio) - 1)
-        if w < 1:
-            return 0.0
-        roc_4h = ((ratio.iloc[-1] - ratio.iloc[-w - 1]) / (ratio.iloc[-w - 1] + 1e-9)) * 100.0
-        return float(np.clip(roc_4h * 4.0, -2.0, 2.0))
+        return RobustQuantProcessor._compute_robust_divergence_z(s1, s2, window=window)
 
     @staticmethod
     def compute_stagflation_shock(oil_df, transport_df, window=48):
@@ -612,37 +545,7 @@ class RobustQuantProcessor:
             return 0.0
         s1 = df_num["Close"] if "Close" in df_num.columns else df_num.iloc[:, 0]
         s2 = df_denom["Close"] if "Close" in df_num.columns else df_denom.iloc[:, 0]
-        aligned = RobustQuantProcessor._safe_align_series(s1, s2)
-        if len(aligned) < 2:
-            return 0.0
-        w = min(window, len(aligned))
-        ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
-        mean = ratio.tail(w).mean()
-        std = ratio.tail(w).std() + 1e-9
-        return float(np.clip((ratio.iloc[-1] - mean) / std, -2.0, 2.0))
-
-    @staticmethod
-    def compute_z_score(series, window=48):
-        if len(series) < 2:
-            return 0.0
-        w = min(window, len(series))
-        mean_val = series.tail(w).mean()
-        std_val = series.tail(w).std() + 1e-9
-        return float(np.clip((series.iloc[-1] - mean_val) / std_val, -2.0, 2.0))
-
-    @staticmethod
-    def detect_realtime_macro_regime(dxy_velocity, credit_velocity, real_yield_z, z_vix, stagflation_z, yen_carry_z):
-        if stagflation_z > 1.35:
-            return "🛢️ [REJİM 1] Küresel Enflasyon & Stagflasyon Şoku"
-        elif (dxy_velocity > 0.8 and credit_velocity < -0.6) or (yen_carry_z < -1.2 and z_vix > 0.8):
-            return "🚨 [REJİM 2] Sistemik Likidite Şoku & Carry Çöküşü"
-        elif real_yield_z > 1.2:
-            return "⚡ [REJİM 3] Reel Faiz Şoku"
-        elif credit_velocity < -1.0:
-            return "⚠️ [REJİM 4] Kredi Temerrüt Baskısı"
-        elif dxy_velocity < -0.4 and credit_velocity > 0.4:
-            return "🟢 [REJİM 5] Küresel Likidite Rallisi (Risk-On)"
-        return "⚪ REJIMSIZ_GECIS (Makro Denge / Sıkışma)"
+        return RobustQuantProcessor._compute_robust_divergence_z(s1, s2, window=window)
 
     @staticmethod
     def evaluate_crisis_lock_with_hysteresis(credit_velocity, z_vix, z_real_rate, dxy_velocity, current_vix_val, current_state=False, consecutive_breaches=0):
@@ -671,6 +574,9 @@ class RobustQuantProcessor:
 
         return new_state, anomaly_score, is_vix_above_floor
 
+    # =========================================================================
+    # 🔒 KURUMSAL SİNYAL & GÜÇLÜ AL/SAT ONAY MATRİSİ
+    # =========================================================================
     @staticmethod
     def resolve_signal_with_hysteresis(
         current_score,
@@ -681,8 +587,14 @@ class RobustQuantProcessor:
         market_regime="TREND",
         adx_val=25.0,
         dynamic_thresholds=None,
-        active_regime_id=None
+        active_regime_id=None,
+        vol_supported=True,
+        volume_supported=True,
+        entry_allowed=True
     ):
+        """
+        GÜÇLÜ AL ve GÜÇLÜ SAT için Hacim ve Volatilite desteğini zorunlu kılar.
+        """
         t = SIGNAL_THRESHOLDS
         prev = previous_signal if previous_signal else "NÖTR (BEKLE)"
 
@@ -702,33 +614,34 @@ class RobustQuantProcessor:
             sell_enter = dyn.get("sell_enter", -0.75)
             buy_exit = dyn.get("buy_exit", 0.30)
             sell_exit = dyn.get("sell_exit", -0.30)
-            strong_buy_enter = dyn.get("strong_buy_enter", 1.70)
-            strong_sell_enter = dyn.get("strong_sell_enter", -1.70)
+            strong_buy_enter = dyn.get("strong_buy_enter", 1.60)
+            strong_sell_enter = dyn.get("strong_sell_enter", -1.60)
             req_clusters = max(min_clusters, dyn.get("min_clusters", 2))
-        elif is_choppy:
+        else:
             buy_enter = 0.75
             sell_enter = -0.75
             req_clusters = max(min_clusters, 2)
             buy_exit = 0.30
             sell_exit = -0.30
-            strong_buy_enter = 1.70
-            strong_sell_enter = -1.70
-        else:
-            buy_enter = t.get("buy_enter", 0.75)
-            sell_enter = t.get("sell_enter", -0.75)
-            req_clusters = min_clusters
-            buy_exit = t.get("buy_exit", 0.30)
-            sell_exit = t.get("sell_exit", -0.30)
-            strong_buy_enter = t.get("strong_buy_enter", 1.70)
-            strong_sell_enter = t.get("strong_sell_enter", -1.70)
+            strong_buy_enter = 1.60
+            strong_sell_enter = -1.60
 
-        # 1. GÜÇLÜ AL KONTROLÜ
+        # 🚀 GÜÇLÜ AL KONTROLÜ (Hacim VE Volatilite VE Giriş İzni Şarttır)
+        strong_gate_pass = vol_supported and volume_supported and entry_allowed
+
         if prev == "GÜÇLÜ AL":
             if current_score > max(buy_exit, 0.50):
-                return "GÜÇLÜ AL", "green", "🟢🟢"
+                if strong_gate_pass:
+                    return "GÜÇLÜ AL", "green", "🟢🟢"
+                else:
+                    return "AL", "lightgreen", "🟢"
         else:
             if current_score >= strong_buy_enter and bull_clusters >= req_clusters:
-                return "GÜÇLÜ AL", "green", "🟢🟢"
+                if strong_gate_pass:
+                    return "GÜÇLÜ AL", "green", "🟢🟢"
+                else:
+                    # Hacim veya volatilite desteklemiyorsa 'GÜÇLÜ' verilemez!
+                    return "AL", "lightgreen", "🟢"
 
         # 2. AL KONTROLÜ
         if prev in ["AL", "GÜÇLÜ AL"]:
@@ -740,13 +653,20 @@ class RobustQuantProcessor:
             if not is_choppy and bull_clusters >= 3 and current_score >= max(buy_enter - 0.10, 0.40):
                 return "AL", "lightgreen", "🟢"
 
-        # 3. GÜÇLÜ SAT KONTROLÜ
+        # 🚀 GÜÇLÜ SAT KONTROLÜ (Hacim VE Volatilite VE Giriş İzni Şarttır)
         if prev == "GÜÇLÜ SAT":
             if current_score < min(sell_exit, -0.50):
-                return "GÜÇLÜ SAT", "darkred", "🔴🔴"
+                if strong_gate_pass:
+                    return "GÜÇLÜ SAT", "darkred", "🔴🔴"
+                else:
+                    return "SAT", "red", "🔴"
         else:
             if current_score <= strong_sell_enter and bear_clusters >= req_clusters:
-                return "GÜÇLÜ SAT", "darkred", "🔴🔴"
+                if strong_gate_pass:
+                    return "GÜÇLÜ SAT", "darkred", "🔴🔴"
+                else:
+                    # Hacim veya volatilite desteklemiyorsa 'GÜÇLÜ' verilemez!
+                    return "SAT", "red", "🔴"
 
         # 4. SAT KONTROLÜ
         if prev in ["SAT", "GÜÇLÜ SAT"]:
