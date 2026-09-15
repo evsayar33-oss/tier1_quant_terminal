@@ -1,16 +1,12 @@
 """
-Gatekeeper: Multi-Asset Engine with 3-Pillar USD Risk, Idiosyncratic Asset Models & Macro Interpretation (v28)
-Enhanced with:
-- Automatic FRED_API_KEY Discovery (os.environ, st.secrets, parameter)
-- Zero-0.00 Guarantee for DXY and Macro Z-Scores
-- Seamless Harmonized Twin-Asset Consensus
+Gatekeeper: Multi-Asset Engine with 3-Pillar USD Risk, Entry Quality Gating & Macro Interpretation (v34)
 """
 import os
 import numpy as np
 import pandas as pd
 from typing import Dict, Any, Optional
 
-from config import ASSET_MATRICES, CLUSTERS, REGIME_DYNAMIC_THRESHOLDS
+from config import ASSET_MATRICES, CLUSTERS, REGIME_DYNAMIC_THRESHOLDS, ENTRY_GATES_CONFIG
 from data_engine import ResilientDataEngine
 from quant_processor import RobustQuantProcessor
 from macro_regime_engine import MacroRegimeEngine
@@ -21,7 +17,6 @@ class PreTradeGatekeeper:
         if not fred_api_key and "fred_api_key" in kwargs:
             fred_api_key = kwargs["fred_api_key"]
 
-        # 🔑 Otomatik FRED_API_KEY Tespiti
         if not fred_api_key:
             fred_api_key = os.environ.get("FRED_API_KEY", "").strip()
 
@@ -45,7 +40,6 @@ class PreTradeGatekeeper:
         self.dynamic_thresholds = REGIME_DYNAMIC_THRESHOLDS.get(5, {})
         self.macro_diagnostics = {}
 
-        # 💵 3-Pillar USD Risk Değişkenleri
         self.composite_usd_risk = -0.25
         self.usd_risk_label = "🟡 NÖTR / DENGELİ USD İKLİMİ"
         self.usd_risk_status = "NEUTRAL"
@@ -71,7 +65,6 @@ class PreTradeGatekeeper:
         self.current_vix = float(vix_df["Close"].iloc[-1]) if not vix_df.empty else 16.0
         z_vix = self.processor.compute_vix_stress(vix_df) if not vix_df.empty else 0.15
 
-        # 1. Anlık DXY ve Kredi Hızları (Asla 0.00'da kilitlenmez)
         df_dxy = self.grid_1h.get("DXY", pd.DataFrame())
         dxy_imp = self.processor.compute_usd_strength_impulse(df_dxy)
         if abs(dxy_imp) < 0.01:
@@ -87,14 +80,12 @@ class PreTradeGatekeeper:
             self.grid_1h.get("LQD", pd.DataFrame())
         )
 
-        # 2. Şok İndikatörleri
         self.stagflation_z = self.processor.compute_stagflation_shock(
             self.grid_1h.get("USO", self.grid_1h.get("CL", pd.DataFrame())),
             self.grid_1h.get("IYT", self.grid_1h.get("BDRY", pd.DataFrame()))
         )
         self.yen_carry_z = self.processor.compute_yen_carry_shock(self.grid_1h.get("USDJPY", pd.DataFrame()))
 
-        # 3. FRED & Macro Engine Entegrasyonu
         fred_metrics = self.data_engine.fetch_fred_macro_metrics(market_grid=self.grid_1h)
         self.real_yield_z = fred_metrics.get("dfii10_z", 0.45)
         self.breakeven_z = fred_metrics.get("t10yie_z", 0.65)
@@ -102,12 +93,10 @@ class PreTradeGatekeeper:
         self.curve_label = fred_metrics.get("curve_label", "DÜZ EĞRİ")
         self.ndl_z = fred_metrics.get("ndl_z", 0.25)
 
-        # 💵 3-Pillar USD Risk Hesaplaması
         self.composite_usd_risk, self.usd_risk_label, self.usd_risk_status = self.processor.compute_composite_usd_risk(
             self.dxy_velocity, self.ndl_z, self.yen_carry_z
         )
 
-        # 4. Macro Event Interpretation System v1.0 Değerlendirmesi
         macro_payload = {
             **fred_metrics,
             "dxy_velocity_z": self.dxy_velocity,
@@ -123,7 +112,6 @@ class PreTradeGatekeeper:
         self.active_subtype = self.macro_diagnostics["active_regime_subtype"]
         self.dynamic_thresholds = self.macro_diagnostics["dynamic_thresholds"]
 
-        # 5. Kriz Kilidi Değerlendirmesi
         self.crisis_active, self.anomaly_score, _ = self.processor.evaluate_crisis_lock_with_hysteresis(
             self.credit_velocity, z_vix, self.real_yield_z, self.dxy_velocity,
             self.current_vix, self.crisis_active, self.consecutive_breaches
@@ -141,16 +129,27 @@ class PreTradeGatekeeper:
                 "forecast_direction": "NÖTR (BEKLE)",
                 "current_direction": "⚪ YATAY (%0.00)",
                 "score": 0.0,
+                "entry_allowed": True,
+                "entry_reason": "Veri yok",
                 "details": []
             }
 
-        symbol = matrix.get("benchmark_symbol", "SPY")
+        symbol = matrix.get("benchmark_symbol", "ES=F")
         clean_sym = symbol.replace("^", "").replace("=X", "").replace("=F", "")
         df_ast = self.grid_1h.get(clean_sym, self.grid_1h.get(symbol, pd.DataFrame()))
-        current_dir, current_icon, current_color, current_roc = self.processor.compute_realtime_price_action(df_ast)
+        
+        current_dir, current_icon, current_color, current_roc = self.processor.compute_realtime_price_action(
+            df_ast, vol_scale=matrix.get("vol_scale", 1.0)
+        )
         adx_val, adx_regime = self.processor.compute_adx(df_ast)
 
-        # 1. Kriz Kilidi Kontrolü
+        # 🚀 Giriş Analizi (Volatilite ve Hacim Şok/Uygunluk Filtresi)
+        entry_allowed, entry_reason, atr_ratio, rvol = self.processor.evaluate_trade_entry_gate(df_ast)
+
+        # Hacim ve Volatilite Teyidi (Güçlü Al/Sat için zorunlu koşullar)
+        volume_supports = rvol >= ENTRY_GATES_CONFIG["rvol_strong_min"]
+        volatility_supports = (ENTRY_GATES_CONFIG["vol_shock_low"] <= atr_ratio <= ENTRY_GATES_CONFIG["vol_shock_high"])
+
         if self.crisis_active:
             return {
                 "verdict": "⛔ KRİZ KİLİDİ (BEKLE)",
@@ -164,17 +163,19 @@ class PreTradeGatekeeper:
                 "icon": "⛔",
                 "color": "red",
                 "score": 0.0,
+                "entry_allowed": False,
+                "entry_reason": "Sistemik Kriz Kilidi Devrede: Yeni pozisyon açılamaz!",
+                "entry_status": "İşleme Giriş Önerilmez",
+                "volume_supports": False,
+                "volatility_supports": False,
+                "rvol": round(rvol, 2),
+                "atr_ratio": round(atr_ratio, 2),
                 "cluster_agreement": "Tüm Pozisyonlar Askıda",
                 "session_status": "KİLİTLİ",
-                "active_regime_id": self.active_macro_regime_id,
-                "active_regime_name": self.active_macro_regime_name,
-                "dynamic_thresholds": self.dynamic_thresholds,
-                "composite_usd_risk": self.composite_usd_risk,
-                "usd_risk_label": self.usd_risk_label,
                 "details": []
             }
 
-        session_status, session_multiplier = self.processor.get_asset_session_status(asset_key)
+        session_status, _ = self.processor.get_asset_session_status(asset_key)
 
         weighted_sum = 0.0
         total_weights = 0.0
@@ -193,9 +194,6 @@ class PreTradeGatekeeper:
 
             val = 0.0
 
-            # -----------------------------------------------------------------
-            # 1. VARLIĞA ÖZEL İDİOSİNKRATİK & TEKNİK FAKTÖRLER
-            # -----------------------------------------------------------------
             if f_id == "asset_direction":
                 vol_scale = matrix.get("vol_scale", 1.0)
                 val = self.processor.compute_intraday_direction_momentum(df_ast, vol_scale=vol_scale)
@@ -321,20 +319,12 @@ class PreTradeGatekeeper:
                     self.grid_1h.get("ETH-USD", pd.DataFrame()),
                     self.grid_1h.get("BTC-USD", pd.DataFrame())
                 )
-
-            # -----------------------------------------------------------------
-            # 2. 💵 3-PILLAR USD RISK VE LİKİDİTE FAKTÖRLERİ (CLUSTER A)
-            # -----------------------------------------------------------------
             elif f_id == "usd_strength":
                 val = self.dxy_velocity
             elif f_id == "net_dollar_liquidity":
                 val = float(np.clip(self.ndl_z, -2.0, 2.0))
             elif f_id == "usd_jpy_carry":
                 val = self.yen_carry_z
-
-            # -----------------------------------------------------------------
-            # 3. DİĞER MAKRO VE SİSTEMİK FAKTÖRLER
-            # -----------------------------------------------------------------
             elif f_id == "credit_spread":
                 val = self.credit_velocity
             elif f_id == "vix_strain":
@@ -350,7 +340,6 @@ class PreTradeGatekeeper:
             elif f_id == "stagflation_shock":
                 val = self.stagflation_z
 
-            # Barra normalizasyonu
             f_score = float(np.clip(val, -1.8, 1.8)) * sign * weight
             weighted_sum += f_score
             total_weights += weight
@@ -363,12 +352,9 @@ class PreTradeGatekeeper:
                 "puan": round(f_score, 2)
             })
 
-        # Barra Ağırlıklı Ortalama
         weighted_avg = weighted_sum / (total_weights + 1e-9)
-        normalized_score = round(float(np.clip(weighted_avg * 1.5, -3.5, 3.5)), 2)
-        final_score = normalized_score
+        final_score = round(float(np.clip(weighted_avg * 1.5, -3.5, 3.5)), 2)
 
-        # Küme Konsensüsü
         active_clusters = [c for c, sc in cluster_scores.items() if abs(sc) > 0.15]
         bull_clusters = sum(1 for c, sc in cluster_scores.items() if sc > 0.20)
         bear_clusters = sum(1 for c, sc in cluster_scores.items() if sc < -0.20)
@@ -385,7 +371,10 @@ class PreTradeGatekeeper:
             market_regime=self.market_regime,
             adx_val=adx_val,
             dynamic_thresholds=self.dynamic_thresholds,
-            active_regime_id=self.active_macro_regime_id
+            active_regime_id=self.active_macro_regime_id,
+            entry_allowed=entry_allowed,
+            volume_supports=volume_supports,
+            volatility_supports=volatility_supports
         )
 
         return {
@@ -400,6 +389,13 @@ class PreTradeGatekeeper:
             "icon": icon,
             "color": color,
             "score": final_score,
+            "entry_allowed": entry_allowed,
+            "entry_status": "🟢 İŞLEME GİRİŞ ÖNERİLİR" if entry_allowed else "🔴 İŞLEME GİRİŞ ÖNERİLMEZ",
+            "entry_reason": entry_reason,
+            "volume_supports": volume_supports,
+            "volatility_supports": volatility_supports,
+            "rvol": round(rvol, 2),
+            "atr_ratio": round(atr_ratio, 2),
             "cluster_agreement": f"{bull_clusters} Boğa / {bear_clusters} Ayı Kümesi (Aktif: {len(active_clusters)})",
             "session_status": session_status,
             "adx_val": adx_val,
@@ -421,15 +417,14 @@ class PreTradeGatekeeper:
             prev = previous_signals.get(k, "NÖTR (BEKLE)")
             verdicts[k] = self.evaluate_asset_direction(k, previous_signal=prev)
 
-        # 🛡️ Çapa Varlık Filtresi & İkiz Konsensüs (Anchor Asset Lead-Lag & Twin Harmonization)
+        # 🛡️ Çapa Varlık Filtresi & İkiz Konsensüs
         twin_configs = [
-            # (anchor, follower, tolerance, cluster_name)
-            ("SPX", "NQ", 0.45, "Hisseler"),
-            ("XAU", "XAG", 0.65, "Değerli Madenler"),
-            ("BTC", "ETH", 0.55, "Kripto Varlıklar")
+            ("SPX", "NQ", 0.50, "Hisseler"),
+            ("XAU", "XAG", 0.70, "Değerli Madenler"),
+            ("BTC", "ETH", 0.60, "Kripto Varlıklar")
         ]
 
-        for anchor, follower, tolerance, cluster_name in twin_configs:
+        for anchor, follower, tolerance, _ in twin_configs:
             v_anc = verdicts.get(anchor)
             v_fol = verdicts.get(follower)
             if not v_anc or not v_fol:
@@ -439,7 +434,6 @@ class PreTradeGatekeeper:
             sc_fol = float(v_fol.get("score", 0.0))
             diff = abs(sc_anc - sc_fol)
 
-            # 1. Tolerans İçi Konsensüs (Aynı yönde harmonizasyon)
             if diff <= tolerance:
                 if sc_anc <= -0.40 and sc_fol <= -0.40:
                     if "SAT" in v_anc["verdict"] or "SAT" in v_fol["verdict"]:
@@ -460,9 +454,7 @@ class PreTradeGatekeeper:
                                 v["forecast_icon"] = "🟢"
                                 v["color"] = "lightgreen"
 
-            # 2. ⚓ ÇAPA VARLIK VETOSU (Anchor Asset Veto):
-            # Çapa varlık (XAU, SPX, BTC) SAT vermiyorken, takipçi varlık tek başına izole SAT veremez!
-            # Çapa varlık düşmüyorken takipçinin aşırı satılması ayı tuzağı (bear trap) riskidir.
+            # ⚓ Çapa Varlık Vetosu
             if "SAT" not in v_anc["verdict"] and "SAT" in v_fol["verdict"]:
                 v_fol["verdict"] = "NÖTR (TESTERE BANDI)"
                 v_fol["forecast_direction"] = "NÖTR (TESTERE BANDI)"
@@ -471,7 +463,6 @@ class PreTradeGatekeeper:
                 v_fol["color"] = "white"
                 v_fol["cluster_agreement"] = f"{v_fol.get('cluster_agreement', '')} | ⚓ {anchor} Çapa Onayı Yok"
 
-            # Çapa varlık AL vermiyorken, takipçi varlık tek başına aşırı ralli yapıp AL veremez (Boğa tuzağı filtresi)
             elif "AL" not in v_anc["verdict"] and "AL" in v_fol["verdict"]:
                 if diff > tolerance:
                     v_fol["verdict"] = "NÖTR (BEKLE)"
