@@ -215,7 +215,25 @@ class PreTradeGatekeeper:
 
             if f_id == "asset_direction":
                 vol_scale = matrix.get("vol_scale", 1.0)
-                val = self.processor.compute_intraday_direction_momentum(df_ast, vol_scale=vol_scale)
+                if asset_key == "XAU":
+                    val = self.processor.compute_intraday_direction_momentum(
+                        df_ast, fast_window=2, slow_window=16, vol_scale=0.90
+                    )
+                elif asset_key == "XAG":
+                    val = self.processor.compute_intraday_direction_momentum(
+                        df_ast, fast_window=4, slow_window=24, vol_scale=1.25
+                    )
+                else:
+                    val = self.processor.compute_intraday_direction_momentum(
+                        df_ast, vol_scale=vol_scale
+                    )
+            elif f_id == "gold_macro_lead":
+                val = self.processor.compute_gold_macro_lead(
+                    df_ast,
+                    self.grid_1h.get("DXY", pd.DataFrame()),
+                    self.grid_1h.get("TLT", pd.DataFrame()),
+                    self.grid_1h.get("USDJPY", pd.DataFrame())
+                )
             elif f_id == "crypto_taker":
                 if crypto_flow is None:
                     crypto_flow = self.data_engine.fetch_crypto_taker_flow(ccy)
@@ -329,7 +347,10 @@ class PreTradeGatekeeper:
                 )
             elif f_id == "gold_sympathy":
                 df_gc = self.grid_1h.get("GC", self.grid_1h.get("GC=F", pd.DataFrame()))
-                val = self.processor.compute_intraday_direction_momentum(df_gc, vol_scale=1.0)
+                df_hg = self.grid_1h.get("HG", self.grid_1h.get("HG=F", pd.DataFrame()))
+                val = self.processor.compute_silver_gold_anchor(
+                    df_ast, df_gc, df_hg
+                )
             elif f_id == "btc_sympathy":
                 df_btc = self.grid_1h.get("BTC-USD", pd.DataFrame())
                 val = self.processor.compute_intraday_direction_momentum(df_btc, vol_scale=1.8)
@@ -438,7 +459,7 @@ class PreTradeGatekeeper:
 
         twin_configs = [
             ("SPX", "NQ", 0.50, "Hisseler"),
-            ("XAU", "XAG", 0.70, "Değerli Madenler"),
+            ("XAU", "XAG", 0.95, "Değerli Madenler"),
             ("BTC", "ETH", 0.60, "Kripto Varlıklar")
         ]
 
@@ -471,6 +492,33 @@ class PreTradeGatekeeper:
                                 v["icon"] = "🟢"
                                 v["forecast_icon"] = "🟢"
                                 v["color"] = "lightgreen"
+
+            if anchor == "XAU" and follower == "XAG":
+                fol_has_strong_decoupling = any(
+                    d.get("faktör") in (
+                        "🥈 Gümüş Parasal Yakalama & Değerleme İvmesi",
+                        "Gümüş / Bakır Sanayi Rotasyonu"
+                    )
+                    and abs(float(d.get("ham_deger", 0.0))) >= 1.35
+                    for d in v_fol.get("details", [])
+                )
+
+                if not fol_has_strong_decoupling and diff > tolerance:
+                    if (
+                        ("SAT" in v_fol["verdict"] and "SAT" not in v_anc["verdict"])
+                        or
+                        ("AL" in v_fol["verdict"] and "AL" not in v_anc["verdict"])
+                    ):
+                        v_fol["verdict"] = "NÖTR (ALTIN ÇAPA)"
+                        v_fol["forecast_direction"] = "NÖTR (ALTIN ÇAPA)"
+                        v_fol["icon"] = "⚪"
+                        v_fol["forecast_icon"] = "⚪"
+                        v_fol["color"] = "white"
+                        v_fol["cluster_agreement"] = (
+                            f"{v_fol.get('cluster_agreement', '')} | "
+                            "⚓ XAU Çapa / Ayrışma teyidi yok"
+                        )
+                continue
 
             if "SAT" not in v_anc["verdict"] and "SAT" in v_fol["verdict"]:
                 v_fol["verdict"] = "NÖTR (TESTERE BANDI)"
