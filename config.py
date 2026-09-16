@@ -88,7 +88,8 @@ ASSET_MATRICES = {
         "benchmark_symbol": "GC=F",
         "vol_scale": 1.0,
         "factors": [
-            {"id": "asset_direction", "name": "Altın 4H Anlık Fiyat İvmesi", "cluster": "E", "base_weight": 1.60, "base_sign": 1.0},
+            {"id": "asset_direction", "name": "Altın Hızlı 2H/16H Anlık İvme", "cluster": "E", "base_weight": 1.60, "base_sign": 1.0},
+            {"id": "gold_macro_lead", "name": "🥇 DXY/Tahvil Öncü Altın İmpulsu", "cluster": "E", "base_weight": 0.70, "base_sign": 1.0},
             {"id": "gold_sovereign_decoupling", "name": "🏛️ Merkez Bankası & Jeopolitik Rezerv Talebi", "cluster": "E", "base_weight": 0.90, "base_sign": 1.0},
             {"id": "real_yield", "name": "10Y Reel Faiz (TIPS Ters Oran)", "cluster": "B", "base_weight": 0.85, "base_sign": -1.0},
             {"id": "breakeven_infl", "name": "Enflasyon Beklenti Kalkanı", "cluster": "B", "base_weight": 0.75, "base_sign": 1.0},
@@ -107,8 +108,8 @@ ASSET_MATRICES = {
         "benchmark_symbol": "SI=F",
         "vol_scale": 1.25,
         "factors": [
-            {"id": "asset_direction", "name": "Gümüş 4H Anlık Fiyat İvmesi", "cluster": "E", "base_weight": 1.50, "base_sign": 1.0},
-            {"id": "gold_sympathy", "name": "🥇 Altın Güç İvmesi (Gold Beta)", "cluster": "E", "base_weight": 1.30, "base_sign": 1.0},
+            {"id": "asset_direction", "name": "Gümüş 4H/24H Trend İvmesi", "cluster": "E", "base_weight": 1.20, "base_sign": 1.0},
+            {"id": "gold_sympathy", "name": "🥇 Altın Çapa / Beta (Adaptif)", "cluster": "E", "base_weight": 1.45, "base_sign": 1.0},
             {"id": "silver_monetary_catchup", "name": "🥈 Gümüş Parasal Yakalama & Değerleme İvmesi", "cluster": "E", "base_weight": 0.80, "base_sign": 1.0},
             {"id": "copper_gold", "name": "Bakır/Altın Sanayi Talebi", "cluster": "D", "base_weight": 0.55, "base_sign": 1.0},
             {"id": "silver_copper", "name": "Gümüş / Bakır Sanayi Rotasyonu", "cluster": "D", "base_weight": 0.65, "base_sign": 1.0},
