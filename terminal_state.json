@@ -1,29 +1,1571 @@
 {
   "v22_version": "2.2.0",
-  "last_updated": null,
+  "last_updated": "2026-09-16T14:32:23.839349+00:00",
   "active_regime_id": "REJIMSIZ_GECIS",
-  "active_regime_name": "Rejimsiz Geçiş / Veri Yetersiz",
-  "market_regime": "⚪ [REJİMSİZ] Veri Yetersiz",
-  "active_subtype": "VERİ YETERSİZ",
-  "dynamic_thresholds": {},
-  "macro_diagnostics": {},
-  "composite_usd_risk": null,
-  "usd_risk_label": "⚪ VERİ YETERSİZ",
-  "usd_risk_status": "UNAVAILABLE",
-  "dxy_velocity": null,
-  "ndl_z": null,
-  "current_vix": null,
-  "stagflation_z": null,
-  "yen_carry_z": null,
-  "dfii10_z": null,
-  "curve_label": "VERİ YETERSİZ",
+  "active_regime_name": "Rejimsiz Geçiş (Makro Denge / Sıkışma)",
+  "market_regime": "⚪ [REJİMSİZ GEÇİŞ] Rejimsiz Geçiş (Makro Denge / Sıkışma)",
+  "active_subtype": "Yönsüz Piyasa & Denge Bandı",
+  "dynamic_thresholds": {
+    "name": "Rejimsiz Geçiş / Makro Denge",
+    "buy_enter": 0.75,
+    "buy_exit": 0.3,
+    "sell_enter": -0.75,
+    "sell_exit": -0.3,
+    "strong_buy_enter": 1.7,
+    "strong_sell_enter": -1.7,
+    "min_clusters": 2,
+    "risk_scale": 0.85,
+    "description": "Rejimsiz Geçiş / Denge: Testere filtresi devrede, simetrik eşikler (±0.75 Giriş / ±0.30 Çıkış)."
+  },
+  "macro_diagnostics": {
+    "version": "2.2",
+    "data_status": "OK",
+    "available_indicator_count": 14,
+    "module_name": "macro-event-interpretation-system",
+    "timestamp": "2026-09-16T14:32:34.721529+00:00",
+    "active_regime_id": "REJIMSIZ_GECIS",
+    "active_regime_name": "Rejimsiz Geçiş (Makro Denge / Sıkışma)",
+    "active_regime_type": "DENGE / SIKIŞMA",
+    "active_regime_subtype": "Yönsüz Piyasa & Denge Bandı",
+    "formatted_label": "⚪ [REJİMSİZ GEÇİŞ] Rejimsiz Geçiş (Makro Denge / Sıkışma)",
+    "is_confirmed": true,
+    "candidate_regime_id": "REJIMSIZ_GECIS",
+    "consecutive_hits": 0,
+    "hysteresis_confirmation_weeks": 2,
+    "conflict_explanation": "Hiçbir eşik aşılmadı: REJIMSIZ_GECIS (Makro Denge & Sıkışma Rejimi Aktif)",
+    "triggered_regimes": [],
+    "dynamic_thresholds": {
+      "name": "Rejimsiz Geçiş / Makro Denge",
+      "buy_enter": 0.75,
+      "buy_exit": 0.3,
+      "sell_enter": -0.75,
+      "sell_exit": -0.3,
+      "strong_buy_enter": 1.7,
+      "strong_sell_enter": -1.7,
+      "min_clusters": 2,
+      "risk_scale": 0.85,
+      "description": "Rejimsiz Geçiş / Denge: Testere filtresi devrede, simetrik eşikler (±0.75 Giriş / ±0.30 Çıkış)."
+    },
+    "indicator_z_scores": {
+      "OIL_20D_Z": -0.23,
+      "BDI_LEVEL_Z": -0.79,
+      "HY_OAS_Z": -2.4,
+      "SPX_UST_CORR": 0.21,
+      "DTWEXBGS_5D_Z": 0.16,
+      "DTWEXBGS_LEVEL_Z": -1.44,
+      "USDJPY_1D_Z": 0.01,
+      "VIX_LEVEL_Z": -0.17,
+      "VIX_PERCENTILE": null,
+      "RISK_BASKET_5D_Z": -0.03,
+      "DFII10_1D_Z": -0.07,
+      "T10YIE_Z": 0.83,
+      "HY_OAS_SLOPE": -0.0003,
+      "IG_OAS_Z": 0.2,
+      "NDL_Z": -1.21
+    },
+    "raw_triggers": {
+      "r1_triggers_met": false,
+      "r1_confirmations_met": false,
+      "r2_triggers_met": false,
+      "r2_confirmations_met": false,
+      "r3_triggers_met": false,
+      "r4_triggers_met": false,
+      "r4_confirmations_met": false,
+      "r5_triggers_met": false
+    }
+  },
+  "composite_usd_risk": 0.4782471406063978,
+  "usd_risk_label": "🟡 NÖTR / DENGELİ USD İKLİMİ",
+  "usd_risk_status": "NEUTRAL",
+  "dxy_velocity": 0.06319305034815051,
+  "ndl_z": -1.21,
+  "current_vix": 16.829999923706055,
+  "stagflation_z": 0.11317803581292654,
+  "yen_carry_z": -0.13155133974865024,
+  "dfii10_z": -0.07,
+  "curve_label": "DİKLEŞEN EĞRİ",
   "crisis_state": {
     "is_active": false,
     "consecutive_breaches": 0,
-    "anomaly_score": null,
-    "vix_floor_active": false
+    "anomaly_score": 0.4334618264139846,
+    "vix_floor_active": true
   },
-  "data_quality": {},
-  "data_sources": {},
-  "asset_verdicts": {}
+  "data_quality": {
+    "NQ=F": {
+      "source": "NQ=F",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:23.840323+00:00",
+      "last_bar_time": "2026-09-16T10:00:00-04:00",
+      "age_seconds": 1944.7,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "NQ": {
+      "source": "NQ=F",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:23.840323+00:00",
+      "last_bar_time": "2026-09-16T10:00:00-04:00",
+      "age_seconds": 1944.7,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "ES=F": {
+      "source": "ES=F",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:23.839878+00:00",
+      "last_bar_time": "2026-09-16T10:00:00-04:00",
+      "age_seconds": 1944.7,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "ES": {
+      "source": "ES=F",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:23.839878+00:00",
+      "last_bar_time": "2026-09-16T10:00:00-04:00",
+      "age_seconds": 1944.7,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "SPX": {
+      "source": "ES=F",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:23.839878+00:00",
+      "last_bar_time": "2026-09-16T10:00:00-04:00",
+      "age_seconds": 1944.7,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "QQQ": {
+      "source": "QQQ",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:23.842524+00:00",
+      "last_bar_time": "2026-09-16T10:30:00-04:00",
+      "age_seconds": 144.7,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "SPY": {
+      "source": "SPY",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:23.841750+00:00",
+      "last_bar_time": "2026-09-16T10:30:00-04:00",
+      "age_seconds": 144.7,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "RSP": {
+      "source": "RSP",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:23.844048+00:00",
+      "last_bar_time": "2026-09-16T10:30:00-04:00",
+      "age_seconds": 144.9,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "HYG": {
+      "source": "HYG",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:23.844461+00:00",
+      "last_bar_time": "2026-09-16T10:30:00-04:00",
+      "age_seconds": 144.9,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "SMH": {
+      "source": "SMH",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:23.843593+00:00",
+      "last_bar_time": "2026-09-16T10:30:00-04:00",
+      "age_seconds": 145.0,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "LQD": {
+      "source": "LQD",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:23.844816+00:00",
+      "last_bar_time": "2026-09-16T10:30:00-04:00",
+      "age_seconds": 145.1,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "^VIX3M": {
+      "source": "^VIX3M",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:23.845323+00:00",
+      "last_bar_time": "2026-09-16T09:30:00-04:00",
+      "age_seconds": 3745.2,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "VIX3M": {
+      "source": "^VIX3M",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:23.845323+00:00",
+      "last_bar_time": "2026-09-16T09:30:00-04:00",
+      "age_seconds": 3745.2,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "XLU": {
+      "source": "XLU",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:24.678743+00:00",
+      "last_bar_time": "2026-09-16T10:30:00-04:00",
+      "age_seconds": 145.2,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "^VIX": {
+      "source": "^VIX",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:23.845061+00:00",
+      "last_bar_time": "2026-09-16T09:00:00-05:00",
+      "age_seconds": 1945.3,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "VIX": {
+      "source": "^VIX",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:23.845061+00:00",
+      "last_bar_time": "2026-09-16T09:00:00-05:00",
+      "age_seconds": 1945.3,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "XLY": {
+      "source": "XLY",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:24.691840+00:00",
+      "last_bar_time": "2026-09-16T10:30:00-04:00",
+      "age_seconds": 145.4,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "TLT": {
+      "source": "TLT",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:24.905434+00:00",
+      "last_bar_time": "2026-09-16T10:30:00-04:00",
+      "age_seconds": 145.5,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "ARKK": {
+      "source": "ARKK",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:24.698082+00:00",
+      "last_bar_time": "2026-09-16T10:30:00-04:00",
+      "age_seconds": 145.6,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "XLP": {
+      "source": "XLP",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:24.686308+00:00",
+      "last_bar_time": "2026-09-16T10:30:00-04:00",
+      "age_seconds": 145.6,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "SHY": {
+      "source": "SHY",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:24.939322+00:00",
+      "last_bar_time": "2026-09-16T10:30:00-04:00",
+      "age_seconds": 145.8,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "KRE": {
+      "source": "KRE",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:24.965324+00:00",
+      "last_bar_time": "2026-09-16T10:30:00-04:00",
+      "age_seconds": 145.8,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "XLF": {
+      "source": "XLF",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:25.096126+00:00",
+      "last_bar_time": "2026-09-16T10:30:00-04:00",
+      "age_seconds": 145.8,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "USO": {
+      "source": "USO",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:25.182709+00:00",
+      "last_bar_time": "2026-09-16T10:30:00-04:00",
+      "age_seconds": 145.8,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "DX-Y.NYB": {
+      "source": "DX-Y.NYB",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:25.528113+00:00",
+      "last_bar_time": "2026-09-16T10:00:00-04:00",
+      "age_seconds": 1946.1,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "DXY": {
+      "source": "DX-Y.NYB",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:25.528113+00:00",
+      "last_bar_time": "2026-09-16T10:00:00-04:00",
+      "age_seconds": 1946.1,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "IYT": {
+      "source": "IYT",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:25.255438+00:00",
+      "last_bar_time": "2026-09-16T10:30:00-04:00",
+      "age_seconds": 146.1,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "BDRY": {
+      "source": "BDRY",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:25.438248+00:00",
+      "last_bar_time": "2026-09-16T09:30:00-04:00",
+      "age_seconds": 3746.1,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "CL=F": {
+      "source": "CL=F",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:25.227485+00:00",
+      "last_bar_time": "2026-09-16T10:00:00-04:00",
+      "age_seconds": 1946.1,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "CL": {
+      "source": "CL=F",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:25.227485+00:00",
+      "last_bar_time": "2026-09-16T10:00:00-04:00",
+      "age_seconds": 1946.1,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "^TNX": {
+      "source": "^TNX",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:25.782348+00:00",
+      "last_bar_time": "2026-09-16T08:20:00-05:00",
+      "age_seconds": 4346.4,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "TNX": {
+      "source": "^TNX",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:25.782348+00:00",
+      "last_bar_time": "2026-09-16T08:20:00-05:00",
+      "age_seconds": 4346.4,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "USDJPY=X": {
+      "source": "USDJPY=X",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:25.797974+00:00",
+      "last_bar_time": "2026-09-16T15:00:00+01:00",
+      "age_seconds": 1946.4,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "USDJPY": {
+      "source": "USDJPY=X",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:25.797974+00:00",
+      "last_bar_time": "2026-09-16T15:00:00+01:00",
+      "age_seconds": 1946.4,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "TIP": {
+      "source": "TIP",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:25.567932+00:00",
+      "last_bar_time": "2026-09-16T10:30:00-04:00",
+      "age_seconds": 146.5,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "IEF": {
+      "source": "IEF",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:25.569321+00:00",
+      "last_bar_time": "2026-09-16T10:30:00-04:00",
+      "age_seconds": 146.5,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "SI=F": {
+      "source": "SI=F",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:25.841968+00:00",
+      "last_bar_time": "2026-09-16T10:00:00-04:00",
+      "age_seconds": 1946.6,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "SI": {
+      "source": "SI=F",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:25.841968+00:00",
+      "last_bar_time": "2026-09-16T10:00:00-04:00",
+      "age_seconds": 1946.6,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "XAG": {
+      "source": "SI=F",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:25.841968+00:00",
+      "last_bar_time": "2026-09-16T10:00:00-04:00",
+      "age_seconds": 1946.6,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "GC=F": {
+      "source": "GC=F",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:25.837111+00:00",
+      "last_bar_time": "2026-09-16T10:00:00-04:00",
+      "age_seconds": 1946.6,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "GC": {
+      "source": "GC=F",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:25.837111+00:00",
+      "last_bar_time": "2026-09-16T10:00:00-04:00",
+      "age_seconds": 1946.6,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "XAU": {
+      "source": "GC=F",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:25.837111+00:00",
+      "last_bar_time": "2026-09-16T10:00:00-04:00",
+      "age_seconds": 1946.6,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "HG=F": {
+      "source": "HG=F",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:26.082475+00:00",
+      "last_bar_time": "2026-09-16T10:00:00-04:00",
+      "age_seconds": 1946.7,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "HG": {
+      "source": "HG=F",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:26.082475+00:00",
+      "last_bar_time": "2026-09-16T10:00:00-04:00",
+      "age_seconds": 1946.7,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "BTC-USD": {
+      "source": "BTC-USD",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:26.085900+00:00",
+      "last_bar_time": "2026-09-16T14:00:00+00:00",
+      "age_seconds": 1946.7,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    },
+    "ETH-USD": {
+      "source": "ETH-USD",
+      "source_type": "DIRECT",
+      "is_real": true,
+      "is_synthetic": false,
+      "fetched_at": "2026-09-16T14:32:26.147833+00:00",
+      "last_bar_time": "2026-09-16T14:00:00+00:00",
+      "age_seconds": 1946.8,
+      "cache_age_seconds": null,
+      "status": "LIVE",
+      "quality": "LIVE",
+      "execution_eligible": true,
+      "reason": null
+    }
+  },
+  "data_sources": {
+    "NQ=F": "NQ=F",
+    "NQ": "NQ=F",
+    "ES=F": "ES=F",
+    "ES": "ES=F",
+    "SPX": "ES=F",
+    "QQQ": "QQQ",
+    "SPY": "SPY",
+    "RSP": "RSP",
+    "HYG": "HYG",
+    "SMH": "SMH",
+    "LQD": "LQD",
+    "^VIX3M": "^VIX3M",
+    "VIX3M": "^VIX3M",
+    "XLU": "XLU",
+    "^VIX": "^VIX",
+    "VIX": "^VIX",
+    "XLY": "XLY",
+    "TLT": "TLT",
+    "ARKK": "ARKK",
+    "XLP": "XLP",
+    "SHY": "SHY",
+    "KRE": "KRE",
+    "XLF": "XLF",
+    "USO": "USO",
+    "DX-Y.NYB": "DX-Y.NYB",
+    "DXY": "DX-Y.NYB",
+    "IYT": "IYT",
+    "BDRY": "BDRY",
+    "CL=F": "CL=F",
+    "CL": "CL=F",
+    "^TNX": "^TNX",
+    "TNX": "^TNX",
+    "USDJPY=X": "USDJPY=X",
+    "USDJPY": "USDJPY=X",
+    "TIP": "TIP",
+    "IEF": "IEF",
+    "SI=F": "SI=F",
+    "SI": "SI=F",
+    "XAG": "SI=F",
+    "GC=F": "GC=F",
+    "GC": "GC=F",
+    "XAU": "GC=F",
+    "HG=F": "HG=F",
+    "HG": "HG=F",
+    "BTC-USD": "BTC-USD",
+    "ETH-USD": "ETH-USD"
+  },
+  "asset_verdicts": {
+    "SPX": {
+      "current_direction": "⚪ YATAY / DENGELİ (%-0.14)",
+      "current_icon": "⚪",
+      "current_color": "gray",
+      "current_roc": -0.14,
+      "forecast_direction": "NÖTR (BEKLE)",
+      "forecast_icon": "⚪",
+      "forecast_color": "gray",
+      "verdict": "NÖTR (BEKLE)",
+      "icon": "⚪",
+      "color": "gray",
+      "score": 0.05,
+      "entry_allowed": true,
+      "entry_status": "🟢 İŞLEME GİRİŞ ÖNERİLİR",
+      "entry_reason": "İşleme Giriş Uygun: LIVE/DIRECT | ATR 0.87x | RVOL 1.50x.",
+      "volume_supports": true,
+      "volatility_supports": true,
+      "rvol": 1.5,
+      "atr_ratio": 0.87,
+      "cluster_agreement": "2 Boğa / 2 Ayı Kümesi (Aktif: 4)",
+      "session_status": "CANLI GLOBEX SEANSI",
+      "adx_val": 31.1,
+      "adx_regime": "GÜÇLÜ TREND",
+      "active_regime_id": "REJIMSIZ_GECIS",
+      "active_regime_name": "Rejimsiz Geçiş (Makro Denge / Sıkışma)",
+      "active_subtype": "Yönsüz Piyasa & Denge Bandı",
+      "dynamic_thresholds": {
+        "name": "Rejimsiz Geçiş / Makro Denge",
+        "buy_enter": 0.75,
+        "buy_exit": 0.3,
+        "sell_enter": -0.75,
+        "sell_exit": -0.3,
+        "strong_buy_enter": 1.7,
+        "strong_sell_enter": -1.7,
+        "min_clusters": 2,
+        "risk_scale": 0.85,
+        "description": "Rejimsiz Geçiş / Denge: Testere filtresi devrede, simetrik eşikler (±0.75 Giriş / ±0.30 Çıkış)."
+      },
+      "composite_usd_risk": 0.4782471406063978,
+      "usd_risk_label": "🟡 NÖTR / DENGELİ USD İKLİMİ",
+      "details": [
+        {
+          "faktör": "ES 4H Anlık Fiyat Hızı",
+          "küme": "E",
+          "ham_deger": -0.07,
+          "puan": -0.11
+        },
+        {
+          "faktör": "SMH Çip / AI Sektör İvmesi",
+          "küme": "E",
+          "ham_deger": 1.09,
+          "puan": 0.88
+        },
+        {
+          "faktör": "RSP/SPY Piyasa Katılım Genişliği",
+          "küme": "E",
+          "ham_deger": -2.5,
+          "puan": -0.99
+        },
+        {
+          "faktör": "XLU/SPY Kurumsal Defansif Kaçış",
+          "küme": "E",
+          "ham_deger": -0.85,
+          "puan": 0.47
+        },
+        {
+          "faktör": "XLY/XLP Tüketici Talebi & Büyüme",
+          "küme": "E",
+          "ham_deger": -0.07,
+          "puan": -0.04
+        },
+        {
+          "faktör": "10Y Reel Faiz Değerleme Baskısı",
+          "küme": "B",
+          "ham_deger": -0.06,
+          "puan": 0.04
+        },
+        {
+          "faktör": "TLT/SHY Uzun Vade Tahvil Süre Riski",
+          "küme": "B",
+          "ham_deger": 1.13,
+          "puan": 0.62
+        },
+        {
+          "faktör": "KRE/SPY Bölgesel Bankacılık Likiditesi",
+          "küme": "C",
+          "ham_deger": -2.5,
+          "puan": -0.9
+        },
+        {
+          "faktör": "HYG/LQD Kredi Gücü & İştahı",
+          "küme": "C",
+          "ham_deger": -0.73,
+          "puan": -0.4
+        },
+        {
+          "faktör": "VIX Opsiyon Korku Primi",
+          "küme": "C",
+          "ham_deger": -0.17,
+          "puan": 0.1
+        },
+        {
+          "faktör": "VIX/VIX3M Dealer Gamma & Vade Eğrisi",
+          "küme": "C",
+          "ham_deger": -0.86,
+          "puan": 0.52
+        },
+        {
+          "faktör": "Petrol / Ticaret (IYT) Şoku",
+          "küme": "D",
+          "ham_deger": 0.11,
+          "puan": -0.06
+        },
+        {
+          "faktör": "DXY Kısa Vade Dolar Baskısı",
+          "küme": "A",
+          "ham_deger": 0.06,
+          "puan": -0.04
+        },
+        {
+          "faktör": "Fed Net Dolar Likiditesi (NDL)",
+          "küme": "A",
+          "ham_deger": -1.21,
+          "puan": -0.79
+        },
+        {
+          "faktör": "USD/JPY Carry & Küresel Likidite",
+          "küme": "A",
+          "ham_deger": -0.13,
+          "puan": -0.07
+        }
+      ],
+      "pair_coherence": "AYRIŞMA FİYATLA TEYİT EDİLMEDİ",
+      "pair_stats": {
+        "corr": 0.6529540626483148,
+        "anchor_return": 0.0,
+        "follower_return": 0.003396814315997254,
+        "spread": 0.003396814315997254,
+        "spread_z": 3.106165008679668
+      }
+    },
+    "NQ": {
+      "current_direction": "⚪ YATAY / DENGELİ (%-0.04)",
+      "current_icon": "⚪",
+      "current_color": "gray",
+      "current_roc": -0.04,
+      "forecast_direction": "NÖTR (BEKLE)",
+      "forecast_icon": "⚪",
+      "forecast_color": "gray",
+      "verdict": "NÖTR (BEKLE)",
+      "icon": "⚪",
+      "color": "gray",
+      "score": 0.24,
+      "entry_allowed": true,
+      "entry_status": "🟢 İŞLEME GİRİŞ ÖNERİLİR",
+      "entry_reason": "İşleme Giriş Uygun: LIVE/DIRECT | ATR 0.98x | RVOL 1.90x.",
+      "volume_supports": true,
+      "volatility_supports": true,
+      "rvol": 1.9,
+      "atr_ratio": 0.98,
+      "cluster_agreement": "2 Boğa / 2 Ayı Kümesi (Aktif: 4)",
+      "session_status": "CANLI GLOBEX SEANSI",
+      "adx_val": 33.3,
+      "adx_regime": "GÜÇLÜ TREND",
+      "active_regime_id": "REJIMSIZ_GECIS",
+      "active_regime_name": "Rejimsiz Geçiş (Makro Denge / Sıkışma)",
+      "active_subtype": "Yönsüz Piyasa & Denge Bandı",
+      "dynamic_thresholds": {
+        "name": "Rejimsiz Geçiş / Makro Denge",
+        "buy_enter": 0.75,
+        "buy_exit": 0.3,
+        "sell_enter": -0.75,
+        "sell_exit": -0.3,
+        "strong_buy_enter": 1.7,
+        "strong_sell_enter": -1.7,
+        "min_clusters": 2,
+        "risk_scale": 0.85,
+        "description": "Rejimsiz Geçiş / Denge: Testere filtresi devrede, simetrik eşikler (±0.75 Giriş / ±0.30 Çıkış)."
+      },
+      "composite_usd_risk": 0.4782471406063978,
+      "usd_risk_label": "🟡 NÖTR / DENGELİ USD İKLİMİ",
+      "details": [
+        {
+          "faktör": "NQ 4H Anlık Fiyat Hızı",
+          "küme": "E",
+          "ham_deger": 0.32,
+          "puan": 0.48
+        },
+        {
+          "faktör": "SMH Çip / AI Sektör İvmesi",
+          "küme": "E",
+          "ham_deger": 1.09,
+          "puan": 1.04
+        },
+        {
+          "faktör": "Çip & Yüksek Beta Ayrışması",
+          "küme": "E",
+          "ham_deger": 2.5,
+          "puan": 1.17
+        },
+        {
+          "faktör": "ARKK/QQQ Yüksek Beta Spekülasyon",
+          "küme": "E",
+          "ham_deger": -0.19,
+          "puan": -0.11
+        },
+        {
+          "faktör": "XLU/QQQ Kurumsal Defansif Kaçış",
+          "küme": "E",
+          "ham_deger": -1.67,
+          "puan": 0.83
+        },
+        {
+          "faktör": "Teknoloji Değerleme / Reel Getiri Baskısı",
+          "küme": "B",
+          "ham_deger": -0.06,
+          "puan": 0.04
+        },
+        {
+          "faktör": "TLT Tahvil Süre Duyarlılığı",
+          "küme": "B",
+          "ham_deger": 1.13,
+          "puan": 0.62
+        },
+        {
+          "faktör": "Finansal Sistem Likidite Stresi (KRE)",
+          "küme": "C",
+          "ham_deger": -2.5,
+          "puan": -0.72
+        },
+        {
+          "faktör": "Kredi Piyasası Gücü (HYG/LQD)",
+          "küme": "C",
+          "ham_deger": -0.73,
+          "puan": -0.37
+        },
+        {
+          "faktör": "Teknoloji Volatilite Baskısı",
+          "küme": "C",
+          "ham_deger": -0.17,
+          "puan": 0.1
+        },
+        {
+          "faktör": "VIX Vade Eğrisi & Gamma Stresi",
+          "küme": "C",
+          "ham_deger": -0.86,
+          "puan": 0.52
+        },
+        {
+          "faktör": "Petrol / Enerji Baskısı",
+          "küme": "D",
+          "ham_deger": 0.11,
+          "puan": -0.05
+        },
+        {
+          "faktör": "DXY Dolar Likidite Sıkışması",
+          "küme": "A",
+          "ham_deger": 0.06,
+          "puan": -0.04
+        },
+        {
+          "faktör": "Fed Net Dolar Likiditesi (NDL)",
+          "küme": "A",
+          "ham_deger": -1.21,
+          "puan": -0.79
+        },
+        {
+          "faktör": "USD/JPY Carry Tasfiye Riski",
+          "küme": "A",
+          "ham_deger": -0.13,
+          "puan": -0.07
+        }
+      ],
+      "pair_coherence": "AYRIŞMA FİYATLA TEYİT EDİLMEDİ",
+      "pair_stats": {
+        "corr": 0.6529540626483148,
+        "anchor_return": 0.0,
+        "follower_return": 0.003396814315997254,
+        "spread": 0.003396814315997254,
+        "spread_z": 3.106165008679668
+      }
+    },
+    "XAU": {
+      "current_direction": "⚪ YATAY / DENGELİ (%-0.08)",
+      "current_icon": "⚪",
+      "current_color": "gray",
+      "current_roc": -0.08,
+      "forecast_direction": "NÖTR (BEKLE)",
+      "forecast_icon": "⚪",
+      "forecast_color": "gray",
+      "verdict": "NÖTR (BEKLE)",
+      "icon": "⚪",
+      "color": "gray",
+      "score": 0.56,
+      "entry_allowed": true,
+      "entry_status": "🟢 İŞLEME GİRİŞ ÖNERİLİR",
+      "entry_reason": "İşleme Giriş Uygun: LIVE/DIRECT | ATR 1.10x | RVOL 1.53x.",
+      "volume_supports": true,
+      "volatility_supports": true,
+      "rvol": 1.53,
+      "atr_ratio": 1.1,
+      "cluster_agreement": "4 Boğa / 1 Ayı Kümesi (Aktif: 5)",
+      "session_status": "CANLI GLOBEX SEANSI",
+      "adx_val": 50.2,
+      "adx_regime": "GÜÇLÜ TREND",
+      "active_regime_id": "REJIMSIZ_GECIS",
+      "active_regime_name": "Rejimsiz Geçiş (Makro Denge / Sıkışma)",
+      "active_subtype": "Yönsüz Piyasa & Denge Bandı",
+      "dynamic_thresholds": {
+        "name": "Rejimsiz Geçiş / Makro Denge",
+        "buy_enter": 0.75,
+        "buy_exit": 0.3,
+        "sell_enter": -0.75,
+        "sell_exit": -0.3,
+        "strong_buy_enter": 1.7,
+        "strong_sell_enter": -1.7,
+        "min_clusters": 2,
+        "risk_scale": 0.85,
+        "description": "Rejimsiz Geçiş / Denge: Testere filtresi devrede, simetrik eşikler (±0.75 Giriş / ±0.30 Çıkış)."
+      },
+      "composite_usd_risk": 0.4782471406063978,
+      "usd_risk_label": "🟡 NÖTR / DENGELİ USD İKLİMİ",
+      "details": [
+        {
+          "faktör": "Altın Hızlı 2H/16H Anlık İvme",
+          "küme": "E",
+          "ham_deger": 0.11,
+          "puan": 0.17
+        },
+        {
+          "faktör": "🥇 DXY/Tahvil Öncü Altın İmpulsu",
+          "küme": "E",
+          "ham_deger": -0.35,
+          "puan": -0.25
+        },
+        {
+          "faktör": "🏛️ Merkez Bankası & Jeopolitik Rezerv Talebi",
+          "küme": "E",
+          "ham_deger": 1.1,
+          "puan": 0.99
+        },
+        {
+          "faktör": "10Y Reel Faiz (TIPS Ters Oran)",
+          "küme": "B",
+          "ham_deger": -0.07,
+          "puan": 0.06
+        },
+        {
+          "faktör": "Enflasyon Beklenti Kalkanı",
+          "küme": "B",
+          "ham_deger": 0.83,
+          "puan": 0.62
+        },
+        {
+          "faktör": "TLT Uzun Vade Tahvil Gücü",
+          "küme": "B",
+          "ham_deger": 1.13,
+          "puan": 0.68
+        },
+        {
+          "faktör": "Bankacılık Güven Krizi Primi (KRE)",
+          "küme": "C",
+          "ham_deger": -2.5,
+          "puan": 0.99
+        },
+        {
+          "faktör": "Jeopolitik & Güvenli Liman",
+          "küme": "C",
+          "ham_deger": -0.17,
+          "puan": -0.14
+        },
+        {
+          "faktör": "Altın / Petrol Şoku (Stagflasyon)",
+          "küme": "D",
+          "ham_deger": 1.74,
+          "puan": 1.13
+        },
+        {
+          "faktör": "Bakır/Altın Sanayi Döngüsü",
+          "küme": "D",
+          "ham_deger": 0.15,
+          "puan": -0.08
+        },
+        {
+          "faktör": "Altın/Gümüş Rasyosu (GSR)",
+          "küme": "D",
+          "ham_deger": 0.65,
+          "puan": 0.36
+        },
+        {
+          "faktör": "DXY Spot Dolar Baskısı",
+          "küme": "A",
+          "ham_deger": 0.06,
+          "puan": -0.05
+        },
+        {
+          "faktör": "Dolar Rezerv / Net Likidite İvmesi",
+          "küme": "A",
+          "ham_deger": -1.21,
+          "puan": -0.79
+        }
+      ],
+      "pair_coherence": "GERÇEK FİYAT AYRIŞMASI TEYİTLİ",
+      "pair_stats": {
+        "corr": 0.7640162424183098,
+        "anchor_return": 0.0007774403621849668,
+        "follower_return": -0.007202415310560428,
+        "spread": -0.007979855672745395,
+        "spread_z": -3.166157615521659
+      }
+    },
+    "XAG": {
+      "current_direction": "🔴 AŞAĞI (%-0.21)",
+      "current_icon": "🔴",
+      "current_color": "red",
+      "current_roc": -0.21,
+      "forecast_direction": "NÖTR (BEKLE)",
+      "forecast_icon": "⚪",
+      "forecast_color": "gray",
+      "verdict": "NÖTR (BEKLE)",
+      "icon": "⚪",
+      "color": "gray",
+      "score": -0.22,
+      "entry_allowed": true,
+      "entry_status": "🟢 İŞLEME GİRİŞ ÖNERİLİR",
+      "entry_reason": "İşleme Giriş Uygun: LIVE/DIRECT | ATR 1.05x | RVOL 1.12x.",
+      "volume_supports": false,
+      "volatility_supports": true,
+      "rvol": 1.12,
+      "atr_ratio": 1.05,
+      "cluster_agreement": "1 Boğa / 3 Ayı Kümesi (Aktif: 4)",
+      "session_status": "CANLI GLOBEX SEANSI",
+      "adx_val": 45.4,
+      "adx_regime": "GÜÇLÜ TREND",
+      "active_regime_id": "REJIMSIZ_GECIS",
+      "active_regime_name": "Rejimsiz Geçiş (Makro Denge / Sıkışma)",
+      "active_subtype": "Yönsüz Piyasa & Denge Bandı",
+      "dynamic_thresholds": {
+        "name": "Rejimsiz Geçiş / Makro Denge",
+        "buy_enter": 0.75,
+        "buy_exit": 0.3,
+        "sell_enter": -0.75,
+        "sell_exit": -0.3,
+        "strong_buy_enter": 1.7,
+        "strong_sell_enter": -1.7,
+        "min_clusters": 2,
+        "risk_scale": 0.85,
+        "description": "Rejimsiz Geçiş / Denge: Testere filtresi devrede, simetrik eşikler (±0.75 Giriş / ±0.30 Çıkış)."
+      },
+      "composite_usd_risk": 0.4782471406063978,
+      "usd_risk_label": "🟡 NÖTR / DENGELİ USD İKLİMİ",
+      "details": [
+        {
+          "faktör": "Gümüş 4H/24H Trend İvmesi",
+          "küme": "E",
+          "ham_deger": -0.59,
+          "puan": -0.71
+        },
+        {
+          "faktör": "🥇 Altın Çapa / Beta (Adaptif)",
+          "küme": "E",
+          "ham_deger": 0.01,
+          "puan": 0.02
+        },
+        {
+          "faktör": "🥈 Gümüş Parasal Yakalama & Değerleme İvmesi",
+          "küme": "E",
+          "ham_deger": -0.65,
+          "puan": -0.52
+        },
+        {
+          "faktör": "Bakır/Altın Sanayi Talebi",
+          "küme": "D",
+          "ham_deger": 0.15,
+          "puan": 0.08
+        },
+        {
+          "faktör": "Gümüş / Bakır Sanayi Rotasyonu",
+          "küme": "D",
+          "ham_deger": -0.08,
+          "puan": -0.05
+        },
+        {
+          "faktör": "TLT Tahvil Getiri Baskısı",
+          "küme": "B",
+          "ham_deger": 1.13,
+          "puan": 0.62
+        },
+        {
+          "faktör": "10Y Reel Faiz Baskısı (TIP)",
+          "küme": "B",
+          "ham_deger": -0.07,
+          "puan": 0.05
+        },
+        {
+          "faktör": "Enflasyon Beklenti Kalkanı",
+          "küme": "B",
+          "ham_deger": 0.83,
+          "puan": 0.5
+        },
+        {
+          "faktör": "Küresel Kredi & Sanayi İştahı",
+          "küme": "C",
+          "ham_deger": -0.73,
+          "puan": -0.44
+        },
+        {
+          "faktör": "USD Gücü & Dolar Baskısı",
+          "küme": "A",
+          "ham_deger": 0.06,
+          "puan": -0.04
+        },
+        {
+          "faktör": "Fed Net Dolar Likiditesi (NDL)",
+          "küme": "A",
+          "ham_deger": -1.21,
+          "puan": -0.73
+        }
+      ],
+      "pair_coherence": "GERÇEK FİYAT AYRIŞMASI TEYİTLİ",
+      "pair_stats": {
+        "corr": 0.7640162424183098,
+        "anchor_return": 0.0007774403621849668,
+        "follower_return": -0.007202415310560428,
+        "spread": -0.007979855672745395,
+        "spread_z": -3.166157615521659
+      }
+    },
+    "BTC": {
+      "current_direction": "🔴 AŞAĞI (%+0.02)",
+      "current_icon": "🔴",
+      "current_color": "red",
+      "current_roc": 0.02,
+      "forecast_direction": "NÖTR (BEKLE)",
+      "forecast_icon": "⚪",
+      "forecast_color": "gray",
+      "verdict": "NÖTR (BEKLE)",
+      "icon": "⚪",
+      "color": "gray",
+      "score": -0.21,
+      "entry_allowed": false,
+      "entry_status": "🔴 İŞLEME GİRİŞ ÖNERİLMEZ",
+      "entry_reason": "İşleme Giriş Önerilmez: Volatilite çok düşük (ATR 0.62x).",
+      "volume_supports": false,
+      "volatility_supports": false,
+      "rvol": 0.86,
+      "atr_ratio": 0.62,
+      "cluster_agreement": "1 Boğa / 2 Ayı Kümesi (Aktif: 3)",
+      "session_status": "CANLI GLOBEX SEANSI",
+      "adx_val": 35.3,
+      "adx_regime": "GÜÇLÜ TREND",
+      "active_regime_id": "REJIMSIZ_GECIS",
+      "active_regime_name": "Rejimsiz Geçiş (Makro Denge / Sıkışma)",
+      "active_subtype": "Yönsüz Piyasa & Denge Bandı",
+      "dynamic_thresholds": {
+        "name": "Rejimsiz Geçiş / Makro Denge",
+        "buy_enter": 0.75,
+        "buy_exit": 0.3,
+        "sell_enter": -0.75,
+        "sell_exit": -0.3,
+        "strong_buy_enter": 1.7,
+        "strong_sell_enter": -1.7,
+        "min_clusters": 2,
+        "risk_scale": 0.85,
+        "description": "Rejimsiz Geçiş / Denge: Testere filtresi devrede, simetrik eşikler (±0.75 Giriş / ±0.30 Çıkış)."
+      },
+      "composite_usd_risk": 0.4782471406063978,
+      "usd_risk_label": "🟡 NÖTR / DENGELİ USD İKLİMİ",
+      "details": [
+        {
+          "faktör": "BTC 4H Anlık Fiyat İvmesi",
+          "küme": "E",
+          "ham_deger": -0.35,
+          "puan": -0.59
+        },
+        {
+          "faktör": "OKX/Bybit Spot & Vadeli Taker Akışı",
+          "küme": "E",
+          "ham_deger": -0.39,
+          "puan": -0.39
+        },
+        {
+          "faktör": "💵 Kripto-Yerel USD Likiditesi & Taker İştahı",
+          "küme": "E",
+          "ham_deger": -0.94,
+          "puan": -0.85
+        },
+        {
+          "faktör": "Türev Fonlama Oranı (Kaldıraç Riski)",
+          "küme": "E",
+          "ham_deger": -0.4,
+          "puan": 0.28
+        },
+        {
+          "faktör": "⚠️ Likidasyon & Kaldıraç Sıkışması Riski",
+          "küme": "E",
+          "ham_deger": -0.49,
+          "puan": 0.32
+        },
+        {
+          "faktör": "BTC Dominansı / Altcoin Rotasyonu",
+          "küme": "E",
+          "ham_deger": 0.73,
+          "puan": 0.33
+        },
+        {
+          "faktör": "Geleneksel Bankacılık Kaçışı (KRE Ters)",
+          "küme": "C",
+          "ham_deger": -2.5,
+          "puan": 0.45
+        },
+        {
+          "faktör": "TLT Küresel Tahvil Likidite Baskısı",
+          "küme": "B",
+          "ham_deger": 1.13,
+          "puan": 0.51
+        },
+        {
+          "faktör": "Küresel Likidite İştahı (HYG/LQD)",
+          "küme": "C",
+          "ham_deger": -0.73,
+          "puan": -0.48
+        },
+        {
+          "faktör": "Reel Getiri Baskısı (TIP)",
+          "küme": "B",
+          "ham_deger": -0.07,
+          "puan": 0.04
+        },
+        {
+          "faktör": "Sistemik Volatilite Baskısı",
+          "küme": "C",
+          "ham_deger": -0.17,
+          "puan": 0.09
+        },
+        {
+          "faktör": "DXY Dolar Likidite Baskısı",
+          "küme": "A",
+          "ham_deger": 0.06,
+          "puan": -0.04
+        },
+        {
+          "faktör": "Fed Net Dolar Likiditesi (NDL)",
+          "küme": "A",
+          "ham_deger": -1.21,
+          "puan": -0.97
+        },
+        {
+          "faktör": "USD/JPY Carry & Risk-On Likiditesi",
+          "küme": "A",
+          "ham_deger": -0.13,
+          "puan": -0.07
+        }
+      ]
+    },
+    "ETH": {
+      "current_direction": "🔴 AŞAĞI (%-0.15)",
+      "current_icon": "🔴",
+      "current_color": "red",
+      "current_roc": -0.15,
+      "forecast_direction": "NÖTR (BEKLE)",
+      "forecast_icon": "⚪",
+      "forecast_color": "gray",
+      "verdict": "NÖTR (BEKLE)",
+      "icon": "⚪",
+      "color": "gray",
+      "score": -0.37,
+      "entry_allowed": true,
+      "entry_status": "🟢 İŞLEME GİRİŞ ÖNERİLİR",
+      "entry_reason": "İşleme Giriş Uygun: LIVE/DIRECT | ATR 0.65x | RVOL 1.77x.",
+      "volume_supports": true,
+      "volatility_supports": true,
+      "rvol": 1.77,
+      "atr_ratio": 0.65,
+      "cluster_agreement": "1 Boğa / 3 Ayı Kümesi (Aktif: 4)",
+      "session_status": "CANLI GLOBEX SEANSI",
+      "adx_val": 37.8,
+      "adx_regime": "GÜÇLÜ TREND",
+      "active_regime_id": "REJIMSIZ_GECIS",
+      "active_regime_name": "Rejimsiz Geçiş (Makro Denge / Sıkışma)",
+      "active_subtype": "Yönsüz Piyasa & Denge Bandı",
+      "dynamic_thresholds": {
+        "name": "Rejimsiz Geçiş / Makro Denge",
+        "buy_enter": 0.75,
+        "buy_exit": 0.3,
+        "sell_enter": -0.75,
+        "sell_exit": -0.3,
+        "strong_buy_enter": 1.7,
+        "strong_sell_enter": -1.7,
+        "min_clusters": 2,
+        "risk_scale": 0.85,
+        "description": "Rejimsiz Geçiş / Denge: Testere filtresi devrede, simetrik eşikler (±0.75 Giriş / ±0.30 Çıkış)."
+      },
+      "composite_usd_risk": 0.4782471406063978,
+      "usd_risk_label": "🟡 NÖTR / DENGELİ USD İKLİMİ",
+      "details": [
+        {
+          "faktör": "ETH 4H Anlık Fiyat İvmesi",
+          "küme": "E",
+          "ham_deger": -0.54,
+          "puan": -0.91
+        },
+        {
+          "faktör": "OKX/Bybit ETH Taker Alış Akışı",
+          "küme": "E",
+          "ham_deger": 0.47,
+          "puan": 0.44
+        },
+        {
+          "faktör": "💵 Kripto-Yerel USD Likiditesi & Stabilcoin Akışı",
+          "küme": "E",
+          "ham_deger": -0.24,
+          "puan": -0.19
+        },
+        {
+          "faktör": "Canlı ETH Fonlama Oranı (Funding Riski)",
+          "küme": "E",
+          "ham_deger": -0.53,
+          "puan": 0.34
+        },
+        {
+          "faktör": "⚠️ ETH Türev Kaldıraç & Sıkışma Riski",
+          "küme": "E",
+          "ham_deger": -0.63,
+          "puan": 0.38
+        },
+        {
+          "faktör": "⚡ Bitcoin İtici Gücü (BTC Beta)",
+          "küme": "E",
+          "ham_deger": -0.38,
+          "puan": -0.21
+        },
+        {
+          "faktör": "ETH/BTC Göreceli Güç (Risk İştahı)",
+          "küme": "E",
+          "ham_deger": -0.73,
+          "puan": -0.33
+        },
+        {
+          "faktör": "⛓️ L1 Ağ Aktivitesi & DeFi Likidite İvmesi",
+          "küme": "E",
+          "ham_deger": -2.5,
+          "puan": -1.08
+        },
+        {
+          "faktör": "TLT Likidite Baskısı",
+          "küme": "B",
+          "ham_deger": 1.13,
+          "puan": 0.51
+        },
+        {
+          "faktör": "Kurumsal Kredi & Likidite",
+          "küme": "C",
+          "ham_deger": -0.73,
+          "puan": -0.44
+        },
+        {
+          "faktör": "Sistemik Volatilite Baskısı",
+          "küme": "C",
+          "ham_deger": -0.17,
+          "puan": 0.09
+        },
+        {
+          "faktör": "DXY Dolar Likidite Baskısı",
+          "küme": "A",
+          "ham_deger": 0.06,
+          "puan": -0.04
+        },
+        {
+          "faktör": "Fed Net Dolar Likiditesi (NDL)",
+          "küme": "A",
+          "ham_deger": -1.21,
+          "puan": -0.91
+        },
+        {
+          "faktör": "USD/JPY Carry Likiditesi",
+          "küme": "A",
+          "ham_deger": -0.13,
+          "puan": -0.07
+        }
+      ]
+    }
+  }
 }
