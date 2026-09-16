@@ -26,7 +26,7 @@ import concurrent.futures
 import numpy as np
 import pandas as pd
 
-V21_VERSION = "2.1"
+V21_VERSION = "2.1.2"
 
 CRITICAL_DIRECT_SYMBOLS = {
     "ES=F",
@@ -109,6 +109,13 @@ def _clean_ohlcv(value: Any) -> pd.DataFrame:
 
     if isinstance(out.columns, pd.MultiIndex):
         out.columns = [col[0] if isinstance(col, tuple) else col for col in out.columns]
+
+    # yfinance sürümleri bazı koşullarda aynı OHLCV kolonunu birden fazla
+    # kez döndürebilir. Duplicate kolonlar "Series" yerine "DataFrame"
+    # üreterek `np.isfinite(...)` ve scalar karşılaştırmalarında TypeError
+    # oluşturur. Tekilleştiriyoruz; veri üretmiyoruz.
+    if getattr(out.columns, "duplicated", None) is not None:
+        out = out.loc[:, ~out.columns.duplicated(keep="last")]
 
     required_price = ["Open", "High", "Low", "Close"]
     if not all(col in out.columns for col in required_price):
@@ -424,6 +431,11 @@ def _v21_evaluate_trade_entry_gate(
     close = pd.to_numeric(df["Close"], errors="coerce")
     volume = pd.to_numeric(df["Volume"], errors="coerce")
 
+    # Savunmacı tip kontrolü: Volume mutlaka tek boyutlu Series olmalı.
+    # Duplicate/bozuk kolon gelirse execution güvenli biçimde reddedilir.
+    if not isinstance(volume, pd.Series):
+        return False, "İşleme Giriş Önerilmez: Hacim sütunu tekil değil; RVOL hesaplanmadı.", 0.0, 0.0
+
     if volume is None or volume.dropna().empty:
         return False, "İşleme Giriş Önerilmez: Hacim verisi yok; RVOL üretilmedi.", 0.0, 0.0
 
@@ -659,6 +671,127 @@ def _v21_fetch_global_market_grid(self) -> Dict[str, pd.DataFrame]:
     return results
 
 
+def _return_pct(df: Any, bars: int) -> Optional[float]:
+    frame = _clean_ohlcv(df)
+    if frame.empty or len(frame) <= bars:
+        return None
+    close = pd.to_numeric(frame["Close"], errors="coerce")
+    if not isinstance(close, pd.Series):
+        return None
+    a = float(close.iloc[-bars - 1])
+    b = float(close.iloc[-1])
+    if not np.isfinite(a) or not np.isfinite(b) or abs(a) < 1e-12:
+        return None
+    return float((b / a) - 1.0)
+
+
+def _relative_divergence(anchor_df: Any, follower_df: Any, bars: int = 8) -> Optional[Dict[str, float]]:
+    """Gerçek fiyat serilerinden ayrışma ölçer; sentetik veri üretmez."""
+    a = _clean_ohlcv(anchor_df)
+    b = _clean_ohlcv(follower_df)
+    if a.empty or b.empty:
+        return None
+
+    ra = a["Close"].pct_change()
+    rb = b["Close"].pct_change()
+    aligned = pd.concat([ra.rename("a"), rb.rename("b")], axis=1, join="inner").dropna()
+    if len(aligned) < max(20, bars + 2):
+        return None
+
+    recent = aligned.tail(bars)
+    corr = recent["a"].corr(recent["b"])
+    anchor_ret = float((1.0 + recent["a"]).prod() - 1.0)
+    follower_ret = float((1.0 + recent["b"]).prod() - 1.0)
+    spread = follower_ret - anchor_ret
+
+    # Spread'in tarihsel dağılımı; son dönem ile aynı serilerden hesaplanır.
+    spread_series = (aligned["b"] - aligned["a"]).dropna()
+    hist = spread_series.tail(min(80, len(spread_series)))
+    std = float(hist.std(ddof=1)) if len(hist) >= 10 else 0.0
+    spread_z = float(spread / (std + 1e-12)) if std > 1e-12 else 0.0
+
+    return {
+        "corr": float(corr) if np.isfinite(corr) else 0.0,
+        "anchor_return": anchor_ret,
+        "follower_return": follower_ret,
+        "spread": spread,
+        "spread_z": spread_z,
+    }
+
+
+def _apply_pair_coherence(verdicts: Dict[str, Dict[str, Any]], grid: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """
+    SPX/NQ ve XAU/XAG ayrışmasını yalnızca gerçek fiyat davranışı destekliyorsa
+    serbest bırakır.
+
+    Bu bir tahmin/uydurma mekanizması değildir:
+    - ortak yön varsa skorları birbirine zorlamaz;
+    - olağandışı ters ayrışma kanıtı yoksa aşırı model ayrışmasını daraltır;
+    - gerçek relative-performance + korelasyon kanıtı varsa ayrışmayı korur.
+    """
+    pairs = [
+        ("SPX", "NQ", 8, 0.70, 1.25),
+        ("XAU", "XAG", 8, 0.60, 1.35),
+    ]
+
+    for anchor, follower, bars, min_corr, evidence_z in pairs:
+        va = verdicts.get(anchor)
+        vf = verdicts.get(follower)
+        if not va or not vf:
+            continue
+
+        anchor_df = grid.get(anchor, grid.get("ES=F" if anchor == "SPX" else "GC=F"))
+        follower_df = grid.get(follower, grid.get("NQ=F" if follower == "NQ" else "SI=F"))
+        stats = _relative_divergence(anchor_df, follower_df, bars=bars)
+        if stats is None:
+            continue
+
+        model_diff = float(va.get("score", 0.0)) - float(vf.get("score", 0.0))
+        price_supported = (
+            stats["corr"] >= min_corr
+            and abs(stats["spread_z"]) >= evidence_z
+            and abs(stats["spread"]) > 0
+        )
+
+        if price_supported:
+            va["pair_coherence"] = "GERÇEK FİYAT AYRIŞMASI TEYİTLİ"
+            vf["pair_coherence"] = "GERÇEK FİYAT AYRIŞMASI TEYİTLİ"
+            va["pair_stats"] = stats
+            vf["pair_stats"] = stats
+            continue
+
+        # Gerçek fiyat ayrışması yoksa yalnızca model skor farkını daralt.
+        # Fiyat verisini değiştirmiyoruz.
+        if abs(model_diff) > 0.45:
+            avg = (float(va.get("score", 0.0)) + float(vf.get("score", 0.0))) / 2.0
+            shrink = 0.35
+            va["score"] = round(avg + (float(va.get("score", 0.0)) - avg) * shrink, 2)
+            vf["score"] = round(avg + (float(vf.get("score", 0.0)) - avg) * shrink, 2)
+
+        va["pair_coherence"] = "AYRIŞMA FİYATLA TEYİT EDİLMEDİ"
+        vf["pair_coherence"] = "AYRIŞMA FİYATLA TEYİT EDİLMEDİ"
+        va["pair_stats"] = stats
+        vf["pair_stats"] = stats
+
+        # Ters yönlü tek taraflı AL/SAT model çıktısı için fiyat teyidi yoksa
+        # follower'ı NÖTR'e çek. Böylece makro faktörlerin tek başına
+        # sahte ayrışma üretmesi engellenir.
+        anc_verdict = str(va.get("verdict", ""))
+        fol_verdict = str(vf.get("verdict", ""))
+        opposite = (
+            ("AL" in fol_verdict and "AL" not in anc_verdict)
+            or ("SAT" in fol_verdict and "SAT" not in anc_verdict)
+        )
+        if opposite and not price_supported:
+            vf["verdict"] = "NÖTR (FİYAT TEYİDİ YOK)"
+            vf["forecast_direction"] = "NÖTR (FİYAT TEYİDİ YOK)"
+            vf["icon"] = "⚪"
+            vf["forecast_icon"] = "⚪"
+            vf["color"] = "gray"
+
+    return verdicts
+
+
 def v21_get_data_quality(df: Any) -> Dict[str, Any]:
     return _v21_get_data_quality(df)
 
@@ -667,6 +800,7 @@ def apply_v21_patch() -> None:
     """V2.1 monkey-patch aktivasyonu."""
     from data_engine import ResilientDataEngine
     from quant_processor import RobustQuantProcessor
+    from gatekeeper import PreTradeGatekeeper
 
     # Constructor metadata container.
     if not getattr(ResilientDataEngine, "_v21_init_patched", False):
@@ -686,6 +820,19 @@ def apply_v21_patch() -> None:
 
     RobustQuantProcessor.compute_realtime_price_action = _v21_compute_realtime_price_action
     RobustQuantProcessor.evaluate_trade_entry_gate = _v21_evaluate_trade_entry_gate
+
+    # Gatekeeper'ın eski twin harmonizasyonunu V2.1 pair-coherence katmanıyla
+    # tamamla. Orijinal hesap korunur; yalnızca gerçek fiyat teyidi olmayan
+    # aşırı model ayrışması daraltılır.
+    if not getattr(PreTradeGatekeeper, "_v21_harmonized_patched", False):
+        original_harmonized = PreTradeGatekeeper.evaluate_all_assets_harmonized
+
+        def _v21_evaluate_all_assets_harmonized(self, previous_signals=None):
+            verdicts = original_harmonized(self, previous_signals)
+            return _apply_pair_coherence(verdicts, getattr(self, "grid_1h", {}) or {})
+
+        PreTradeGatekeeper.evaluate_all_assets_harmonized = _v21_evaluate_all_assets_harmonized
+        PreTradeGatekeeper._v21_harmonized_patched = True
 
 
 __all__ = [
