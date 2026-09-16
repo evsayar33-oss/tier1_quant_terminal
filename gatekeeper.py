@@ -31,112 +31,58 @@ from macro_regime_engine import MacroRegimeEngine
 
 class PreTradeGatekeeper:
     def __init__(self, fred_api_key=None, *args, **kwargs):
-        if not fred_api_key and "fred_api_key" in kwargs:
-            fred_api_key = kwargs["fred_api_key"]
-
+        if not fred_api_key:
+            fred_api_key = kwargs.get("fred_api_key")
         if not fred_api_key:
             fred_api_key = os.environ.get("FRED_API_KEY", "").strip()
-
         if not fred_api_key:
             try:
                 import streamlit as st
                 fred_api_key = st.secrets.get("FRED_API_KEY", "").strip()
             except Exception:
                 pass
-
         self.fred_api_key = fred_api_key or ""
         self.data_engine = ResilientDataEngine(fred_api_key=self.fred_api_key)
         self.processor = RobustQuantProcessor()
         self.macro_engine = MacroRegimeEngine(fred_api_key=self.fred_api_key)
-
         self.grid_1h = {}
-        self.active_macro_regime_id = 5
-        self.active_macro_regime_name = "Küresel Likidite Rallisi (Risk-On)"
-        self.market_regime = "🟢 [REJİM 5] Küresel Likidite Rallisi (Risk-On)"
-        self.active_subtype = "Klasik Goldilocks Risk-On"
-        self.dynamic_thresholds = REGIME_DYNAMIC_THRESHOLDS.get(5, {})
+        self.active_macro_regime_id = "REJIMSIZ_GECIS"
+        self.active_macro_regime_name = "Rejimsiz Geçiş / Veri Yetersiz"
+        self.market_regime = "⚪ [REJİMSİZ] Veri Yetersiz"
+        self.active_subtype = "VERİ YETERSİZ"
+        self.dynamic_thresholds = REGIME_DYNAMIC_THRESHOLDS.get("REJIMSIZ_GECIS", {})
         self.macro_diagnostics = {}
-
-        self.composite_usd_risk = -0.25
-        self.usd_risk_label = "🟡 NÖTR / DENGELİ USD İKLİMİ"
-        self.usd_risk_status = "NEUTRAL"
-        self.dxy_velocity = 0.12
-        self.ndl_z = 0.25
-
-        self.current_vix = 16.0
-        self.stagflation_z = 0.0
-        self.yen_carry_z = 0.0
-        self.real_yield_z = 0.45
-        self.breakeven_z = 0.65
-        self.credit_velocity = 0.0
-        self.anomaly_score = 0.0
-        self.crisis_active = False
-        self.consecutive_breaches = 0
-        self.dfii10_z = 0.45
-        self.curve_label = "DÜZ EĞRİ"
+        self.composite_usd_risk = None; self.usd_risk_label = "⚪ VERİ YETERSİZ"; self.usd_risk_status = "UNAVAILABLE"
+        self.dxy_velocity = None; self.ndl_z = None; self.current_vix = None; self.stagflation_z = None; self.yen_carry_z = None
+        self.real_yield_z = None; self.breakeven_z = None; self.credit_velocity = None; self.anomaly_score = None
+        self.crisis_active=False; self.consecutive_breaches=0; self.dfii10_z=None; self.curve_label="VERİ YETERSİZ"
 
     def refresh_market(self):
         self.grid_1h = self.data_engine.fetch_global_market_grid()
-
-        vix_df = self.grid_1h.get("VIX", pd.DataFrame())
-        self.current_vix = float(vix_df["Close"].iloc[-1]) if not vix_df.empty else 16.0
-        z_vix = self.processor.compute_vix_stress(vix_df) if not vix_df.empty else 0.15
-
-        df_dxy = self.grid_1h.get("DXY", pd.DataFrame())
-        dxy_imp = self.processor.compute_usd_strength_impulse(df_dxy)
-        if abs(dxy_imp) < 0.01:
-            df_uj = self.grid_1h.get("USDJPY", pd.DataFrame())
-            if not df_uj.empty and len(df_uj) >= 2:
-                c = df_uj["Close"]
-                roc_uj = ((c.iloc[-1] - c.iloc[-min(4, len(c)-1)]) / (c.iloc[-min(4, len(c)-1)] + 1e-9)) * 100.0
-                dxy_imp = float(np.clip(roc_uj * 2.5, -2.0, 2.0))
-        self.dxy_velocity = round(dxy_imp, 2)
-
-        self.credit_velocity = self.processor.compute_credit_intraday_velocity(
-            self.grid_1h.get("HYG", pd.DataFrame()),
-            self.grid_1h.get("LQD", pd.DataFrame())
-        )
-
-        self.stagflation_z = self.processor.compute_stagflation_shock(
-            self.grid_1h.get("USO", self.grid_1h.get("CL", pd.DataFrame())),
-            self.grid_1h.get("IYT", self.grid_1h.get("BDRY", pd.DataFrame()))
-        )
-        self.yen_carry_z = self.processor.compute_yen_carry_shock(self.grid_1h.get("USDJPY", pd.DataFrame()))
-
-        fred_metrics = self.data_engine.fetch_fred_macro_metrics(market_grid=self.grid_1h)
-        self.real_yield_z = fred_metrics.get("dfii10_z", 0.45)
-        self.breakeven_z = fred_metrics.get("t10yie_z", 0.65)
-        self.dfii10_z = self.real_yield_z
-        self.curve_label = fred_metrics.get("curve_label", "DÜZ EĞRİ")
-        self.ndl_z = fred_metrics.get("ndl_z", 0.25)
-
-        self.composite_usd_risk, self.usd_risk_label, self.usd_risk_status = self.processor.compute_composite_usd_risk(
-            self.dxy_velocity, self.ndl_z, self.yen_carry_z
-        )
-
-        macro_payload = {
-            **fred_metrics,
-            "dxy_velocity_z": self.dxy_velocity,
-            "credit_velocity_z": self.credit_velocity,
-            "z_vix": z_vix,
-            "oil_z": self.stagflation_z,
-            "yen_carry_z": self.yen_carry_z
-        }
-        self.macro_diagnostics = self.macro_engine.evaluate(macro_payload)
-        self.active_macro_regime_id = self.macro_diagnostics["active_regime_id"]
-        self.active_macro_regime_name = self.macro_diagnostics["active_regime_name"]
-        self.market_regime = self.macro_diagnostics["formatted_label"]
-        self.active_subtype = self.macro_diagnostics["active_regime_subtype"]
-        self.dynamic_thresholds = self.macro_diagnostics["dynamic_thresholds"]
-
-        self.crisis_active, self.anomaly_score, _ = self.processor.evaluate_crisis_lock_with_hysteresis(
-            self.credit_velocity, z_vix, self.real_yield_z, self.dxy_velocity,
-            self.current_vix, self.crisis_active, self.consecutive_breaches
-        )
-        if self.crisis_active:
-            self.consecutive_breaches += 1
+        def has(key, minimum=5):
+            df=self.grid_1h.get(key,pd.DataFrame()); return isinstance(df,pd.DataFrame) and len(df)>=minimum
+        vix_df=self.grid_1h.get("VIX",pd.DataFrame()); self.current_vix=float(vix_df["Close"].iloc[-1]) if has("VIX",1) else None
+        z_vix=self.processor.compute_vix_stress(vix_df) if has("VIX",5) else None
+        dxy=self.grid_1h.get("DXY",pd.DataFrame()); self.dxy_velocity=self.processor.compute_usd_strength_impulse(dxy) if has("DXY",5) else None
+        hyg,lqd=self.grid_1h.get("HYG",pd.DataFrame()),self.grid_1h.get("LQD",pd.DataFrame()); self.credit_velocity=self.processor.compute_credit_intraday_velocity(hyg,lqd) if has("HYG",5) and has("LQD",5) else None
+        oil,transport=self.grid_1h.get("CL=F",pd.DataFrame()),self.grid_1h.get("IYT",pd.DataFrame()); self.stagflation_z=self.processor.compute_stagflation_shock(oil,transport) if has("CL=F",5) and has("IYT",5) else None
+        uj=self.grid_1h.get("USDJPY=X",pd.DataFrame()); self.yen_carry_z=self.processor.compute_yen_carry_shock(uj) if has("USDJPY=X",5) else None
+        fred=self.data_engine.fetch_fred_macro_metrics(self.grid_1h)
+        self.real_yield_z=fred.get("dfii10_z"); self.breakeven_z=fred.get("t10yie_z"); self.dfii10_z=self.real_yield_z; self.curve_label=fred.get("curve_label","VERİ YETERSİZ"); self.ndl_z=fred.get("ndl_z")
+        if all(x is not None for x in (self.dxy_velocity,self.ndl_z,self.yen_carry_z)):
+            self.composite_usd_risk,self.usd_risk_label,self.usd_risk_status=self.processor.compute_composite_usd_risk(self.dxy_velocity,self.ndl_z,self.yen_carry_z)
         else:
-            self.consecutive_breaches = 0
+            self.composite_usd_risk,self.usd_risk_label,self.usd_risk_status=None,"⚪ VERİ YETERSİZ","UNAVAILABLE"
+        payload=dict(fred)
+        for key,val in (("dxy_velocity_z",self.dxy_velocity),("credit_velocity_z",self.credit_velocity),("z_vix",z_vix),("oil_z",self.stagflation_z),("yen_carry_z",self.yen_carry_z)):
+            if val is not None: payload[key]=val
+        self.macro_diagnostics=self.macro_engine.evaluate(payload)
+        self.active_macro_regime_id=self.macro_diagnostics["active_regime_id"]; self.active_macro_regime_name=self.macro_diagnostics["active_regime_name"]; self.market_regime=self.macro_diagnostics["formatted_label"]; self.active_subtype=self.macro_diagnostics["active_regime_subtype"]; self.dynamic_thresholds=self.macro_diagnostics["dynamic_thresholds"]
+        if all(x is not None for x in (self.credit_velocity,z_vix,self.real_yield_z,self.dxy_velocity,self.current_vix)):
+            self.crisis_active,self.anomaly_score,_=self.processor.evaluate_crisis_lock_with_hysteresis(self.credit_velocity,z_vix,self.real_yield_z,self.dxy_velocity,self.current_vix,self.crisis_active,self.consecutive_breaches)
+            self.consecutive_breaches=self.consecutive_breaches+1 if self.crisis_active else 0
+        else:
+            self.crisis_active=False; self.anomaly_score=None; self.consecutive_breaches=0
 
     def evaluate_asset_direction(self, asset_key, previous_signal="NÖTR (BEKLE)"):
         matrix = ASSET_MATRICES.get(asset_key, {})
@@ -213,6 +159,25 @@ class PreTradeGatekeeper:
 
             val = 0.0
 
+            required_missing = {
+                "equity_duration_drag": self.real_yield_z is None,
+                "gold_sovereign_decoupling": self.real_yield_z is None,
+                "usd_strength": self.dxy_velocity is None,
+                "net_dollar_liquidity": self.ndl_z is None,
+                "usd_jpy_carry": self.yen_carry_z is None,
+                "credit_spread": self.credit_velocity is None,
+                "real_yield": self.real_yield_z is None,
+                "breakeven_infl": self.breakeven_z is None,
+                "stagflation_shock": self.stagflation_z is None,
+            }
+            if required_missing.get(f_id, False):
+                details.append({
+                    "faktör": factor["name"], "küme": cluster,
+                    "ham_deger": None, "puan": None,
+                    "durum": "GEREKLİ GERÇEK GİRDİ YOK"
+                })
+                continue
+
             if f_id == "asset_direction":
                 vol_scale = matrix.get("vol_scale", 1.0)
                 if asset_key == "XAU":
@@ -237,26 +202,34 @@ class PreTradeGatekeeper:
             elif f_id == "crypto_taker":
                 if crypto_flow is None:
                     crypto_flow = self.data_engine.fetch_crypto_taker_flow(ccy)
-                raw_ratio = crypto_flow.get("value", 1.05)
+                raw_ratio = crypto_flow.get("value") if isinstance(crypto_flow, dict) else None
+                if raw_ratio is None:
+                    val = None
+                    continue
                 val = float(np.tanh(np.log(raw_ratio + 1e-6) * 2.0) * 1.5)
             elif f_id == "funding_stress":
                 if crypto_fr is None:
                     crypto_fr = self.data_engine.fetch_crypto_funding_rate(ccy)
-                val = self.processor.compute_crypto_funding_stress(crypto_fr.get("rate", 0.0001))
+                rate = crypto_fr.get("rate") if isinstance(crypto_fr, dict) else None
+                val = self.processor.compute_crypto_funding_stress(rate) if rate is not None else None
             elif f_id == "stablecoin_usd_impulse":
                 if crypto_flow is None:
                     crypto_flow = self.data_engine.fetch_crypto_taker_flow(ccy)
                 if crypto_fr is None:
                     crypto_fr = self.data_engine.fetch_crypto_funding_rate(ccy)
-                val = self.processor.compute_crypto_stablecoin_usd_impulse(
-                    crypto_flow.get("value", 1.05),
-                    crypto_fr.get("rate", 0.0001),
-                    self.ndl_z
-                )
+                flow_value = crypto_flow.get("value") if isinstance(crypto_flow, dict) else None
+                funding_value = crypto_fr.get("rate") if isinstance(crypto_fr, dict) else None
+                if flow_value is None or funding_value is None or self.ndl_z is None:
+                    val = None
+                else:
+                    val = self.processor.compute_crypto_stablecoin_usd_impulse(
+                        flow_value, funding_value, self.ndl_z
+                    )
             elif f_id == "liquidation_squeeze_risk":
                 if crypto_fr is None:
                     crypto_fr = self.data_engine.fetch_crypto_funding_rate(ccy)
-                val = self.processor.compute_liquidation_squeeze_risk(crypto_fr.get("rate", 0.0001), df_ast)
+                rate = crypto_fr.get("rate") if isinstance(crypto_fr, dict) else None
+                val = self.processor.compute_liquidation_squeeze_risk(rate, df_ast) if rate is not None else None
             elif f_id == "btc_dominance":
                 val = self.processor.compute_ratio_z(
                     self.grid_1h.get("BTC-USD", pd.DataFrame()),
@@ -362,34 +335,38 @@ class PreTradeGatekeeper:
             elif f_id == "usd_strength":
                 val = self.dxy_velocity
             elif f_id == "net_dollar_liquidity":
-                val = float(np.clip(self.ndl_z, -2.0, 2.0))
+                val = float(np.clip(self.ndl_z, -2.0, 2.0)) if self.ndl_z is not None else None
             elif f_id == "usd_jpy_carry":
                 val = self.yen_carry_z
             elif f_id == "credit_spread":
                 val = self.credit_velocity
             elif f_id == "vix_strain":
                 vix_df = self.grid_1h.get("VIX", pd.DataFrame())
-                val = self.processor.compute_vix_stress(vix_df) if not vix_df.empty else 0.15
+                val = self.processor.compute_vix_stress(vix_df) if not vix_df.empty else None
             elif f_id == "real_yield":
                 val = self.real_yield_z
             elif f_id == "breakeven_infl":
                 val = self.breakeven_z
             elif f_id == "safe_haven":
                 vix_df = self.grid_1h.get("VIX", pd.DataFrame())
-                val = self.processor.compute_vix_stress(vix_df) if not vix_df.empty else 0.15
+                val = self.processor.compute_vix_stress(vix_df) if not vix_df.empty else None
             elif f_id == "stagflation_shock":
                 val = self.stagflation_z
 
-            f_score = float(np.clip(val, -1.8, 1.8)) * sign * weight
+            if val is None or not np.isfinite(float(val)):
+                details.append({
+                    "faktör": factor["name"], "küme": cluster,
+                    "ham_deger": None, "puan": None,
+                    "durum": "VERİ YETERSİZ / KATKI DIŞI"
+                })
+                continue
+            f_score = float(np.clip(float(val), -1.8, 1.8)) * sign * weight
             weighted_sum += f_score
             total_weights += weight
             cluster_scores[cluster] += f_score
-
             details.append({
-                "faktör": factor["name"],
-                "küme": cluster,
-                "ham_deger": round(val, 2),
-                "puan": round(f_score, 2)
+                "faktör": factor["name"], "küme": cluster,
+                "ham_deger": round(float(val), 2), "puan": round(f_score, 2)
             })
 
         weighted_avg = weighted_sum / (total_weights + 1e-9)
@@ -450,91 +427,49 @@ class PreTradeGatekeeper:
         }
 
     def evaluate_all_assets_harmonized(self, previous_signals=None):
-        if previous_signals is None:
-            previous_signals = {}
-        verdicts = {}
-        for k in ASSET_MATRICES.keys():
-            prev = previous_signals.get(k, "NÖTR (BEKLE)")
-            verdicts[k] = self.evaluate_asset_direction(k, previous_signal=prev)
+        """Evaluate all configured assets and reconcile only unsupported model divergence."""
+        previous_signals = previous_signals or {}
+        verdicts={}
+        for key in ASSET_MATRICES.keys():
+            verdicts[key]=self.evaluate_asset_direction(key, previous_signal=previous_signals.get(key,"NÖTR (BEKLE)"))
 
-        twin_configs = [
-            ("SPX", "NQ", 0.50, "Hisseler"),
-            ("XAU", "XAG", 0.95, "Değerli Madenler"),
-            ("BTC", "ETH", 0.60, "Kripto Varlıklar")
-        ]
+        def pair_stats(a_key,b_key,bars=8):
+            a=self.grid_1h.get(a_key,pd.DataFrame()); b=self.grid_1h.get(b_key,pd.DataFrame())
+            if a is None or b is None or a.empty or b.empty: return None
+            if "Close" not in a.columns or "Close" not in b.columns: return None
+            ar=pd.to_numeric(a["Close"],errors="coerce").pct_change(); br=pd.to_numeric(b["Close"],errors="coerce").pct_change()
+            x=pd.concat([ar.rename("a"),br.rename("b")],axis=1,join="inner").dropna()
+            if len(x)<max(20,bars+2): return None
+            recent=x.tail(bars); corr=float(recent["a"].corr(recent["b"])) if recent["a"].std()>0 and recent["b"].std()>0 else 0.0
+            ra=float((1+recent["a"]).prod()-1); rb=float((1+recent["b"]).prod()-1); spread=rb-ra
+            hist=(x["b"]-x["a"]).tail(80); z=float(spread/(hist.std(ddof=1)+1e-12)) if len(hist)>=10 else 0.0
+            return {"corr":corr,"anchor_return":ra,"follower_return":rb,"spread":spread,"spread_z":z}
 
-        for anchor, follower, tolerance, _ in twin_configs:
-            v_anc = verdicts.get(anchor)
-            v_fol = verdicts.get(follower)
-            if not v_anc or not v_fol:
-                continue
+        for anchor,follower,min_corr,evidence_z in (("SPX","NQ",0.70,1.25),("XAU","XAG",0.60,1.35)):
+            va,vf=verdicts.get(anchor),verdicts.get(follower)
+            if not va or not vf: continue
+            st=pair_stats(anchor,follower)
+            if st is None: continue
+            supported=st["corr"]>=min_corr and abs(st["spread_z"])>=evidence_z and abs(st["spread"])>0
+            status="GERÇEK FİYAT AYRIŞMASI TEYİTLİ" if supported else "AYRIŞMA FİYATLA TEYİT EDİLMEDİ"
+            va["pair_coherence"]=status; vf["pair_coherence"]=status; va["pair_stats"]=st; vf["pair_stats"]=st
+            if not supported:
+                av,fv=float(va.get("score",0)),float(vf.get("score",0))
+                if abs(av-fv)>0.45:
+                    avg=(av+fv)/2; shrink=0.35
+                    va["score"]=round(avg+(av-avg)*shrink,2); vf["score"]=round(avg+(fv-avg)*shrink,2)
+                anc_verdict=str(va.get("verdict","")); fol_verdict=str(vf.get("verdict",""))
+                opposite=("AL" in fol_verdict and "AL" not in anc_verdict) or ("SAT" in fol_verdict and "SAT" not in anc_verdict)
+                if opposite:
+                    vf.update({"verdict":"NÖTR (FİYAT TEYİDİ YOK)","forecast_direction":"NÖTR (FİYAT TEYİDİ YOK)","forecast_icon":"⚪","forecast_color":"gray","icon":"⚪","color":"gray"})
 
-            sc_anc = float(v_anc.get("score", 0.0))
-            sc_fol = float(v_fol.get("score", 0.0))
-            diff = abs(sc_anc - sc_fol)
-
-            if diff <= tolerance:
-                if sc_anc <= -0.40 and sc_fol <= -0.40:
-                    if "SAT" in v_anc["verdict"] or "SAT" in v_fol["verdict"]:
-                        for v in (v_anc, v_fol):
-                            if "GÜÇLÜ SAT" not in v["verdict"]:
-                                v["verdict"] = "SAT"
-                                v["forecast_direction"] = "SAT"
-                                v["icon"] = "🔴"
-                                v["forecast_icon"] = "🔴"
-                                v["color"] = "red"
-                elif sc_anc >= 0.40 and sc_fol >= 0.40:
-                    if "AL" in v_anc["verdict"] or "AL" in v_fol["verdict"]:
-                        for v in (v_anc, v_fol):
-                            if "GÜÇLÜ AL" not in v["verdict"]:
-                                v["verdict"] = "AL"
-                                v["forecast_direction"] = "AL"
-                                v["icon"] = "🟢"
-                                v["forecast_icon"] = "🟢"
-                                v["color"] = "lightgreen"
-
-            if anchor == "XAU" and follower == "XAG":
-                fol_has_strong_decoupling = any(
-                    d.get("faktör") in (
-                        "🥈 Gümüş Parasal Yakalama & Değerleme İvmesi",
-                        "Gümüş / Bakır Sanayi Rotasyonu"
-                    )
-                    and abs(float(d.get("ham_deger", 0.0))) >= 1.35
-                    for d in v_fol.get("details", [])
-                )
-
-                if not fol_has_strong_decoupling and diff > tolerance:
-                    if (
-                        ("SAT" in v_fol["verdict"] and "SAT" not in v_anc["verdict"])
-                        or
-                        ("AL" in v_fol["verdict"] and "AL" not in v_anc["verdict"])
-                    ):
-                        v_fol["verdict"] = "NÖTR (ALTIN ÇAPA)"
-                        v_fol["forecast_direction"] = "NÖTR (ALTIN ÇAPA)"
-                        v_fol["icon"] = "⚪"
-                        v_fol["forecast_icon"] = "⚪"
-                        v_fol["color"] = "white"
-                        v_fol["cluster_agreement"] = (
-                            f"{v_fol.get('cluster_agreement', '')} | "
-                            "⚓ XAU Çapa / Ayrışma teyidi yok"
-                        )
-                continue
-
-            if "SAT" not in v_anc["verdict"] and "SAT" in v_fol["verdict"]:
-                v_fol["verdict"] = "NÖTR (TESTERE BANDI)"
-                v_fol["forecast_direction"] = "NÖTR (TESTERE BANDI)"
-                v_fol["icon"] = "⚪"
-                v_fol["forecast_icon"] = "⚪"
-                v_fol["color"] = "white"
-                v_fol["cluster_agreement"] = f"{v_fol.get('cluster_agreement', '')} | ⚓ {anchor} Çapa Onayı Yok"
-
-            elif "AL" not in v_anc["verdict"] and "AL" in v_fol["verdict"]:
-                if diff > tolerance:
-                    v_fol["verdict"] = "NÖTR (BEKLE)"
-                    v_fol["forecast_direction"] = "NÖTR (BEKLE)"
-                    v_fol["icon"] = "⚪"
-                    v_fol["forecast_icon"] = "⚪"
-                    v_fol["color"] = "white"
-                    v_fol["cluster_agreement"] = f"{v_fol.get('cluster_agreement', '')} | ⚓ {anchor} Çapa Onayı Yok"
-
+        # Preserve broad BTC/ETH harmonization without overriding real price divergence.
+        vb,ve=verdicts.get("BTC"),verdicts.get("ETH")
+        if vb and ve:
+            diff=abs(float(vb.get("score",0))-float(ve.get("score",0)))
+            if diff<=0.60:
+                if float(vb.get("score",0))<=-0.40 and float(ve.get("score",0))<=-0.40:
+                    vb["verdict"]=ve["verdict"]="SAT"; vb["forecast_direction"]=ve["forecast_direction"]="SAT"
+                elif float(vb.get("score",0))>=0.40 and float(ve.get("score",0))>=0.40:
+                    vb["verdict"]=ve["verdict"]="AL"; vb["forecast_direction"]=ve["forecast_direction"]="AL"
         return verdicts
