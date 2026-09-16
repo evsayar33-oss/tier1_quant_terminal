@@ -1,5 +1,5 @@
 """
-Comprehensive Automated Test Suite for Tier-1 Quant Terminal (v27)
+Comprehensive Automated Test Suite for Tier-1 Quant Terminal (v28 / V2.2)
 Includes Full Verification of:
 - Macro Event Interpretation System (v1.0)
 - 5 Macro Regimes Trigger & Confirmation Logic
@@ -339,12 +339,15 @@ def test_all_assets_evaluation():
         "ARKK", "XLU", "XLY", "XLP", "TLT", "SHY", "KRE", "VIX3M"
     ]
     for k in symbols:
-        gk.grid_1h[k] = pd.DataFrame({
+        frame = pd.DataFrame({
+            "Open": np.linspace(100, 101, 30),
             "Close": np.linspace(100, 102, 30),
             "High": np.linspace(101, 103, 30),
             "Low": np.linspace(99, 101, 30),
             "Volume": [100000] * 30
         }, index=dates)
+        frame.attrs.update({"source": k, "source_type":"DIRECT", "is_real":True, "is_synthetic":False, "status":"LIVE", "execution_eligible":True})
+        gk.grid_1h[k] = frame
     
     for asset_key in ASSET_MATRICES.keys():
         res = gk.evaluate_asset_direction(asset_key)
@@ -359,7 +362,7 @@ def test_all_assets_evaluation():
 
 
 if __name__ == "__main__":
-    print("🚀 RUNNING COMPREHENSIVE TIER-1 QUANT TEST SUITE...\n")
+    print("🚀 RUNNING COMPREHENSIVE TIER-1 QUANT V2.2 TEST SUITE...\n")
     test_system_principles_and_all_five_regimes()
     test_three_pillar_usd_risk_model()
     test_asset_specific_idiosyncratic_risk_models()
