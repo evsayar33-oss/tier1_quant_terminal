@@ -1,7 +1,7 @@
 """
-Streamlit UI: Tier-1 Normalized Macro & Confirmation Gate Terminal (v35 / V2.1)
+Streamlit UI: Tier-1 Normalized Macro & Confirmation Gate Terminal (v35 / V2.2)
 
-V2.1 ENTEGRASYONU
+V2.2 ENTEGRASYONU
 -----------------
 - Zero Synthetic Data
 - No fabricated OHLCV
@@ -53,38 +53,6 @@ importlib.reload(gatekeeper)
 importlib.reload(macro_regime_engine)
 
 
-# =============================================================================
-# V2.1 PATCH
-# =============================================================================
-#
-# IMPORTANT:
-# v21_patch.py MUST exist in the same project directory.
-#
-# This patch is applied AFTER the existing core modules are reloaded.
-# Therefore the runtime uses:
-#
-#   config
-#   quant_processor
-#   data_engine
-#   gatekeeper
-#   macro_regime_engine
-#
-# together with V2.1's:
-#
-#   zero-synthetic-data engine
-#   live direction engine
-#   strict execution gate
-#
-# =============================================================================
-
-import v21_patch
-
-v21_patch.apply_v21_patch()
-
-
-# =============================================================================
-# EXISTING IMPORTS
-# =============================================================================
 
 from config import (
     ASSET_MATRICES,
@@ -237,13 +205,13 @@ else:
 
 
 # =============================================================================
-# V2.1 RULES
+# V2.2 RULES
 # =============================================================================
 
 st.sidebar.markdown("---")
 
 st.sidebar.markdown(
-    "### 🛡️ V2.1 Veri & Giriş Kuralları"
+    "### 🛡️ V2.2 Veri & Giriş Kuralları"
 )
 
 st.sidebar.caption(
@@ -312,6 +280,13 @@ if (
 
 gk = st.session_state.gatekeeper
 
+def _round_or_none(value, digits=2):
+    try:
+        return round(float(value), digits) if value is not None and pd.notna(value) else None
+    except (TypeError, ValueError):
+        return None
+
+
 
 # =============================================================================
 # TITLE / ACTIONS
@@ -331,7 +306,7 @@ with col_title:
     st.caption(
         "2019-2026 Piyasa Rejimi Kalibrasyonu | "
         "Gerçek Globex Vadeli Akışı | "
-        "V2.1 Zero Synthetic Data | "
+        "V2.2 Zero Synthetic Data | "
         "Çok Ufuklu Yön & Giriş Analizi"
     )
 
@@ -358,7 +333,7 @@ if (
 
     with st.spinner(
         "Gerçek piyasa verileri toplanıyor; "
-        "V2.1 yön ve giriş filtreleri hesaplanıyor..."
+        "V2.2 yön ve giriş filtreleri hesaplanıyor..."
     ):
 
         prev_verdicts = (
@@ -408,44 +383,28 @@ if (
 
         comp_usd = round(
             float(
-                getattr(
-                    gk,
-                    "composite_usd_risk",
-                    -0.25,
-                )
+                getattr(gk,"composite_usd_risk",None)
             ),
             2,
         )
 
         dxy_v = round(
             float(
-                getattr(
-                    gk,
-                    "dxy_velocity",
-                    0.12,
-                )
+                getattr(gk,"dxy_velocity",None)
             ),
             2,
         )
 
         ndl_val = round(
             float(
-                getattr(
-                    gk,
-                    "ndl_z",
-                    0.25,
-                )
+                getattr(gk,"ndl_z",None)
             ),
             2,
         )
 
         yen_carry = round(
             float(
-                getattr(
-                    gk,
-                    "yen_carry_z",
-                    0.05,
-                )
+                getattr(gk,"yen_carry_z",None)
             ),
             2,
         )
@@ -725,7 +684,7 @@ st.info(
 # =============================================================================
 
 st.subheader(
-    "🛡️ V2.1 Veri Kalitesi"
+    "🛡️ V2.2 Veri Kalitesi"
 )
 
 quality_map = active_data.get(
@@ -932,7 +891,7 @@ st.dataframe(
 
 
 st.caption(
-    "💡 **V2.1:** Model yönü ile execution gate ayrıdır. "
+    "💡 **V2.2:** Model yönü ile execution gate ayrıdır. "
     "Yön hesabı 1H/2H/4H impulse + persistence + ADX/DI kullanır. "
     "İşleme giriş ise gerçek veri, veri tazeliği, ATR ve gerçek RVOL "
     "koşullarını ayrıca kontrol eder."
@@ -1154,13 +1113,13 @@ if details:
 
 
 # =============================================================================
-# V2.1 FOOTER
+# V2.2 FOOTER
 # =============================================================================
 
 st.divider()
 
 st.caption(
-    "V2.1 | Zero Synthetic Data | "
+    "V2.2 | Zero Synthetic Data | "
     "Live Multi-Horizon Direction | "
     "Strict Execution Gate | "
     "Real RVOL | "
