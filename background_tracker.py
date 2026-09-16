@@ -11,6 +11,8 @@ import requests
 import pandas as pd
 from datetime import datetime, timezone
 from config import ASSET_MATRICES, REGIME_DYNAMIC_THRESHOLDS
+import v21_patch
+v21_patch.apply_v21_patch()
 from gatekeeper import PreTradeGatekeeper
 
 STATE_FILE = "terminal_state.json"
@@ -90,6 +92,9 @@ def run_background_cycle():
             "anomaly_score": round(float(getattr(gk, "anomaly_score", 0.0)), 2),
             "vix_floor_active": bool(getattr(gk, "current_vix", 16.0) < 20.0)
         },
+        "v21_version": v21_patch.V21_VERSION,
+        "data_quality": getattr(gk.data_engine, "data_quality", {}),
+        "data_sources": getattr(gk.data_engine, "data_sources", {}),
         "asset_verdicts": verdicts
     }
 
