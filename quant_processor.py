@@ -267,6 +267,141 @@ class RobustQuantProcessor:
         return RobustQuantProcessor.compute_robust_mad_zscore(ratio, window=window)
 
     @staticmethod
+    def _robust_return_z(close: pd.Series, horizon: int = 2, history: int = 48) -> float:
+        """
+        Adaptive robust z-score of the latest multi-bar return.
+        Uses MAD first and standard deviation only as a fallback.
+        """
+        if close is None or len(close) < max(8, horizon + 4):
+            return 0.0
+
+        roc = close.pct_change(horizon).dropna() * 100.0
+        sub = roc.tail(history).dropna()
+        if len(sub) < 8:
+            return 0.0
+
+        med = float(sub.median())
+        mad = float((sub - med).abs().median())
+
+        if not np.isfinite(mad) or mad < 1e-8:
+            std = float(sub.std())
+            if not np.isfinite(std) or std < 1e-8:
+                return 0.0
+            z = (float(sub.iloc[-1]) - med) / std
+        else:
+            z = (float(sub.iloc[-1]) - med) / (1.4826 * mad)
+
+        return float(np.clip(z, -2.0, 2.0))
+
+    @staticmethod
+    def compute_gold_macro_lead(
+        gold_df,
+        dxy_df,
+        tlt_df,
+        usdjpy_df=None
+    ) -> float:
+        """
+        Gold-specific fast macro lead engine.
+
+        Purpose:
+        - Reduce XAU reaction lag.
+        - Detect short-horizon gold impulse directly.
+        - Add fast cross-asset confirmation from DXY, TLT and USDJPY.
+        - Stay robust when one auxiliary series is unavailable.
+        """
+        if gold_df is None or gold_df.empty:
+            return 0.0
+
+        def close_of(df):
+            if df is None or df.empty:
+                return None
+            return df["Close"] if "Close" in df.columns else df.iloc[:, 0]
+
+        gold = close_of(gold_df)
+        dxy = close_of(dxy_df)
+        tlt = close_of(tlt_df)
+        uj = close_of(usdjpy_df)
+
+        gold_fast = RobustQuantProcessor._robust_return_z(gold, horizon=2, history=48)
+        gold_medium = RobustQuantProcessor._robust_return_z(gold, horizon=4, history=48)
+
+        lead = 0.35 * gold_fast + 0.20 * gold_medium
+
+        if dxy is not None:
+            lead += -0.25 * RobustQuantProcessor._robust_return_z(dxy, horizon=2, history=48)
+        if tlt is not None:
+            lead += 0.15 * RobustQuantProcessor._robust_return_z(tlt, horizon=2, history=48)
+        if uj is not None:
+            lead += -0.05 * RobustQuantProcessor._robust_return_z(uj, horizon=2, history=48)
+
+        return float(np.clip(lead / 0.70, -2.0, 2.0))
+
+    @staticmethod
+    def compute_silver_gold_anchor(silver_df, gold_df, copper_df=None) -> float:
+        """
+        Adaptive XAG/XAU anchor.
+
+        Normal state:
+            XAG follows XAU strongly.
+        Exceptional state:
+            If XAG materially decouples from XAU, silver-specific momentum
+            and copper confirmation are allowed to take more weight.
+
+        This is intentionally a soft anchor rather than hard price mirroring.
+        """
+        if silver_df is None or silver_df.empty or gold_df is None or gold_df.empty:
+            return 0.0
+
+        gold_signal = RobustQuantProcessor.compute_intraday_direction_momentum(
+            gold_df, fast_window=2, slow_window=16, vol_scale=0.90
+        )
+        silver_signal = RobustQuantProcessor.compute_intraday_direction_momentum(
+            silver_df, fast_window=4, slow_window=24, vol_scale=1.25
+        )
+
+        def close_of(df):
+            if df is None or df.empty:
+                return None
+            return df["Close"] if "Close" in df.columns else df.iloc[:, 0]
+
+        s_ag = close_of(silver_df)
+        s_au = close_of(gold_df)
+        aligned = RobustQuantProcessor._safe_align_series(s_ag, s_au)
+
+        relative_z = 0.0
+        if len(aligned) >= 10:
+            silver_ret = aligned.iloc[:, 0].pct_change(4) * 100.0
+            gold_ret = aligned.iloc[:, 1].pct_change(4) * 100.0
+            relative_ret = (silver_ret - gold_ret).dropna()
+            relative_z = RobustQuantProcessor.compute_robust_mad_zscore(
+                relative_ret, window=48
+            )
+
+        copper_signal = 0.0
+        if copper_df is not None and not copper_df.empty:
+            copper_signal = RobustQuantProcessor.compute_intraday_direction_momentum(
+                copper_df, fast_window=4, slow_window=24, vol_scale=1.0
+            )
+
+        # Normal condition: XAG remains tightly coupled to the gold anchor.
+        if abs(relative_z) < 1.50:
+            return float(np.clip(
+                0.82 * gold_signal +
+                0.13 * silver_signal +
+                0.05 * copper_signal,
+                -2.0, 2.0
+            ))
+
+        # Exceptional condition: allow genuine silver-specific divergence.
+        return float(np.clip(
+            0.55 * gold_signal +
+            0.35 * silver_signal +
+            0.10 * copper_signal +
+            0.20 * relative_z,
+            -2.0, 2.0
+        ))
+
+    @staticmethod
     def compute_gold_sovereign_decoupling(gold_df, real_yield_z, dxy_df, window=24):
         if gold_df.empty or len(gold_df) < 2:
             return 0.0
