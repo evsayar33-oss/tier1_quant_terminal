@@ -3,7 +3,7 @@ Macro Event Interpretation System (v1.0)
 Rule-based deterministic engine for classifying global macro regimes.
 Enhanced with:
 - Direct Fallback to REJIMSIZ_GECIS (No forced Risk-On hysteresis on neutral days)
-- Multi-Key Fallback Mapping (Guarantees zero-loss indicator bridging from data_engine)
+- Multi-Key Source Mapping (No fabricated numeric fallback)
 - Priority Rules: SHOCK_REGIMES (1, 2, 3, 4) > RISK_ON_REGIME (5) > REJIMSIZ_GECIS
 - Conflict Resolution: Highest |Z| & T10YIE Breakeven Tie-Breaker
 """
@@ -38,41 +38,52 @@ class MacroRegimeEngine:
         # -------------------------------------------------------------
         # 1. MAKRO VERİLERİN GÜVENLİ ÇEKİLMESİ
         # -------------------------------------------------------------
-        oil_20d_z = float(macro_data.get("oil_20d_return_52w_z", macro_data.get("oil_20d_z", macro_data.get("oil_z", 0.15))))
-        bdi_level_z = float(macro_data.get("bdi_level_52w_z", macro_data.get("bdi_level_z", macro_data.get("bdi_z", -0.10))))
-        hy_oas_z = float(macro_data.get("hy_oas_52w_z", macro_data.get("hy_oas_z", macro_data.get("hy_z", 0.20))))
-        spx_ust_corr = float(macro_data.get("spx_ust10y_60d_corr", macro_data.get("spx_ust_corr", -0.20)))
-        dtwexbgs_5d_z = float(macro_data.get("dtwexbgs_5d_change_52w_z", macro_data.get("dtwexbgs_5d_z", macro_data.get("dxy_velocity_z", macro_data.get("dxy_velocity", 0.10)))))
-        dtwexbgs_level_z = float(macro_data.get("dtwexbgs_level_52w_z", macro_data.get("dtwexbgs_level_z", dtwexbgs_5d_z)))
-        usdjpy_1d_z = float(macro_data.get("usdjpy_1d_change_52w_z", macro_data.get("usdjpy_1d_z", macro_data.get("yen_carry_z", 0.05))))
-        vix_level_z = float(macro_data.get("vix_level_52w_z", macro_data.get("vix_level_z", macro_data.get("z_vix", 0.15))))
-        vix_pct = float(macro_data.get("vix_252d_percentile", 42.0))
-        risk_basket_5d_z = float(macro_data.get("risk_basket_5d_return_52w_z", macro_data.get("risk_basket_5d_z", macro_data.get("risk_basket_z", 0.10))))
-        dfii10_1d_z = float(macro_data.get("dfii10_1d_change_52w_z", macro_data.get("dfii10_z", 0.45)))
-        t10yie_z = float(macro_data.get("t10yie_52w_z", macro_data.get("t10yie_z", 0.65)))
-        dgs2_change = float(macro_data.get("dgs2_change", 0.0))
-        dgs10_change = float(macro_data.get("dgs10_change", 0.0))
-        hy_oas_slope = float(macro_data.get("hy_oas_10d_slope", macro_data.get("hy_oas_slope", 0.005)))
-        ig_oas_z = float(macro_data.get("ig_oas_52w_z", macro_data.get("ig_oas_z", 0.15)))
-        ndl_z = float(macro_data.get("ndl_52w_z", macro_data.get("ndl_z", 0.25)))
-        gold_trend = str(macro_data.get("gold_trend", "FLAT_OR_FALLING")).upper()
+        def num(*keys):
+            for key in keys:
+                value = macro_data.get(key)
+                try:
+                    value = float(value)
+                    if np.isfinite(value):
+                        return value
+                except (TypeError, ValueError):
+                    pass
+            return np.nan
+
+        oil_20d_z = num("oil_20d_return_52w_z", "oil_20d_z", "oil_z")
+        bdi_level_z = num("bdi_level_52w_z", "bdi_level_z", "bdi_z")
+        hy_oas_z = num("hy_oas_52w_z", "hy_oas_z", "hy_z")
+        spx_ust_corr = num("spx_ust10y_60d_corr", "spx_ust_corr")
+        dtwexbgs_5d_z = num("dtwexbgs_5d_change_52w_z", "dtwexbgs_5d_z", "dxy_velocity_z")
+        dtwexbgs_level_z = num("dtwexbgs_level_52w_z", "dtwexbgs_level_z", "dtwexbgs_5d_z")
+        usdjpy_1d_z = num("usdjpy_1d_change_52w_z", "usdjpy_1d_z", "yen_carry_z")
+        vix_level_z = num("vix_level_52w_z", "vix_level_z", "z_vix")
+        vix_pct = num("vix_252d_percentile")
+        risk_basket_5d_z = num("risk_basket_5d_return_52w_z", "risk_basket_5d_z", "risk_basket_z")
+        dfii10_1d_z = num("dfii10_1d_change_52w_z", "dfii10_z")
+        t10yie_z = num("t10yie_52w_z", "t10yie_z")
+        dgs2_change = num("dgs2_change")
+        dgs10_change = num("dgs10_change")
+        hy_oas_slope = num("hy_oas_10d_slope", "hy_oas_slope")
+        ig_oas_z = num("ig_oas_52w_z", "ig_oas_z")
+        ndl_z = num("ndl_52w_z", "ndl_z")
+        gold_trend = str(macro_data.get("gold_trend", "UNAVAILABLE")).upper()
 
         z_scores_dict = {
-            "OIL_20D_Z": round(oil_20d_z, 2),
-            "BDI_LEVEL_Z": round(bdi_level_z, 2),
-            "HY_OAS_Z": round(hy_oas_z, 2),
-            "SPX_UST_CORR": round(spx_ust_corr, 2),
-            "DTWEXBGS_5D_Z": round(dtwexbgs_5d_z, 2),
-            "DTWEXBGS_LEVEL_Z": round(dtwexbgs_level_z, 2),
-            "USDJPY_1D_Z": round(usdjpy_1d_z, 2),
-            "VIX_LEVEL_Z": round(vix_level_z, 2),
-            "VIX_PERCENTILE": round(vix_pct, 1),
-            "RISK_BASKET_5D_Z": round(risk_basket_5d_z, 2),
-            "DFII10_1D_Z": round(dfii10_1d_z, 2),
-            "T10YIE_Z": round(t10yie_z, 2),
-            "HY_OAS_SLOPE": round(hy_oas_slope, 4),
-            "IG_OAS_Z": round(ig_oas_z, 2),
-            "NDL_Z": round(ndl_z, 2)
+            "OIL_20D_Z": None if not np.isfinite(oil_20d_z) else round(oil_20d_z, 2),
+            "BDI_LEVEL_Z": None if not np.isfinite(bdi_level_z) else round(bdi_level_z, 2),
+            "HY_OAS_Z": None if not np.isfinite(hy_oas_z) else round(hy_oas_z, 2),
+            "SPX_UST_CORR": None if not np.isfinite(spx_ust_corr) else round(spx_ust_corr, 2),
+            "DTWEXBGS_5D_Z": None if not np.isfinite(dtwexbgs_5d_z) else round(dtwexbgs_5d_z, 2),
+            "DTWEXBGS_LEVEL_Z": None if not np.isfinite(dtwexbgs_level_z) else round(dtwexbgs_level_z, 2),
+            "USDJPY_1D_Z": None if not np.isfinite(usdjpy_1d_z) else round(usdjpy_1d_z, 2),
+            "VIX_LEVEL_Z": None if not np.isfinite(vix_level_z) else round(vix_level_z, 2),
+            "VIX_PERCENTILE": None if not np.isfinite(vix_pct) else round(vix_pct, 1),
+            "RISK_BASKET_5D_Z": None if not np.isfinite(risk_basket_5d_z) else round(risk_basket_5d_z, 2),
+            "DFII10_1D_Z": None if not np.isfinite(dfii10_1d_z) else round(dfii10_1d_z, 2),
+            "T10YIE_Z": None if not np.isfinite(t10yie_z) else round(t10yie_z, 2),
+            "HY_OAS_SLOPE": None if not np.isfinite(hy_oas_slope) else round(hy_oas_slope, 4),
+            "IG_OAS_Z": None if not np.isfinite(ig_oas_z) else round(ig_oas_z, 2),
+            "NDL_Z": None if not np.isfinite(ndl_z) else round(ndl_z, 2)
         }
 
         # -------------------------------------------------------------
@@ -275,8 +286,12 @@ class MacroRegimeEngine:
         else:
             formatted_label = f"{reg_icon} [REJİM {active_id}] {regime_meta['name']}"
 
+        available_count = sum(v is not None for v in z_scores_dict.values())
         result = {
-            "version": "1.0",
+            "version": "2.2",
+            "data_status": "OK" if available_count >= 8 else "PARTIAL",
+            "available_indicator_count": available_count,
+
             "module_name": "macro-event-interpretation-system",
             "timestamp": now_iso,
             "active_regime_id": active_id,
