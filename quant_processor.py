@@ -66,102 +66,100 @@ class RobustQuantProcessor:
         return float(np.clip(robust_z, -2.5, 2.5))
 
     @staticmethod
-    def compute_realtime_price_action(df_1h, fast_window=4, vol_scale=1.0, asset_key=None):
-        """
-        🎯 Gerçek Piyasa Yönü Tespit Motoru (2019-2026 Kalibrasyonu):
-        Artık -0.34%, -0.48%, -0.61% gibi net düşüşler 'Yatay' denilerek yutulmaz!
-        """
-        if df_1h is None or df_1h.empty or len(df_1h) < 2:
-            return "⚪ YATAY (%0.00)", "⚪", "gray", 0.0
-
-        close = df_1h["Close"]
-        c = float(close.iloc[-1])
-
-        # 4 Saatlik Seans Getirisi
-        w = min(fast_window, len(df_1h) - 1)
-        roc_window = ((c - close.iloc[-w - 1]) / (close.iloc[-w - 1] + 1e-9)) * 100.0
-        display_roc = round(float(roc_window), 2)
-
-        # Varlık sınıfına göre gerçekçi dinamik eşikler:
-        # Endeksler ve madenlerde (SPX, NQ, XAU, XAG) %0.18 bile anlamlı bir trenddir.
-        # Kriptolarda (BTC, ETH) eşik %0.30 olarak belirlenir.
-        is_crypto = (asset_key in ["BTC", "ETH"]) or (vol_scale >= 1.8)
-        
-        strong_threshold = 0.80 if is_crypto else 0.45
-        trend_threshold = 0.30 if is_crypto else 0.18
-
-        if display_roc <= -strong_threshold:
-            return f"🔴 GÜÇLÜ AŞAĞI (%{display_roc:+.2f})", "🔴🔴", "darkred", display_roc
-        elif display_roc <= -trend_threshold:
-            return f"🔴 AŞAĞI (%{display_roc:+.2f})", "🔴", "red", display_roc
-        elif display_roc >= strong_threshold:
-            return f"🟢 GÜÇLÜ YUKARI (%{display_roc:+.2f})", "🟢🟢", "green", display_roc
-        elif display_roc >= trend_threshold:
-            return f"🟢 YUKARI (%{display_roc:+.2f})", "🟢", "lightgreen", display_roc
-        else:
-            return f"⚪ YATAY / DENGELİ (%{display_roc:+.2f})", "⚪", "gray", display_roc
+    @staticmethod
+    def _direction_stats(df_1h):
+        if df_1h is None or not isinstance(df_1h, pd.DataFrame) or df_1h.empty:
+            return None
+        df = df_1h.copy()
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns=[c[0] if isinstance(c,tuple) else c for c in df.columns]
+        if "Close" not in df.columns or any(c not in df.columns for c in ("Open","High","Low","Close")):
+            return None
+        df=df.loc[:,~df.columns.duplicated(keep="last")].copy()
+        for c in ("Open","High","Low","Close"): df[c]=pd.to_numeric(df[c],errors="coerce")
+        df=df.replace([np.inf,-np.inf],np.nan).dropna(subset=["Open","High","Low","Close"])
+        if len(df)<8: return None
+        close=df["Close"]
+        def norm_impulse(x,bars):
+            if len(x)<=bars: return 0.0
+            ret=float(x.iloc[-1]/x.iloc[-bars-1]-1.0)
+            prev=x.pct_change().tail(40).dropna(); vol=float(prev.std()) if len(prev)>=8 else 0.0
+            atr=float((x.diff().abs()).rolling(14,min_periods=14).mean().iloc[-1]) if len(x)>=15 else 0.0
+            price=float(x.iloc[-1]); scale=(vol*max(bars,1)) if vol>0 else (atr/max(price,1e-9)*max(bars,1) if atr>0 else 0.0)
+            return float(np.clip(ret/(scale+1e-12),-4.0,4.0))
+        def persistence(x,n):
+            r=x.diff().tail(n).dropna()
+            if len(r)<3: return 0.0
+            return float(np.clip(np.sign(r).mean(),-1.0,1.0))
+        def adx_di(x,period=14):
+            high=df["High"] if x is close else x["High"]; low=df["Low"] if x is close else x["Low"]; c=x if isinstance(x,pd.Series) else x["Close"]
+            prev=c.shift(1); tr=pd.concat([high-low,(high-prev).abs(),(low-prev).abs()],axis=1).max(axis=1)
+            up=high.diff(); down=-low.diff(); plus=pd.Series(np.where((up>down)&(up>0),up,0.0),index=high.index); minus=pd.Series(np.where((down>up)&(down>0),down,0.0),index=high.index)
+            atr=tr.rolling(period,min_periods=period).mean(); pdi=100*plus.rolling(period,min_periods=period).mean()/(atr+1e-12); mdi=100*minus.rolling(period,min_periods=period).mean()/(atr+1e-12)
+            dx=100*(pdi-mdi).abs()/(pdi+mdi+1e-12); adx=dx.rolling(period,min_periods=period).mean()
+            a=float(adx.iloc[-1]) if np.isfinite(adx.iloc[-1]) else 0.0; p=float(pdi.iloc[-1]) if np.isfinite(pdi.iloc[-1]) else 0.0; m=float(mdi.iloc[-1]) if np.isfinite(mdi.iloc[-1]) else 0.0
+            bias=(p-m)/(p+m+1e-12) if (p+m)>0 else 0.0; return a,float(np.clip(bias,-1,1))
+        df2=df.resample("2h",label="right",closed="right").agg({"Open":"first","High":"max","Low":"min","Close":"last"}).dropna()
+        df4=df.resample("4h",label="right",closed="right").agg({"Open":"first","High":"max","Low":"min","Close":"last"}).dropna()
+        i1=norm_impulse(close,1); i2=norm_impulse(close,2); i4=norm_impulse(df4["Close"],1) if len(df4)>=16 else norm_impulse(close,4)
+        p1=persistence(close,6); p4=persistence(df4["Close"],5) if len(df4)>=7 else 0.0
+        a1,b1=adx_di(df,14); a4,b4=adx_di(df4,14) if len(df4)>=28 else (0.0,0.0)
+        return {"roc_1h":float((close.iloc[-1]/close.iloc[-2]-1)*100),"impulse_1h":i1,"impulse_2h":i2,"impulse_4h":i4,"persist_1h":p1,"persist_4h":p4,"adx_1h":a1,"adx_4h":a4,"di_1h":b1,"di_4h":b4}
 
     @staticmethod
-    def evaluate_trade_entry_gate(df_1h, asset_key="SPX") -> Tuple[bool, str, float, float]:
-        """
-        🚀 DİNAMİK VE CANLI GİRİŞ ANALİZİ MOTORU:
-        ATR ve RVOL'ü doğrudan mumlardan anlık hesaplar. Asla 1.00x'e kilitlenmez!
-        """
-        if df_1h is None or df_1h.empty or len(df_1h) < 5:
-            return True, "İşleme Giriş Önerilir: Normal Piyasa Akışı.", 1.10, 1.05
+    def compute_realtime_price_action(df_1h, fast_window=4, vol_scale=1.0, asset_key=None):
+        """MODEL_DIRECTION: direct-data 1H/2H/4H impulse + persistence + ADX/DI."""
+        s=RobustQuantProcessor._direction_stats(df_1h)
+        if s is None: return "⚪ VERİ YETERSİZ","⚪","gray",0.0
+        base=0.45*s["impulse_1h"]+0.30*s["impulse_2h"]+0.45*s["impulse_4h"]+0.20*s["persist_1h"]+0.20*s["persist_4h"]+0.15*s["di_1h"]+0.25*s["di_4h"]
+        adx_strength=float(np.clip(max(s["adx_1h"],s["adx_4h"])/35.0,0,1)); score=float(np.clip(base*(0.85+0.30*adx_strength),-4,4))
+        strong_1h=abs(s["impulse_1h"])>=1.15; flat_4h=abs(s["impulse_4h"])<0.35 and abs(s["persist_4h"])<0.35
+        if strong_1h and flat_4h: score=float(s["impulse_1h"]*(0.85+0.15*np.sign(s["impulse_1h"])*np.sign(s["impulse_2h"])))
+        up,down=0.65,1.35
+        if score>=down: return f"🟢 GÜÇLÜ YUKARI (%{s['roc_1h']:+.2f})","🟢🟢","darkgreen",round(s["roc_1h"],2)
+        if score>=up: return f"🟢 YUKARI (%{s['roc_1h']:+.2f})","🟢","lightgreen",round(s["roc_1h"],2)
+        if score<=-down: return f"🔴 GÜÇLÜ AŞAĞI (%{s['roc_1h']:+.2f})","🔴🔴","darkred",round(s["roc_1h"],2)
+        if score<=-up: return f"🔴 AŞAĞI (%{s['roc_1h']:+.2f})","🔴","red",round(s["roc_1h"],2)
+        return f"⚪ YATAY / DENGELİ (%{s['roc_1h']:+.2f})","⚪","gray",round(s["roc_1h"],2)
 
-        high = df_1h["High"] if "High" in df_1h.columns else df_1h["Close"]
-        low = df_1h["Low"] if "Low" in df_1h.columns else df_1h["Close"]
-        close = df_1h["Close"]
-        volume = df_1h["Volume"] if "Volume" in df_1h.columns else pd.Series(0, index=df_1h.index)
-
-        # 1. Canlı True Range & ATR Oranı Hesaplama
-        tr1 = high - low
-        tr2 = (high - close.shift(1)).abs()
-        tr3 = (low - close.shift(1)).abs()
-        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-
-        w_atr = min(14, len(tr))
-        atr_14 = tr.rolling(w_atr).mean()
-        w_sma = min(20, len(atr_14))
-        atr_sma = atr_14.rolling(w_sma).mean()
-        
-        last_atr = float(atr_14.iloc[-1]) if not np.isnan(atr_14.iloc[-1]) else 1.0
-        last_atr_sma = float(atr_sma.iloc[-1]) if not np.isnan(atr_sma.iloc[-1]) and atr_sma.iloc[-1] > 0 else last_atr
-        atr_ratio = float(last_atr / (last_atr_sma + 1e-9))
-        atr_ratio = round(max(min(atr_ratio, 4.0), 0.25), 2)
-
-        # 2. Canlı Göreceli Hacim (RVOL) Hesaplama
-        if volume.sum() > 0 and (volume > 0).sum() >= 5:
-            w_vol = min(20, len(volume))
-            vol_sma = volume.rolling(w_vol).mean()
-            last_vol = float(volume.iloc[-1])
-            last_vol_sma = float(vol_sma.iloc[-1]) if vol_sma.iloc[-1] > 0 else last_vol
-            rvol = float(last_vol / (last_vol_sma + 1e-9))
-            rvol = round(max(min(rvol, 5.0), 0.15), 2)
-        else:
-            # Vadeli veya nakit endekslerde hacim düşükse fiyat hızından volatilite çarpanı türet
-            ret_abs = close.pct_change().abs().rolling(min(14, len(close))).mean()
-            cur_ret = abs(close.pct_change().iloc[-1])
-            rvol = round(float(cur_ret / (ret_abs.iloc[-1] + 1e-9)), 2)
-            rvol = round(max(min(rvol, 3.5), 0.55), 2)
-
-        cfg = ENTRY_FILTER_CONFIG
-
-        # 3. Giriş Uygunluk Filtresi
-        if atr_ratio > cfg.get("vol_shock_high", 2.20):
-            return False, f"İşleme Giriş Önerilmez: Volatilite Şoku (ATR: {atr_ratio:.2f}x > {cfg['vol_shock_high']}) - Yüksek kayma ve whipsaw riski!", atr_ratio, rvol
-
-        if atr_ratio < cfg.get("vol_shock_low", 0.65):
-            return False, f"İşleme Giriş Önerilmez: Volatilite Yetersiz (ATR: {atr_ratio:.2f}x < {cfg['vol_shock_low']}) - Sıkışma / Sahte kırılım tuzağı!", atr_ratio, rvol
-
-        if rvol > cfg.get("rvol_climax_shock", 3.20):
-            return False, f"İşleme Giriş Önerilmez: Hacim Şoku / Climax (RVOL: {rvol:.2f}x > {cfg['rvol_climax_shock']}) - Hareket tükeniş noktasında!", atr_ratio, rvol
-
-        if rvol < cfg.get("rvol_illiquid", 0.50):
-            return False, f"İşleme Giriş Önerilmez: Yetersiz Hacim (RVOL: {rvol:.2f}x < {cfg['rvol_illiquid']}) - Kurumsal katılım eksik!", atr_ratio, rvol
-
-        return True, f"İşleme Giriş Önerilir: Volatilite ({atr_ratio:.2f}x) ve Hacim ({rvol:.2f}x) dengeli.", atr_ratio, rvol
+    @staticmethod
+    @staticmethod
+    def evaluate_trade_entry_gate(df_1h, asset_key="SPX"):
+        """EXECUTION_GATE: only fresh DIRECT data; strict ATR + real RVOL."""
+        if df_1h is None or not isinstance(df_1h,pd.DataFrame) or df_1h.empty:
+            return False,"İşleme Giriş Önerilmez: Gerçek piyasa verisi yok.",0.0,0.0
+        attrs=getattr(df_1h,"attrs",{}) or {}
+        if not attrs.get("is_real",False) or attrs.get("source_type")!="DIRECT":
+            return False,"İşleme Giriş Önerilmez: Kaynak DIRECT/gerçek değil.",0.0,0.0
+        if attrs.get("status")!="LIVE" or attrs.get("execution_eligible") is not True:
+            return False,"İşleme Giriş Önerilmez: Veri LIVE/işlem uygunluğunda değil.",0.0,0.0
+        df=df_1h.copy()
+        if isinstance(df.columns,pd.MultiIndex): df.columns=[c[0] if isinstance(c,tuple) else c for c in df.columns]
+        df=df.loc[:,~df.columns.duplicated(keep="last")]
+        for c in ("Open","High","Low","Close","Volume"):
+            if c not in df.columns:
+                if c=="Volume": df[c]=np.nan
+                else: return False,f"İşleme Giriş Önerilmez: {c} verisi yok.",0.0,0.0
+            df[c]=pd.to_numeric(df[c],errors="coerce")
+        if len(df)<30: return False,f"İşleme Giriş Önerilmez: Yetersiz veri ({len(df)}/30 bar).",0.0,0.0
+        h,l,c,v=df["High"],df["Low"],df["Close"],df["Volume"]
+        if not isinstance(v,pd.Series) or v.dropna().empty: return False,"İşleme Giriş Önerilmez: Hacim verisi yok; RVOL üretilmedi.",0.0,0.0
+        prev=c.shift(1); tr=pd.concat([h-l,(h-prev).abs(),(l-prev).abs()],axis=1).max(axis=1)
+        atr=tr.rolling(14,min_periods=14).mean(); baseline=atr.shift(1).rolling(20,min_periods=20).mean(); last=float(atr.iloc[-1]) if np.isfinite(atr.iloc[-1]) else np.nan; base=float(baseline.iloc[-1]) if np.isfinite(baseline.iloc[-1]) else np.nan
+        if not np.isfinite(last) or last<=0 or not np.isfinite(base) or base<=0: return False,"İşleme Giriş Önerilmez: ATR referansı hesaplanamadı.",0.0,0.0
+        atr_ratio=round(float(np.clip(last/(base+1e-12),0.25,4)),2)
+        historical=v.replace([np.inf,-np.inf],np.nan).iloc[:-1].dropna(); positive=historical[historical>0]
+        if len(positive)<20: return False,"İşleme Giriş Önerilmez: Gerçek RVOL için yeterli hacim geçmişi yok.",atr_ratio,0.0
+        bv=v.replace([np.inf,-np.inf],np.nan).shift(1).rolling(20,min_periods=20).mean().iloc[-1]; cv=v.iloc[-1]
+        if not np.isfinite(cv) or cv<=0 or not np.isfinite(bv) or bv<=0: return False,"İşleme Giriş Önerilmez: Gerçek RVOL hesaplanamadı.",atr_ratio,0.0
+        rvol=round(float(np.clip(cv/(bv+1e-12),0.05,10)),2)
+        cfg=ENTRY_FILTER_CONFIG
+        hi=float(cfg.get("vol_shock_high",2.20)); lo=float(cfg.get("vol_shock_low",0.65)); climax=float(cfg.get("rvol_climax_shock",3.20)); ill=float(cfg.get("rvol_illiquid",0.50))
+        if atr_ratio>hi: return False,f"İşleme Giriş Önerilmez: Volatilite Şoku (ATR {atr_ratio:.2f}x).",atr_ratio,rvol
+        if atr_ratio<lo: return False,f"İşleme Giriş Önerilmez: Volatilite çok düşük (ATR {atr_ratio:.2f}x).",atr_ratio,rvol
+        if rvol>climax: return False,f"İşleme Giriş Önerilmez: Hacim climax (RVOL {rvol:.2f}x).",atr_ratio,rvol
+        if rvol<ill: return False,f"İşleme Giriş Önerilmez: Gerçek hacim zayıf (RVOL {rvol:.2f}x).",atr_ratio,rvol
+        return True,f"İşleme Giriş Uygun: LIVE/DIRECT | ATR {atr_ratio:.2f}x | RVOL {rvol:.2f}x.",atr_ratio,rvol
 
     @staticmethod
     def compute_adx(df_1h, period=14):
