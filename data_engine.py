@@ -72,7 +72,7 @@ class ResilientDataEngine:
         except Exception:
             pass
 
-        return {"value": 1.05, "confidence": 0.5}
+        return {"value": None, "confidence": 0.0, "status": "UNAVAILABLE"}
 
     def fetch_crypto_funding_rate(self, ccy="BTC"):
         okx_url = f"https://www.okx.com/api/v5/public/funding-rate?instId={ccy}-USDT-SWAP"
@@ -97,7 +97,7 @@ class ResilientDataEngine:
         except Exception:
             pass
 
-        return {"rate": 0.0001, "confidence": 0.5}
+        return {"rate": None, "confidence": 0.0, "status": "UNAVAILABLE"}
 
     def fetch_single_ticker_1h(self, symbol, period="5d"):
         """Fetch one ticker directly from Yahoo Finance; never substitute another instrument."""
