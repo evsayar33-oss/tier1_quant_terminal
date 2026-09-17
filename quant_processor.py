@@ -66,7 +66,6 @@ class RobustQuantProcessor:
         return float(np.clip(robust_z, -2.5, 2.5))
 
     @staticmethod
-    @staticmethod
     def _direction_stats(df_1h):
         if df_1h is None or not isinstance(df_1h, pd.DataFrame) or df_1h.empty:
             return None
@@ -107,22 +106,60 @@ class RobustQuantProcessor:
         return {"roc_1h":float((close.iloc[-1]/close.iloc[-2]-1)*100),"impulse_1h":i1,"impulse_2h":i2,"impulse_4h":i4,"persist_1h":p1,"persist_4h":p4,"adx_1h":a1,"adx_4h":a4,"di_1h":b1,"di_4h":b4}
 
     @staticmethod
-    def compute_realtime_price_action(df_1h, fast_window=4, vol_scale=1.0, asset_key=None):
-        """MODEL_DIRECTION: direct-data 1H/2H/4H impulse + persistence + ADX/DI."""
-        s=RobustQuantProcessor._direction_stats(df_1h)
-        if s is None: return "⚪ VERİ YETERSİZ","⚪","gray",0.0
-        base=0.45*s["impulse_1h"]+0.30*s["impulse_2h"]+0.45*s["impulse_4h"]+0.20*s["persist_1h"]+0.20*s["persist_4h"]+0.15*s["di_1h"]+0.25*s["di_4h"]
-        adx_strength=float(np.clip(max(s["adx_1h"],s["adx_4h"])/35.0,0,1)); score=float(np.clip(base*(0.85+0.30*adx_strength),-4,4))
-        strong_1h=abs(s["impulse_1h"])>=1.15; flat_4h=abs(s["impulse_4h"])<0.35 and abs(s["persist_4h"])<0.35
-        if strong_1h and flat_4h: score=float(s["impulse_1h"]*(0.85+0.15*np.sign(s["impulse_1h"])*np.sign(s["impulse_2h"])))
-        up,down=0.65,1.35
-        if score>=down: return f"🟢 GÜÇLÜ YUKARI (%{s['roc_1h']:+.2f})","🟢🟢","darkgreen",round(s["roc_1h"],2)
-        if score>=up: return f"🟢 YUKARI (%{s['roc_1h']:+.2f})","🟢","lightgreen",round(s["roc_1h"],2)
-        if score<=-down: return f"🔴 GÜÇLÜ AŞAĞI (%{s['roc_1h']:+.2f})","🔴🔴","darkred",round(s["roc_1h"],2)
-        if score<=-up: return f"🔴 AŞAĞI (%{s['roc_1h']:+.2f})","🔴","red",round(s["roc_1h"],2)
-        return f"⚪ YATAY / DENGELİ (%{s['roc_1h']:+.2f})","⚪","gray",round(s["roc_1h"],2)
+    def compute_direction_score(df_1h):
+        """Return the normalized MODEL_DIRECTION score without formatting it."""
+        s = RobustQuantProcessor._direction_stats(df_1h)
+        if s is None:
+            return None, None
+
+        base = (
+            0.45 * s["impulse_1h"]
+            + 0.30 * s["impulse_2h"]
+            + 0.45 * s["impulse_4h"]
+            + 0.20 * s["persist_1h"]
+            + 0.20 * s["persist_4h"]
+            + 0.15 * s["di_1h"]
+            + 0.25 * s["di_4h"]
+        )
+        adx_strength = float(np.clip(max(s["adx_1h"], s["adx_4h"]) / 35.0, 0.0, 1.0))
+        score = float(np.clip(base * (0.85 + 0.30 * adx_strength), -4.0, 4.0))
+
+        strong_1h = abs(s["impulse_1h"]) >= 1.15
+        flat_4h = abs(s["impulse_4h"]) < 0.35 and abs(s["persist_4h"]) < 0.35
+        if strong_1h and flat_4h:
+            score = float(
+                s["impulse_1h"]
+                * (0.85 + 0.15 * np.sign(s["impulse_1h"]) * np.sign(s["impulse_2h"]))
+            )
+
+        return score, s
 
     @staticmethod
+    def format_direction_score(score, roc_1h):
+        """Format a direction score consistently for UI and pair reconciliation."""
+        if score is None or roc_1h is None:
+            return "⚪ VERİ YETERSİZ", "⚪", "gray", 0.0
+        up, down = 0.65, 1.35
+        roc = float(roc_1h)
+        score = float(score)
+        if score >= down:
+            return f"🟢 GÜÇLÜ YUKARI (%{roc:+.2f})", "🟢🟢", "darkgreen", round(roc, 2)
+        if score >= up:
+            return f"🟢 YUKARI (%{roc:+.2f})", "🟢", "lightgreen", round(roc, 2)
+        if score <= -down:
+            return f"🔴 GÜÇLÜ AŞAĞI (%{roc:+.2f})", "🔴🔴", "darkred", round(roc, 2)
+        if score <= -up:
+            return f"🔴 AŞAĞI (%{roc:+.2f})", "🔴", "red", round(roc, 2)
+        return f"⚪ YATAY / DENGELİ (%{roc:+.2f})", "⚪", "gray", round(roc, 2)
+
+    @staticmethod
+    def compute_realtime_price_action(df_1h, fast_window=4, vol_scale=1.0, asset_key=None):
+        """MODEL_DIRECTION: direct-data 1H/2H/4H impulse + persistence + ADX/DI."""
+        score, s = RobustQuantProcessor.compute_direction_score(df_1h)
+        if s is None:
+            return "⚪ VERİ YETERSİZ", "⚪", "gray", 0.0
+        return RobustQuantProcessor.format_direction_score(score, s["roc_1h"])
+
     @staticmethod
     def evaluate_trade_entry_gate(df_1h, asset_key="SPX"):
         """EXECUTION_GATE: only fresh DIRECT data; strict ATR + real RVOL."""
