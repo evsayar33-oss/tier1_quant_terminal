@@ -23,8 +23,6 @@ V2.2 ENTEGRASYONU
 import streamlit as st
 import json
 import os
-import sys
-import importlib
 import pandas as pd
 
 from datetime import (
@@ -37,22 +35,6 @@ from datetime import (
 # =============================================================================
 # CORE MODULES
 # =============================================================================
-
-import config
-import quant_processor
-import data_engine
-import gatekeeper
-import macro_regime_engine
-
-
-# Reload existing modules first.
-importlib.reload(config)
-importlib.reload(quant_processor)
-importlib.reload(data_engine)
-importlib.reload(gatekeeper)
-importlib.reload(macro_regime_engine)
-
-
 
 from config import (
     ASSET_MATRICES,
@@ -81,6 +63,23 @@ st.set_page_config(
 # =============================================================================
 
 STATE_FILE = "terminal_state.json"
+
+
+def safe_float(value, default=None, digits=None):
+    """Convert finite numeric values safely; preserve None/NA as unavailable."""
+    try:
+        if value is None or pd.isna(value):
+            return default
+        number = float(value)
+        if not pd.notna(number) or not pd.api.types.is_number(number):
+            return default
+        return round(number, digits) if digits is not None else number
+    except (TypeError, ValueError):
+        return default
+
+
+def safe_bool(value, default=False):
+    return bool(value) if value is not None else default
 
 
 def get_now_tsi_str():
@@ -329,6 +328,8 @@ with col_btn:
 if (
     live_refresh
     or not st.session_state.state_data
+    or st.session_state.state_data.get("status") == "NOT_INITIALIZED"
+    or "asset_verdicts" not in st.session_state.state_data
 ):
 
     with st.spinner(
@@ -381,33 +382,10 @@ if (
         # MACRO STATE
         # ----------------------------------------------------
 
-        comp_usd = round(
-            float(
-                getattr(gk,"composite_usd_risk",None)
-            ),
-            2,
-        )
-
-        dxy_v = round(
-            float(
-                getattr(gk,"dxy_velocity",None)
-            ),
-            2,
-        )
-
-        ndl_val = round(
-            float(
-                getattr(gk,"ndl_z",None)
-            ),
-            2,
-        )
-
-        yen_carry = round(
-            float(
-                getattr(gk,"yen_carry_z",None)
-            ),
-            2,
-        )
+        comp_usd = safe_float(getattr(gk, "composite_usd_risk", None), digits=2)
+        dxy_v = safe_float(getattr(gk, "dxy_velocity", None), digits=2)
+        ndl_val = safe_float(getattr(gk, "ndl_z", None), digits=2)
+        yen_carry = safe_float(getattr(gk, "yen_carry_z", None), digits=2)
 
 
         # ----------------------------------------------------
@@ -444,37 +422,40 @@ if (
 
         new_state = {
 
-            "v21_version": "2.1",
+            "v22_version": "2.2.1",
 
             "last_updated":
                 current_time_iso,
+
+            "status":
+                "OK",
 
             "active_regime_id":
                 getattr(
                     gk,
                     "active_macro_regime_id",
-                    5,
+                    "REJIMSIZ_GECIS",
                 ),
 
             "active_regime_name":
                 getattr(
                     gk,
                     "active_macro_regime_name",
-                    "Küresel Likidite Rallisi (Risk-On)",
+                    "Rejimsiz Geçiş / Veri Yetersiz",
                 ),
 
             "market_regime":
                 getattr(
                     gk,
                     "market_regime",
-                    "🟢 [REJİM 5] Küresel Likidite Rallisi (Risk-On)",
+                    "⚪ [REJİMSİZ] Veri Yetersiz",
                 ),
 
             "active_subtype":
                 getattr(
                     gk,
                     "active_subtype",
-                    "Klasik Goldilocks Risk-On",
+                    "VERİ YETERSİZ",
                 ),
 
             "dynamic_thresholds":
@@ -498,14 +479,14 @@ if (
                 getattr(
                     gk,
                     "usd_risk_label",
-                    "🟡 NÖTR / DENGELİ USD İKLİMİ",
+                    "⚪ VERİ YETERSİZ",
                 ),
 
             "usd_risk_status":
                 getattr(
                     gk,
                     "usd_risk_status",
-                    "NEUTRAL",
+                    "UNAVAILABLE",
                 ),
 
             "dxy_velocity":
@@ -514,44 +495,14 @@ if (
             "ndl_z":
                 ndl_val,
 
-            "current_vix":
-                round(
-                    float(
-                        getattr(
-                            gk,
-                            "current_vix",
-                            16.0,
-                        )
-                    ),
-                    1,
-                ),
+            "current_vix": safe_float(getattr(gk, "current_vix", None), digits=1),
 
-            "stagflation_z":
-                round(
-                    float(
-                        getattr(
-                            gk,
-                            "stagflation_z",
-                            0.0,
-                        )
-                    ),
-                    2,
-                ),
+            "stagflation_z": safe_float(getattr(gk, "stagflation_z", None), digits=2),
 
             "yen_carry_z":
                 yen_carry,
 
-            "dfii10_z":
-                round(
-                    float(
-                        getattr(
-                            gk,
-                            "dfii10_z",
-                            0.45,
-                        )
-                    ),
-                    2,
-                ),
+            "dfii10_z": safe_float(getattr(gk, "dfii10_z", None), digits=2),
 
             "curve_label":
                 getattr(
@@ -576,26 +527,11 @@ if (
                         0,
                     ),
 
-                "anomaly_score":
-                    round(
-                        float(
-                            getattr(
-                                gk,
-                                "anomaly_score",
-                                0.0,
-                            )
-                        ),
-                        2,
-                    ),
+                "anomaly_score": safe_float(getattr(gk, "anomaly_score", None), digits=2),
 
                 "vix_floor_active":
                     bool(
-                        getattr(
-                            gk,
-                            "current_vix",
-                            16.0,
-                        )
-                        < 20.0
+                        safe_float(getattr(gk, "current_vix", None), default=999.0) < 20.0
                     ),
             },
 
@@ -745,7 +681,7 @@ for symbol, quality in (
 
             "Son Bar Yaşı":
                 (
-                    f"{float(quality.get('age_seconds')) / 60:.1f} dk"
+                    f"{safe_float(quality.get('age_seconds'), default=0.0) / 60:.1f} dk"
                     if quality.get(
                         "age_seconds"
                     )
