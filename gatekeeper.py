@@ -427,49 +427,155 @@ class PreTradeGatekeeper:
         }
 
     def evaluate_all_assets_harmonized(self, previous_signals=None):
-        """Evaluate all configured assets and reconcile only unsupported model divergence."""
+        """Evaluate all assets and reconcile unsupported pair divergence from real prices."""
         previous_signals = previous_signals or {}
-        verdicts={}
-        for key in ASSET_MATRICES.keys():
-            verdicts[key]=self.evaluate_asset_direction(key, previous_signal=previous_signals.get(key,"NÖTR (BEKLE)"))
+        verdicts = {
+            key: self.evaluate_asset_direction(
+                key, previous_signal=previous_signals.get(key, "NÖTR (BEKLE)")
+            )
+            for key in ASSET_MATRICES.keys()
+        }
 
-        def pair_stats(a_key,b_key,bars=8):
-            a=self.grid_1h.get(a_key,pd.DataFrame()); b=self.grid_1h.get(b_key,pd.DataFrame())
-            if a is None or b is None or a.empty or b.empty: return None
-            if "Close" not in a.columns or "Close" not in b.columns: return None
-            ar=pd.to_numeric(a["Close"],errors="coerce").pct_change(); br=pd.to_numeric(b["Close"],errors="coerce").pct_change()
-            x=pd.concat([ar.rename("a"),br.rename("b")],axis=1,join="inner").dropna()
-            if len(x)<max(20,bars+2): return None
-            recent=x.tail(bars); corr=float(recent["a"].corr(recent["b"])) if recent["a"].std()>0 and recent["b"].std()>0 else 0.0
-            ra=float((1+recent["a"]).prod()-1); rb=float((1+recent["b"]).prod()-1); spread=rb-ra
-            hist=(x["b"]-x["a"]).tail(80); z=float(spread/(hist.std(ddof=1)+1e-12)) if len(hist)>=10 else 0.0
-            return {"corr":corr,"anchor_return":ra,"follower_return":rb,"spread":spread,"spread_z":z}
+        pair_specs = (
+            ("SPX", "NQ", 0.70, 1.25),
+            ("XAU", "XAG", 0.60, 1.35),
+        )
 
-        for anchor,follower,min_corr,evidence_z in (("SPX","NQ",0.70,1.25),("XAU","XAG",0.60,1.35)):
-            va,vf=verdicts.get(anchor),verdicts.get(follower)
-            if not va or not vf: continue
-            st=pair_stats(anchor,follower)
-            if st is None: continue
-            supported=st["corr"]>=min_corr and abs(st["spread_z"])>=evidence_z and abs(st["spread"])>0
-            status="GERÇEK FİYAT AYRIŞMASI TEYİTLİ" if supported else "AYRIŞMA FİYATLA TEYİT EDİLMEDİ"
-            va["pair_coherence"]=status; vf["pair_coherence"]=status; va["pair_stats"]=st; vf["pair_stats"]=st
-            if not supported:
-                av,fv=float(va.get("score",0)),float(vf.get("score",0))
-                if abs(av-fv)>0.45:
-                    avg=(av+fv)/2; shrink=0.35
-                    va["score"]=round(avg+(av-avg)*shrink,2); vf["score"]=round(avg+(fv-avg)*shrink,2)
-                anc_verdict=str(va.get("verdict","")); fol_verdict=str(vf.get("verdict",""))
-                opposite=("AL" in fol_verdict and "AL" not in anc_verdict) or ("SAT" in fol_verdict and "SAT" not in anc_verdict)
-                if opposite:
-                    vf.update({"verdict":"NÖTR (FİYAT TEYİDİ YOK)","forecast_direction":"NÖTR (FİYAT TEYİDİ YOK)","forecast_icon":"⚪","forecast_color":"gray","icon":"⚪","color":"gray"})
+        def pair_stats(anchor_key, follower_key, bars=8):
+            a = self.grid_1h.get(anchor_key, pd.DataFrame())
+            b = self.grid_1h.get(follower_key, pd.DataFrame())
+            if not isinstance(a, pd.DataFrame) or not isinstance(b, pd.DataFrame) or a.empty or b.empty:
+                return None
+            if "Close" not in a.columns or "Close" not in b.columns:
+                return None
 
-        # Preserve broad BTC/ETH harmonization without overriding real price divergence.
-        vb,ve=verdicts.get("BTC"),verdicts.get("ETH")
+            ar = pd.to_numeric(a["Close"], errors="coerce").pct_change()
+            br = pd.to_numeric(b["Close"], errors="coerce").pct_change()
+            x = pd.concat([ar.rename("a"), br.rename("b")], axis=1, join="inner").dropna()
+            if len(x) < max(24, bars + 5):
+                return None
+
+            recent = x.tail(bars)
+            corr = float(recent["a"].corr(recent["b"])) if recent["a"].std() > 0 and recent["b"].std() > 0 else 0.0
+            anchor_ret = float((1.0 + recent["a"]).prod() - 1.0)
+            follower_ret = float((1.0 + recent["b"]).prod() - 1.0)
+            spread = follower_ret - anchor_ret
+
+            spread_series = (x["b"] - x["a"]).dropna()
+            hist = spread_series.tail(min(120, len(spread_series)))
+            std = float(hist.std(ddof=1)) if len(hist) >= 10 else 0.0
+            spread_z = float(spread / (std + 1e-12)) if std > 1e-12 else 0.0
+
+            # 1H signs are useful for display coherence but not enough to prove divergence.
+            anchor_1h = float(ar.iloc[-1]) if np.isfinite(ar.iloc[-1]) else 0.0
+            follower_1h = float(br.iloc[-1]) if np.isfinite(br.iloc[-1]) else 0.0
+            return {
+                "corr": corr,
+                "anchor_return": anchor_ret,
+                "follower_return": follower_ret,
+                "spread": spread,
+                "spread_z": spread_z,
+                "anchor_1h": anchor_1h,
+                "follower_1h": follower_1h,
+            }
+
+        for anchor, follower, min_corr, evidence_z in pair_specs:
+            va = verdicts.get(anchor)
+            vf = verdicts.get(follower)
+            if not va or not vf:
+                continue
+
+            stats = pair_stats(anchor, follower)
+            if stats is None:
+                va["pair_coherence"] = vf["pair_coherence"] = "FİYAT KARŞILAŞTIRMASI İÇİN VERİ YETERSİZ"
+                continue
+
+            price_supported = (
+                stats["corr"] >= min_corr
+                and abs(stats["spread_z"]) >= evidence_z
+                and abs(stats["spread"]) > 0
+            )
+
+            status = (
+                "GERÇEK FİYAT AYRIŞMASI TEYİTLİ"
+                if price_supported
+                else "AYRIŞMA FİYATLA TEYİT EDİLMEDİ"
+            )
+            va["pair_coherence"] = vf["pair_coherence"] = status
+            va["pair_stats"] = vf["pair_stats"] = stats
+
+            # ---------------------------------------------------------
+            # CURRENT DIRECTION COHERENCE
+            # ---------------------------------------------------------
+            # XAU/XAG and SPX/NQ should not show opposite/noisy short-term
+            # directions when the real price series move together. If real
+            # divergence is not statistically supported, classify both from
+            # the pair-average model-direction score while retaining each
+            # asset's actual ROC in the label.
+            if not price_supported:
+                qa, sa = self.processor.compute_direction_score(
+                    self.grid_1h.get(anchor, pd.DataFrame())
+                )
+                qf, sf = self.processor.compute_direction_score(
+                    self.grid_1h.get(follower, pd.DataFrame())
+                )
+
+                if qa is not None and qf is not None and sa is not None and sf is not None:
+                    qa_f = float(qa)
+                    qf_f = float(qf)
+                    # When both legs agree in sign, the weaker leg caps the
+                    # common direction. One outlier therefore cannot force
+                    # the pair into a directional label. Opposite signs use
+                    # the mean, naturally moving the pair toward neutral
+                    # unless the real price spread is independently supported.
+                    if qa_f == 0.0 or qf_f == 0.0:
+                        pair_score = 0.0
+                    elif np.sign(qa_f) == np.sign(qf_f):
+                        pair_score = float(np.sign(qa_f) * min(abs(qa_f), abs(qf_f)))
+                    else:
+                        pair_score = 0.50 * qa_f + 0.50 * qf_f
+
+                    va["current_direction"], va["current_icon"], va["current_color"], _ = self.processor.format_direction_score(
+                        pair_score, sa["roc_1h"]
+                    )
+                    vf["current_direction"], vf["current_icon"], vf["current_color"], _ = self.processor.format_direction_score(
+                        pair_score, sf["roc_1h"]
+                    )
+
+                    va["pair_direction_score"] = round(pair_score, 3)
+                    vf["pair_direction_score"] = round(pair_score, 3)
+
+                # Unsupported one-sided model signal gets neutralized.
+                anc_verdict = str(va.get("verdict", ""))
+                fol_verdict = str(vf.get("verdict", ""))
+                opposite_one_sided = (
+                    ("AL" in fol_verdict and "AL" not in anc_verdict)
+                    or ("SAT" in fol_verdict and "SAT" not in anc_verdict)
+                )
+                if opposite_one_sided:
+                    vf.update({
+                        "verdict": "NÖTR (FİYAT TEYİDİ YOK)",
+                        "forecast_direction": "NÖTR (FİYAT TEYİDİ YOK)",
+                        "forecast_icon": "⚪",
+                        "forecast_color": "gray",
+                        "icon": "⚪",
+                        "color": "gray",
+                    })
+
+                    va["pair_model_reconciliation"] = "TEK TARAFLI MODEL SİNYALİ BASTIRILDI"
+                    vf["pair_model_reconciliation"] = "TEK TARAFLI MODEL SİNYALİ BASTIRILDI"
+
+        # BTC/ETH broad sympathy is kept intentionally soft; genuine divergence
+        # is not overwritten here.
+        vb, ve = verdicts.get("BTC"), verdicts.get("ETH")
         if vb and ve:
-            diff=abs(float(vb.get("score",0))-float(ve.get("score",0)))
-            if diff<=0.60:
-                if float(vb.get("score",0))<=-0.40 and float(ve.get("score",0))<=-0.40:
-                    vb["verdict"]=ve["verdict"]="SAT"; vb["forecast_direction"]=ve["forecast_direction"]="SAT"
-                elif float(vb.get("score",0))>=0.40 and float(ve.get("score",0))>=0.40:
-                    vb["verdict"]=ve["verdict"]="AL"; vb["forecast_direction"]=ve["forecast_direction"]="AL"
+            diff = abs(float(vb.get("score", 0.0)) - float(ve.get("score", 0.0)))
+            if diff <= 0.60:
+                if float(vb.get("score", 0.0)) <= -0.40 and float(ve.get("score", 0.0)) <= -0.40:
+                    vb["verdict"] = ve["verdict"] = "SAT"
+                    vb["forecast_direction"] = ve["forecast_direction"] = "SAT"
+                elif float(vb.get("score", 0.0)) >= 0.40 and float(ve.get("score", 0.0)) >= 0.40:
+                    vb["verdict"] = ve["verdict"] = "AL"
+                    vb["forecast_direction"] = ve["forecast_direction"] = "AL"
+
         return verdicts
