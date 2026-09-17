@@ -9,13 +9,22 @@ from gatekeeper import PreTradeGatekeeper
 
 STATE_FILE="terminal_state.json"
 HISTORY_FILE="terminal_history.csv"
-V22_VERSION="2.2.0"
+V22_VERSION="2.2.1"
 
 def send_telegram_alert(message):
     token=os.environ.get("TELEGRAM_TOKEN"); chat_id=os.environ.get("CHAT_ID")
     if not token or not chat_id: return
     try: requests.post("https://api.telegram.org/bot"+token+"/sendMessage",json={"chat_id":chat_id,"text":message,"parse_mode":"HTML"},timeout=10)
     except Exception as exc: print(f"Telegram alert hatası: {exc}")
+
+def _fmt_num(value, digits=2, default="—"):
+    try:
+        if value is None:
+            return default
+        return f"{float(value):.{digits}f}"
+    except (TypeError, ValueError):
+        return default
+
 
 def run_background_cycle():
     now=datetime.now(timezone.utc).isoformat(); fred_api_key=os.environ.get("FRED_API_KEY","").strip()
