@@ -22,6 +22,8 @@ import concurrent.futures
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 
+from ohlcv_history import load_history, merge_and_persist, DEFAULT_MAX_BARS
+
 
 class ResilientDataEngine:
     def __init__(self, fred_api_key=None, *args, **kwargs):
@@ -100,7 +102,11 @@ class ResilientDataEngine:
         return {"rate": None, "confidence": 0.0, "status": "UNAVAILABLE"}
 
     def fetch_single_ticker_1h(self, symbol, period="5d"):
-        """Fetch one ticker directly from Yahoo Finance; never substitute another instrument."""
+        """
+        Fetch one ticker directly from Yahoo Finance; never substitute another
+        instrument. Successful direct OHLCV is persisted in a bounded history;
+        persisted history is analysis-only when the live fetch fails.
+        """
         source = str(symbol)
         fetched_at = datetime.now(timezone.utc).isoformat()
 
@@ -170,6 +176,8 @@ class ResilientDataEngine:
             )
             clean = clean_frame(raw)
             if len(clean) >= 2:
+                # Only successful DIRECT bars enter persistent history.
+                clean = merge_and_persist(source, clean, max_bars=DEFAULT_MAX_BARS)
                 clean = attach(clean)
                 self._cache[source] = clean.copy()
                 self._cache_fetched_at[source] = time.time()
@@ -195,6 +203,21 @@ class ResilientDataEngine:
                 self.data_quality[source] = dict(cached.attrs)
                 self.data_sources[source] = source
                 return source, cached
+
+        # Persistent history survives process/container restarts, but is never
+        # treated as LIVE after a failed fetch. This keeps it useful for model
+        # history while preserving the execution safety rule.
+        persisted = load_history(source)
+        if len(persisted) >= 2:
+            persisted = attach(
+                persisted.tail(DEFAULT_MAX_BARS),
+                status="STALE",
+                reason="CANLI FETCH BAŞARISIZ; KALICI OHLCV TARİHÇESİ SADECE ANALİZ İÇİN",
+                cache_age=None,
+            )
+            self.data_quality[source] = dict(persisted.attrs)
+            self.data_sources[source] = source
+            return source, persisted
 
         self.data_quality[source] = {
             "status": "UNAVAILABLE", "quality": "UNAVAILABLE",
