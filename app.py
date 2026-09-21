@@ -45,6 +45,7 @@ from config import (
 
 from gatekeeper import PreTradeGatekeeper
 from quant_processor import RobustQuantProcessor
+from stateful_adaptive_controller import StatefulAdaptiveController
 
 
 # =============================================================================
@@ -279,6 +280,20 @@ if (
 
 gk = st.session_state.gatekeeper
 
+
+# =============================================================================
+# STATEFUL ADAPTIVE CONTROLLER
+# =============================================================================
+
+if "stateful_controller" not in st.session_state:
+
+    st.session_state.stateful_controller = (
+        StatefulAdaptiveController()
+    )
+
+
+stateful_controller = st.session_state.stateful_controller
+
 def _round_or_none(value, digits=2):
     try:
         return round(float(value), digits) if value is not None and pd.notna(value) else None
@@ -352,6 +367,16 @@ if (
 
 
         # ----------------------------------------------------
+        # STATEFUL ADAPTIVE PREPARATION
+        # ----------------------------------------------------
+
+        # Reconcile pending forecasts, update persistent regime state,
+        # and load the latest decayed model-memory statistics before
+        # calculating this cycle's asset verdicts.
+        stateful_controller.prepare_cycle(gk)
+
+
+        # ----------------------------------------------------
         # PREVIOUS VERDICTS
         # ----------------------------------------------------
 
@@ -375,6 +400,20 @@ if (
             gk.evaluate_all_assets_harmonized(
                 prev_map
             )
+        )
+
+
+        # ----------------------------------------------------
+        # STATEFUL ADAPTIVE FINALIZATION
+        # ----------------------------------------------------
+
+        # Replace the raw deterministic verdicts with the stateful
+        # adaptive score/threshold/entry results, then persist this
+        # cycle as the pending observation used by future cycles.
+        verdicts, adaptive_diag = stateful_controller.finalize_cycle(
+            gk,
+            verdicts,
+            previous_signals=prev_map,
         )
 
 
@@ -543,6 +582,9 @@ if (
 
             "asset_verdicts":
                 verdicts,
+
+            "stateful_adaptive":
+                adaptive_diag,
         }
 
 
@@ -613,6 +655,62 @@ if is_crisis:
 st.info(
     f"🌐 **Aktif Makro Rejim:** {regime}"
 )
+
+
+# =============================================================================
+# STATEFUL ADAPTIVE SUMMARY
+# =============================================================================
+
+stateful_diag = active_data.get(
+    "stateful_adaptive",
+    {},
+)
+
+if stateful_diag:
+
+    mem_diag = stateful_diag.get("memory", {})
+    regime_diag = stateful_diag.get("regime", {})
+
+    st.subheader(
+        "🧠 Stateful Adaptive Motor"
+    )
+
+    stateful_cols = st.columns(5)
+
+    with stateful_cols[0]:
+        st.metric(
+            "Pending Gözlem",
+            int(mem_diag.get("pending_observations", 0) or 0),
+        )
+
+    with stateful_cols[1]:
+        st.metric(
+            "Settled Gözlem",
+            int(mem_diag.get("settled_observations", 0) or 0),
+        )
+
+    with stateful_cols[2]:
+        st.metric(
+            "Aktif Rejim",
+            str(regime_diag.get("active_regime_id", "-")),
+        )
+
+    with stateful_cols[3]:
+        st.metric(
+            "Aday Rejim",
+            str(regime_diag.get("candidate_regime_id", "-")),
+        )
+
+    with stateful_cols[4]:
+        st.metric(
+            "Adaptive Pair",
+            "AKTİF" if stateful_diag.get("pair_state", {}).get("available") else "BEKLEMEDE",
+        )
+
+    st.caption(
+        "Online adaptasyon geçmiş gerçekleşmelerden decayed güvenilirlik öğrenir; "
+        "rejim state'i kalıcı tutulur ve XAU/XAG ilişkisi dinamik beta + residual ile değerlendirilir."
+    )
 
 
 # =============================================================================
@@ -1047,6 +1145,28 @@ if details:
             hide_index=True,
         )
 
+    adaptive_weights = res.get("adaptive_factor_weights", {})
+    adaptive_thresholds = res.get("adaptive_thresholds", {})
+
+    if adaptive_weights:
+        st.caption(
+            "🧠 Adaptive factor ağırlıkları: "
+            + ", ".join(
+                f"{k}={float(v):.3f}"
+                for k, v in sorted(adaptive_weights.items())
+            )
+        )
+
+    if adaptive_thresholds:
+        st.caption(
+            "🎚️ Stateful adaptive eşikleri: "
+            + ", ".join(
+                f"{k}={float(v):.3f}"
+                for k, v in sorted(adaptive_thresholds.items())
+                if isinstance(v, (int, float))
+            )
+        )
+
 
 # =============================================================================
 # V2.2 FOOTER
@@ -1055,7 +1175,7 @@ if details:
 st.divider()
 
 st.caption(
-    "V2.2 | Zero Synthetic Data | "
+    "V2.2.1 + Stateful Adaptive v3 | Zero Synthetic Data | "
     "Live Multi-Horizon Direction | "
     "Strict Execution Gate | "
     "Real RVOL | "
