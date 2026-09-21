@@ -40,5 +40,5 @@ jobs:
         run: |
           git config --local user.email "quantbot@github.com"
           git config --local user.name "QuantBot Tier-1"
-          git add terminal_state.json terminal_history.csv
+          git add terminal_state.json terminal_history.csv ohlcv_history/
           git diff --quiet && git diff --staged --quiet || (git commit -m "🤖 Background Quant State Güncelleme: $(date -u)" && git push)
