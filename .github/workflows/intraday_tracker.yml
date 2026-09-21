@@ -2,9 +2,15 @@ name: Tier-1 Quant Intraday Background Tracker
 
 on:
   schedule:
-    # Hafta içi her gün saat 06:00 UTC ile 22:00 UTC arasında her 30 dakikada bir çalışır
-    - cron: '*/30 6-22 * * 1-5'
+    # Hafta içi 24 saat boyunca her 30 dakikada bir çalışır.
+    # Yeni 1H bar oluşmadıysa history aynı timestamp'i ikinci satır olarak biriktirmez.
+    - cron: '*/30 * * * 1-5'
   workflow_dispatch:
+
+# Aynı workflow'un eşzamanlı iki kez çalışmasını engeller.
+concurrency:
+  group: tier1-quant-background-tracker
+  cancel-in-progress: false
 
 permissions:
   contents: write
