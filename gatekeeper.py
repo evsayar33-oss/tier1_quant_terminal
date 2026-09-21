@@ -568,10 +568,10 @@ class PreTradeGatekeeper:
         # -----------------------------------------------------------------
         # XAU-ONLY SILVER-LEAD CONFIRMATION
         # -----------------------------------------------------------------
-        # This is intentionally one-way: XAG can help XAU recover from a
-        # neutral/lagging forecast when real GC=F/SI=F prices are moving
-        # together. XAG itself is never modified here, and SPX/NQ/BTC/ETH
-        # are untouched.
+        # IMPORTANT: This block modifies ONLY XAU forecast/verdict.
+        # It does NOT touch current_direction, XAG, SPX, NQ, BTC or ETH.
+        # The existing pair/current-direction logic above is intentionally
+        # left byte-for-byte unchanged.
         xau_v = verdicts.get("XAU")
         xag_v = verdicts.get("XAG")
         if xau_v and xag_v:
@@ -582,37 +582,35 @@ class PreTradeGatekeeper:
             xau_is_neutral = xau_verdict.startswith("NÖTR")
             xag_has_buy_signal = xag_verdict.startswith("AL")
 
-            xau_stats = xau_v.get("pair_stats") or {}
-            corr = float(xau_stats.get("corr", 0.0))
-            spread = abs(float(xau_stats.get("spread", 999.0)))
+            stats = xau_v.get("pair_stats") or {}
+            corr = float(stats.get("corr", 0.0))
+            spread = abs(float(stats.get("spread", 999.0)))
             one_hour_gap = abs(
-                float(xau_stats.get("anchor_1h", 999.0))
-                - float(xau_stats.get("follower_1h", 999.0))
+                float(stats.get("anchor_1h", 999.0))
+                - float(stats.get("follower_1h", 999.0))
             )
-            xag_1h = float(xau_stats.get("follower_1h", -999.0))
-            xau_1h = float(xau_stats.get("anchor_1h", -999.0))
+            xag_1h = float(stats.get("follower_1h", -999.0))
+            xau_1h = float(stats.get("anchor_1h", -999.0))
 
-            # Small real-price gap + strong pair correlation means the
-            # apparent model disagreement is more likely XAU lag than a
-            # genuine precious-metal divergence. The raw bounds are strict
-            # so a materially diverging XAU is never forced to AL.
+            # Only accept the XAG lead when the two real price series are
+            # moving closely enough that the XAU result can reasonably be
+            # interpreted as lagging rather than genuinely diverging.
             price_together = (
                 corr >= 0.70
                 and spread <= 0.0060
                 and one_hour_gap <= 0.0030
             )
 
-            # Do not override an actually bearish XAU model. The fix is only
-            # for the neutral/late case the user identified.
+            # Do not turn a meaningfully bearish XAU result into AL.
             xau_not_bearish = (xau_score > -0.30) and (xau_1h >= -0.0020)
-            silver_is_actually_rising = xag_1h > 0.0005
+            silver_is_rising = xag_1h > 0.0005
 
             if (
                 xau_is_neutral
                 and xag_has_buy_signal
                 and price_together
                 and xau_not_bearish
-                and silver_is_actually_rising
+                and silver_is_rising
             ):
                 xau_v.update({
                     "forecast_direction": "AL",
