@@ -369,8 +369,42 @@ class PreTradeGatekeeper:
                 "ham_deger": round(float(val), 2), "puan": round(f_score, 2)
             })
 
+        # XAU-ONLY DYNAMIC SILVER PEER EVIDENCE
+        # ---------------------------------------------------------------
+        # This is part of XAU's model score, not a post-hoc verdict override.
+        # It uses only real GC=F/SI=F price history plus XAG's existing
+        # continuous model score. No fixed price-gap trigger is used.
+        xau_silver_peer = None
+        peer_adjustment = 0.0
+        if asset_key == "XAU":
+            try:
+                xag_df = self.grid_1h.get("XAG", self.grid_1h.get("SI=F", pd.DataFrame()))
+                xag_score, _ = self.processor.compute_direction_score(xag_df) if isinstance(xag_df, pd.DataFrame) and not xag_df.empty else (None, None)
+                xau_silver_peer = self._dynamic_xau_silver_peer_adjustment(
+                    df_ast, xag_df, xag_score
+                )
+            except Exception:
+                xau_silver_peer = None
+
+            if xau_silver_peer is not None:
+                peer_adjustment = float(xau_silver_peer["adjustment"])
+
         weighted_avg = weighted_sum / (total_weights + 1e-9)
-        final_score = round(float(np.clip(weighted_avg * 1.5, -3.5, 3.5)), 2)
+        final_score = round(float(np.clip(weighted_avg * 1.5 + peer_adjustment, -3.5, 3.5)), 2)
+
+        if asset_key == "XAU" and xau_silver_peer is not None:
+            details.append({
+                "faktör": "🥈 Gümüş Dinamik Eş-Hareket Teyidi",
+                "küme": "E",
+                "ham_deger": round(float(xau_silver_peer["peer_signal"]), 2),
+                "puan": round(float(peer_adjustment), 2),
+                "durum": "GERÇEK GC=F/SI=F İSTATİSTİKSEL İLİŞKİ",
+                "lag_hours": int(xau_silver_peer["lag_hours"]),
+                "corr": round(float(xau_silver_peer["corr"]), 3),
+                "r2": round(float(xau_silver_peer["r2"]), 3),
+                "beta": round(float(xau_silver_peer["beta"]), 4),
+                "confidence": round(float(xau_silver_peer["confidence"]), 3),
+            })
 
         active_clusters = [c for c, sc in cluster_scores.items() if abs(sc) > 0.15]
         bull_clusters = sum(1 for c, sc in cluster_scores.items() if sc > 0.20)
@@ -424,6 +458,142 @@ class PreTradeGatekeeper:
             "composite_usd_risk": self.composite_usd_risk,
             "usd_risk_label": self.usd_risk_label,
             "details": details
+        }
+
+    @staticmethod
+    def _dynamic_xau_silver_peer_adjustment(xau_df, xag_df, xag_score):
+        """
+        XAU-only continuous peer evidence from real GC=F and SI=F data.
+
+        It learns the strongest positive contemporaneous/forward relationship
+        between SI=F and GC=F over the observed return history, estimates a
+        rolling beta, measures fit/stability, and converts the existing XAG
+        model score into a bounded confidence-weighted XAU score adjustment.
+
+        It never copies the XAG verdict and never modifies XAG or any other
+        asset. Missing/weak relationship => adjustment tends to zero.
+        """
+        if xag_score is None:
+            return None
+        if not isinstance(xau_df, pd.DataFrame) or not isinstance(xag_df, pd.DataFrame):
+            return None
+        if xau_df.empty or xag_df.empty:
+            return None
+        if "Close" not in xau_df.columns or "Close" not in xag_df.columns:
+            return None
+
+        au = pd.to_numeric(xau_df["Close"], errors="coerce")
+        ag = pd.to_numeric(xag_df["Close"], errors="coerce")
+        aligned = pd.concat([au.rename("gold"), ag.rename("silver")], axis=1, join="inner").dropna()
+        aligned = aligned.tail(150)
+        if len(aligned) < 50:
+            return None
+
+        returns = aligned.pct_change().replace([np.inf, -np.inf], np.nan).dropna()
+        if len(returns) < 45:
+            return None
+
+        # Search only for relationships that allow XAG to be a same/earlier
+        # observation relative to XAU. The lag is learned from data.
+        candidates = []
+        for lag in range(0, 4):
+            sample = pd.concat(
+                [returns["silver"].shift(lag).rename("silver"), returns["gold"].rename("gold")],
+                axis=1,
+            ).dropna()
+            if len(sample) < 35:
+                continue
+            corr = float(sample["silver"].corr(sample["gold"]))
+            if not np.isfinite(corr) or corr <= 0:
+                continue
+            n = len(sample)
+            t_stat = corr * np.sqrt(max(n - 2, 1) / max(1.0 - corr * corr, 1e-12))
+            # Slight preference to stable relationship rather than a single
+            # accidental maximum correlation.
+            mid = max(15, len(sample) // 2)
+            c1 = float(sample.iloc[:mid]["silver"].corr(sample.iloc[:mid]["gold"]))
+            c2 = float(sample.iloc[-mid:]["silver"].corr(sample.iloc[-mid:]["gold"]))
+            stability = float(np.clip(np.nanmean([max(c1, 0.0), max(c2, 0.0)]), 0.0, 1.0))
+            rank = t_stat * (0.70 + 0.30 * stability)
+            candidates.append((rank, corr, lag, sample, stability))
+
+        if not candidates:
+            return None
+
+        _, corr, lag, sample, stability = max(candidates, key=lambda item: item[0])
+        fit = sample.iloc[:-1]
+        if len(fit) < 30:
+            return None
+
+        xs = fit["silver"].to_numpy(dtype=float)
+        ys = fit["gold"].to_numpy(dtype=float)
+        x_mean = float(np.mean(xs))
+        y_mean = float(np.mean(ys))
+        x_centered = xs - x_mean
+        y_centered = ys - y_mean
+        denom = float(np.sum(x_centered * x_centered))
+        if denom <= 1e-14:
+            return None
+
+        beta = float(np.sum(x_centered * y_centered) / denom)
+        if not np.isfinite(beta) or beta <= 0:
+            return None
+
+        intercept = y_mean - beta * x_mean
+        pred = intercept + beta * xs
+        ss_res = float(np.sum((ys - pred) ** 2))
+        ss_tot = float(np.sum((ys - y_mean) ** 2))
+        r2 = float(np.clip(1.0 - ss_res / (ss_tot + 1e-12), 0.0, 1.0))
+
+        n = len(fit)
+        t_stat = corr * np.sqrt(max(n - 2, 1) / max(1.0 - corr * corr, 1e-12))
+        sig_conf = float(np.clip((t_stat - 1.0) / 3.0, 0.0, 1.0))
+        fit_conf = float(np.sqrt(r2))
+        sample_conf = float(np.clip(n / 80.0, 0.0, 1.0))
+        confidence = float(np.clip(sig_conf * fit_conf * stability * sample_conf, 0.0, 1.0))
+        if confidence <= 0.05:
+            return None
+
+        # XAG's existing model score is used continuously rather than as AL/SAT.
+        peer_model = float(np.clip(np.tanh(float(xag_score) / 1.25) * 1.8, -1.8, 1.8))
+
+        # Add an independent real-price component from SI=F's recent 4H move.
+        ag_ret = returns["silver"]
+        current_4h = ag_ret.tail(min(4, len(ag_ret)))
+        current_impulse = float((1.0 + current_4h).prod() - 1.0)
+        hist_impulses = []
+        for i in range(4, len(ag_ret)):
+            w = ag_ret.iloc[i - 4:i]
+            hist_impulses.append(float((1.0 + w).prod() - 1.0))
+        if len(hist_impulses) >= 20:
+            arr = np.asarray(hist_impulses, dtype=float)
+            med = float(np.median(arr))
+            mad_scale = float(np.median(np.abs(arr - med)) * 1.4826)
+            if not np.isfinite(mad_scale) or mad_scale <= 1e-12:
+                mad_scale = float(np.std(arr))
+            price_signal = float(np.clip((current_impulse - med) / (mad_scale + 1e-12), -1.8, 1.8)) if mad_scale > 0 else 0.0
+        else:
+            price_signal = 0.0
+
+        peer_signal = float(np.clip(0.70 * peer_model + 0.30 * price_signal, -1.8, 1.8))
+
+        # If XAU's own score is strongly opposite, reduce the transfer smoothly
+        # instead of forcing XAU to follow silver.
+        xau_existing_score = None
+        # The caller intentionally does not pass the XAU score into this helper,
+        # so no extra decision gate is created here. The relationship confidence
+        # itself is the limiter.
+
+        adjustment = float(np.clip(peer_signal * confidence * 0.95, -0.95, 0.95))
+
+        return {
+            "adjustment": adjustment,
+            "peer_signal": peer_signal,
+            "corr": corr,
+            "r2": r2,
+            "beta": beta,
+            "confidence": confidence,
+            "lag_hours": lag,
         }
 
     def evaluate_all_assets_harmonized(self, previous_signals=None):
@@ -564,66 +734,6 @@ class PreTradeGatekeeper:
 
                     va["pair_model_reconciliation"] = "TEK TARAFLI MODEL SİNYALİ BASTIRILDI"
                     vf["pair_model_reconciliation"] = "TEK TARAFLI MODEL SİNYALİ BASTIRILDI"
-
-        # -----------------------------------------------------------------
-        # XAU-ONLY SILVER-LEAD CONFIRMATION
-        # -----------------------------------------------------------------
-        # IMPORTANT: This block modifies ONLY XAU forecast/verdict.
-        # It does NOT touch current_direction, XAG, SPX, NQ, BTC or ETH.
-        # The existing pair/current-direction logic above is intentionally
-        # left byte-for-byte unchanged.
-        xau_v = verdicts.get("XAU")
-        xag_v = verdicts.get("XAG")
-        if xau_v and xag_v:
-            xau_verdict = str(xau_v.get("verdict", ""))
-            xag_verdict = str(xag_v.get("verdict", ""))
-            xau_score = float(xau_v.get("score", 0.0))
-
-            xau_is_neutral = xau_verdict.startswith("NÖTR")
-            xag_has_buy_signal = xag_verdict.startswith("AL")
-
-            stats = xau_v.get("pair_stats") or {}
-            corr = float(stats.get("corr", 0.0))
-            spread = abs(float(stats.get("spread", 999.0)))
-            one_hour_gap = abs(
-                float(stats.get("anchor_1h", 999.0))
-                - float(stats.get("follower_1h", 999.0))
-            )
-            xag_1h = float(stats.get("follower_1h", -999.0))
-            xau_1h = float(stats.get("anchor_1h", -999.0))
-
-            # Only accept the XAG lead when the two real price series are
-            # moving closely enough that the XAU result can reasonably be
-            # interpreted as lagging rather than genuinely diverging.
-            price_together = (
-                corr >= 0.70
-                and spread <= 0.0060
-                and one_hour_gap <= 0.0030
-            )
-
-            # Do not turn a meaningfully bearish XAU result into AL.
-            xau_not_bearish = (xau_score > -0.30) and (xau_1h >= -0.0020)
-            silver_is_rising = xag_1h > 0.0005
-
-            if (
-                xau_is_neutral
-                and xag_has_buy_signal
-                and price_together
-                and xau_not_bearish
-                and silver_is_rising
-            ):
-                xau_v.update({
-                    "forecast_direction": "AL",
-                    "forecast_icon": "🟢",
-                    "forecast_color": "lightgreen",
-                    "verdict": "AL",
-                    "icon": "🟢",
-                    "color": "lightgreen",
-                    "xau_silver_lead_confirmation": (
-                        "XAG AL + GC=F/SI=F gerçek fiyat uyumu; "
-                        "XAU nötr gecikmesi düzeltildi"
-                    ),
-                })
 
         # BTC/ETH broad sympathy is kept intentionally soft; genuine divergence
         # is not overwritten here.
