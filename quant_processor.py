@@ -33,6 +33,23 @@ except ImportError:
 ENTRY_GATES_CONFIG = ENTRY_FILTER_CONFIG
 
 
+# Dinamik giriş profili. Bunlar piyasa değeri eşiği değildir; eşiklerin
+# son gerçekleşmiş barların kendi dağılımından çıkarılmasını tanımlar.
+# Böylece BTC, ETH, ES, NQ, GC, SI vb. aynı ham RVOL/ATR sınırlarına zorlanmaz.
+ADAPTIVE_ENTRY_CONFIG = {
+    "window": 150,
+    "min_history": 60,
+    "rvol_baseline_period": 20,
+    "atr_period": 14,
+    "atr_baseline_period": 20,
+    "rvol_illiquid_percentile": 0.05,
+    "rvol_strong_percentile": 0.70,
+    "rvol_climax_percentile": 0.99,
+    "atr_low_percentile": 0.05,
+    "atr_high_percentile": 0.95,
+}
+
+
 class RobustQuantProcessor:
     @staticmethod
     def _safe_align_series(s1: pd.Series, s2: pd.Series) -> pd.DataFrame:
@@ -161,42 +178,239 @@ class RobustQuantProcessor:
         return RobustQuantProcessor.format_direction_score(score, s["roc_1h"])
 
     @staticmethod
-    def evaluate_trade_entry_gate(df_1h, asset_key="SPX"):
-        """EXECUTION_GATE: only fresh DIRECT data; strict ATR + real RVOL."""
-        if df_1h is None or not isinstance(df_1h,pd.DataFrame) or df_1h.empty:
-            return False,"İşleme Giriş Önerilmez: Gerçek piyasa verisi yok.",0.0,0.0
-        attrs=getattr(df_1h,"attrs",{}) or {}
-        if not attrs.get("is_real",False) or attrs.get("source_type")!="DIRECT":
-            return False,"İşleme Giriş Önerilmez: Kaynak DIRECT/gerçek değil.",0.0,0.0
-        if attrs.get("status")!="LIVE" or attrs.get("execution_eligible") is not True:
-            return False,"İşleme Giriş Önerilmez: Veri LIVE/işlem uygunluğunda değil.",0.0,0.0
-        df=df_1h.copy()
-        if isinstance(df.columns,pd.MultiIndex): df.columns=[c[0] if isinstance(c,tuple) else c for c in df.columns]
-        df=df.loc[:,~df.columns.duplicated(keep="last")]
-        for c in ("Open","High","Low","Close","Volume"):
+    def _adaptive_entry_profile(df_1h):
+        """
+        Giriş eşiğini ham sabit sayılardan değil, varlığın kendi son
+        gerçekleşmiş bar dağılımından çıkarır.
+
+        Önemli kurallar:
+        - Current bar RVOL baseline'a dahil edilmez.
+        - Current bar, threshold dağılımına dahil edilmez.
+        - ATR ve RVOL eşikleri yüzdelik konumdan türetilir.
+        - Minimum tarihçe yoksa giriş güvenli biçimde reddedilir.
+        """
+        if df_1h is None or not isinstance(df_1h, pd.DataFrame) or df_1h.empty:
+            return None, "Gerçek piyasa verisi yok."
+
+        cfg = ADAPTIVE_ENTRY_CONFIG
+        atr_period = int(cfg["atr_period"])
+        atr_base_period = int(cfg["atr_baseline_period"])
+        rvol_base_period = int(cfg["rvol_baseline_period"])
+        window = int(cfg["window"])
+        min_history = int(cfg["min_history"])
+
+        df = df_1h.copy()
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
+        df = df.loc[:, ~df.columns.duplicated(keep="last")].copy()
+
+        for c in ("Open", "High", "Low", "Close", "Volume"):
             if c not in df.columns:
-                if c=="Volume": df[c]=np.nan
-                else: return False,f"İşleme Giriş Önerilmez: {c} verisi yok.",0.0,0.0
-            df[c]=pd.to_numeric(df[c],errors="coerce")
-        if len(df)<30: return False,f"İşleme Giriş Önerilmez: Yetersiz veri ({len(df)}/30 bar).",0.0,0.0
-        h,l,c,v=df["High"],df["Low"],df["Close"],df["Volume"]
-        if not isinstance(v,pd.Series) or v.dropna().empty: return False,"İşleme Giriş Önerilmez: Hacim verisi yok; RVOL üretilmedi.",0.0,0.0
-        prev=c.shift(1); tr=pd.concat([h-l,(h-prev).abs(),(l-prev).abs()],axis=1).max(axis=1)
-        atr=tr.rolling(14,min_periods=14).mean(); baseline=atr.shift(1).rolling(20,min_periods=20).mean(); last=float(atr.iloc[-1]) if np.isfinite(atr.iloc[-1]) else np.nan; base=float(baseline.iloc[-1]) if np.isfinite(baseline.iloc[-1]) else np.nan
-        if not np.isfinite(last) or last<=0 or not np.isfinite(base) or base<=0: return False,"İşleme Giriş Önerilmez: ATR referansı hesaplanamadı.",0.0,0.0
-        atr_ratio=round(float(np.clip(last/(base+1e-12),0.25,4)),2)
-        historical=v.replace([np.inf,-np.inf],np.nan).iloc[:-1].dropna(); positive=historical[historical>0]
-        if len(positive)<20: return False,"İşleme Giriş Önerilmez: Gerçek RVOL için yeterli hacim geçmişi yok.",atr_ratio,0.0
-        bv=v.replace([np.inf,-np.inf],np.nan).shift(1).rolling(20,min_periods=20).mean().iloc[-1]; cv=v.iloc[-1]
-        if not np.isfinite(cv) or cv<=0 or not np.isfinite(bv) or bv<=0: return False,"İşleme Giriş Önerilmez: Gerçek RVOL hesaplanamadı.",atr_ratio,0.0
-        rvol=round(float(np.clip(cv/(bv+1e-12),0.05,10)),2)
-        cfg=ENTRY_FILTER_CONFIG
-        hi=float(cfg.get("vol_shock_high",2.20)); lo=float(cfg.get("vol_shock_low",0.65)); climax=float(cfg.get("rvol_climax_shock",3.20)); ill=float(cfg.get("rvol_illiquid",0.50))
-        if atr_ratio>hi: return False,f"İşleme Giriş Önerilmez: Volatilite Şoku (ATR {atr_ratio:.2f}x).",atr_ratio,rvol
-        if atr_ratio<lo: return False,f"İşleme Giriş Önerilmez: Volatilite çok düşük (ATR {atr_ratio:.2f}x).",atr_ratio,rvol
-        if rvol>climax: return False,f"İşleme Giriş Önerilmez: Hacim climax (RVOL {rvol:.2f}x).",atr_ratio,rvol
-        if rvol<ill: return False,f"İşleme Giriş Önerilmez: Gerçek hacim zayıf (RVOL {rvol:.2f}x).",atr_ratio,rvol
-        return True,f"İşleme Giriş Uygun: LIVE/DIRECT | ATR {atr_ratio:.2f}x | RVOL {rvol:.2f}x.",atr_ratio,rvol
+                if c == "Volume":
+                    df[c] = np.nan
+                else:
+                    return None, f"{c} verisi yok."
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+
+        if len(df) < max(30, atr_period + atr_base_period + rvol_base_period + min_history // 2):
+            return None, f"Dinamik eşik için yetersiz tarihçe ({len(df)} bar)."
+
+        h = df["High"]
+        l = df["Low"]
+        c = df["Close"]
+        v = df["Volume"].replace([np.inf, -np.inf], np.nan)
+
+        if not isinstance(v, pd.Series) or v.dropna().empty:
+            return None, "Hacim verisi yok; RVOL üretilemedi."
+
+        prev_close = c.shift(1)
+        tr = pd.concat(
+            [h - l, (h - prev_close).abs(), (l - prev_close).abs()],
+            axis=1,
+        ).max(axis=1)
+
+        atr = tr.rolling(atr_period, min_periods=atr_period).mean()
+
+        # Hem mevcut ATR oranının hem de tarihsel ATR dağılımının
+        # referansı ilgili barın kendisini dışarıda bırakır.
+        atr_baseline = atr.shift(1).rolling(atr_base_period, min_periods=atr_base_period).mean()
+        atr_ratio_series = atr / (atr_baseline + 1e-12)
+
+        last_atr_ratio = atr_ratio_series.iloc[-1]
+        if not np.isfinite(last_atr_ratio) or last_atr_ratio <= 0:
+            return None, "ATR dinamik referansı hesaplanamadı."
+
+        # Gerçek RVOL: current volume / önceki 20 barın ortalaması.
+        rvol_baseline = v.shift(1).rolling(
+            rvol_base_period,
+            min_periods=rvol_base_period,
+        ).mean()
+        rvol_series = v / (rvol_baseline + 1e-12)
+        last_rvol = rvol_series.iloc[-1]
+
+        if not np.isfinite(last_rvol) or last_rvol <= 0:
+            return None, "Gerçek RVOL hesaplanamadı."
+
+        # Threshold dağılımında current bar kesinlikle yok.
+        atr_history = atr_ratio_series.iloc[:-1].replace([np.inf, -np.inf], np.nan).dropna()
+        rvol_history = rvol_series.iloc[:-1].replace([np.inf, -np.inf], np.nan).dropna()
+
+        atr_history = atr_history.tail(window)
+        rvol_history = rvol_history[rvol_history > 0].tail(window)
+
+        if len(atr_history) < min_history or len(rvol_history) < min_history:
+            return None, (
+                f"Dinamik eşik için yeterli tarihçe yok "
+                f"(ATR {len(atr_history)}/{min_history}, RVOL {len(rvol_history)}/{min_history})."
+            )
+
+        atr_low = float(np.quantile(
+            atr_history.to_numpy(dtype=float),
+            float(cfg["atr_low_percentile"]),
+        ))
+        atr_high = float(np.quantile(
+            atr_history.to_numpy(dtype=float),
+            float(cfg["atr_high_percentile"]),
+        ))
+        rvol_low = float(np.quantile(
+            rvol_history.to_numpy(dtype=float),
+            float(cfg["rvol_illiquid_percentile"]),
+        ))
+        rvol_climax = float(np.quantile(
+            rvol_history.to_numpy(dtype=float),
+            float(cfg["rvol_climax_percentile"]),
+        ))
+
+        # Yüzdelik konum, ham 0.50x / 3.20x gibi evrensel rakamlardan
+        # bağımsızdır ve aynı varlığın kendi son rejimine göre değişir.
+        atr_rank = float((atr_history <= float(last_atr_ratio)).mean())
+        rvol_rank = float((rvol_history <= float(last_rvol)).mean())
+
+        rvol_strong = float(np.quantile(
+            rvol_history.to_numpy(dtype=float),
+            float(cfg["rvol_strong_percentile"]),
+        ))
+
+        return {
+            "atr_ratio": float(last_atr_ratio),
+            "rvol": float(last_rvol),
+            "atr_low": atr_low,
+            "atr_high": atr_high,
+            "rvol_low": rvol_low,
+            "rvol_strong": rvol_strong,
+            "rvol_climax": rvol_climax,
+            "atr_rank": atr_rank,
+            "rvol_rank": rvol_rank,
+            "atr_history_n": int(len(atr_history)),
+            "rvol_history_n": int(len(rvol_history)),
+        }, None
+
+    @staticmethod
+    def _publish_dynamic_entry_thresholds(profile):
+        """
+        Gatekeeper dosyasına dokunmadan onun uyumluluk eşiklerini de
+        o an değerlendirilen varlığın gerçek dağılımına günceller.
+
+        Böylece gatekeeper içindeki volume_supports / volatility_supports
+        kontrolleri de sabit 1.25x / 0.65x / 2.20x vb. değerlerle değil,
+        aynı 150-bar dağılımından türetilen sınırlarla çalışır.
+        """
+        try:
+            import config
+            dynamic_values = {
+                "vol_shock_high": float(profile["atr_high"]),
+                "vol_shock_low": float(profile["atr_low"]),
+                "rvol_strong_min": float(profile["rvol_strong"]),
+                "rvol_climax_shock": float(profile["rvol_climax"]),
+                "rvol_illiquid": float(profile["rvol_low"]),
+            }
+            config.ENTRY_GATES_CONFIG.update(dynamic_values)
+            config.ENTRY_FILTER_CONFIG.update(dynamic_values)
+        except Exception:
+            # Dynamic entry gate itself remains authoritative; this bridge is
+            # only for gatekeeper compatibility and must never cause a crash.
+            pass
+
+    @staticmethod
+    def evaluate_trade_entry_gate(df_1h, asset_key="SPX"):
+        """
+        EXECUTION_GATE: yalnızca gerçek/fresh veri + dağılım-temelli dinamik ATR/RVOL.
+
+        Artık ham piyasa seviyesi için sabit 0.65x / 2.20x / 0.50x / 3.20x
+        veto eşikleri kullanılmaz. Eşikler her varlığın son 150 barındaki
+        gerçek ATR/RVOL dağılımından türetilir.
+        """
+        if df_1h is None or not isinstance(df_1h, pd.DataFrame) or df_1h.empty:
+            return False, "İşleme Giriş Önerilmez: Gerçek piyasa verisi yok.", 0.0, 0.0
+
+        attrs = getattr(df_1h, "attrs", {}) or {}
+        if not attrs.get("is_real", False) or attrs.get("source_type") != "DIRECT":
+            return False, "İşleme Giriş Önerilmez: Kaynak DIRECT/gerçek değil.", 0.0, 0.0
+        if attrs.get("status") != "LIVE" or attrs.get("execution_eligible") is not True:
+            return False, "İşleme Giriş Önerilmez: Veri LIVE/işlem uygunluğunda değil.", 0.0, 0.0
+
+        profile, profile_error = RobustQuantProcessor._adaptive_entry_profile(df_1h)
+        if profile is None:
+            return False, f"İşleme Giriş Önerilmez: {profile_error}", 0.0, 0.0
+
+        RobustQuantProcessor._publish_dynamic_entry_thresholds(profile)
+
+        atr_ratio = round(profile["atr_ratio"], 2)
+        rvol = round(profile["rvol"], 2)
+        atr_rank_pct = profile["atr_rank"] * 100.0
+        rvol_rank_pct = profile["rvol_rank"] * 100.0
+
+        # Aynı mantıksal veto rolleri korunur; fakat sınırlar her zaman
+        # mevcut varlığın kendi dağılımından gelir.
+        if profile["atr_ratio"] > profile["atr_high"]:
+            return (
+                False,
+                f"İşleme Giriş Önerilmez: Dinamik yüksek volatilite "
+                f"(ATR {atr_ratio:.2f}x | dağılım P{atr_rank_pct:.0f}; "
+                f"P95={profile['atr_high']:.2f}x).",
+                atr_ratio,
+                rvol,
+            )
+
+        if profile["atr_ratio"] < profile["atr_low"]:
+            return (
+                False,
+                f"İşleme Giriş Önerilmez: Dinamik düşük volatilite "
+                f"(ATR {atr_ratio:.2f}x | dağılım P{atr_rank_pct:.0f}; "
+                f"P05={profile['atr_low']:.2f}x).",
+                atr_ratio,
+                rvol,
+            )
+
+        if profile["rvol"] > profile["rvol_climax"]:
+            return (
+                False,
+                f"İşleme Giriş Önerilmez: Dinamik hacim climax "
+                f"(RVOL {rvol:.2f}x | dağılım P{rvol_rank_pct:.0f}; "
+                f"P99={profile['rvol_climax']:.2f}x).",
+                atr_ratio,
+                rvol,
+            )
+
+        if profile["rvol"] < profile["rvol_low"]:
+            return (
+                False,
+                f"İşleme Giriş Önerilmez: Dinamik düşük likidite "
+                f"(RVOL {rvol:.2f}x | dağılım P{rvol_rank_pct:.0f}; "
+                f"P05={profile['rvol_low']:.2f}x).",
+                atr_ratio,
+                rvol,
+            )
+
+        return (
+            True,
+            f"İşleme Giriş Uygun: LIVE/DIRECT | "
+            f"ATR {atr_ratio:.2f}x (P{atr_rank_pct:.0f}) | "
+            f"RVOL {rvol:.2f}x (P{rvol_rank_pct:.0f}) | "
+            f"150 bar dinamik eşik.",
+            atr_ratio,
+            rvol,
+        )
 
     @staticmethod
     def compute_adx(df_1h, period=14):
