@@ -891,7 +891,10 @@ class RobustQuantProcessor:
         if df_num.empty or df_denom.empty:
             return 0.0
         s1 = df_num["Close"] if "Close" in df_num.columns else df_num.iloc[:, 0]
-        s2 = df_denom["Close"] if "Close" in df_num.columns else df_denom.iloc[:, 0]
+        # BUGFIX: test the denominator frame itself. The previous implementation
+        # checked df_num.columns, which could silently select df_denom.iloc[:, 0]
+        # (Open) instead of denominator.Close on normal OHLCV frames.
+        s2 = df_denom["Close"] if "Close" in df_denom.columns else df_denom.iloc[:, 0]
         aligned = RobustQuantProcessor._safe_align_series(s1, s2)
         if len(aligned) < 5:
             return 0.0

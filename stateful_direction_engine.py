@@ -212,6 +212,8 @@ class StatefulDirectionEngine:
         current = now or self._now()
         score = float(np.clip(self._finite(score), -3.5, 3.5))
         previous_runtime = self._get_runtime(asset, regime_id)
+        previous_n = self._finite(previous_runtime.get("n"), 0.0)
+        previous_score_available = previous_n > 0.0 and bool(previous_runtime.get("recent_scores"))
         score_z = self._score_z_before_update(score, previous_runtime)
         side = self._side(score)
         runtime = self._update_runtime(asset, regime_id, score, side, current)
@@ -300,10 +302,11 @@ class StatefulDirectionEngine:
             "reason": reason,
             "thresholds": effective,
             "score": score,
-            "score_z": round(score_z, 4),
-            "velocity": round(velocity, 6),
-            "acceleration": round(acceleration, 6),
+            "score_z": round(score_z, 4) if previous_n >= 5.0 and self._finite(runtime.get("variance_score"), 0.0) > 1e-12 else None,
+            "velocity": round(velocity, 6) if previous_score_available else None,
+            "acceleration": round(acceleration, 6) if previous_score_available else None,
             "persistence": persistence,
+            "diagnostic_warmup": previous_n < 5.0,
             "cluster_count": cluster_count,
             "min_clusters": min_clusters,
             "cluster_ok": cluster_ok,

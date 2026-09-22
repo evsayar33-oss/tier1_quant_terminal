@@ -32,6 +32,7 @@ from stateful_direction_engine import StatefulDirectionEngine
 from stateful_memory_store import StatefulMemoryStore
 from stateful_regime_controller import StatefulRegimeController
 from xau_xag_dynamic_pair import DynamicXAU_XAGModel
+from stateful_factor_quality import sanitize_factor_rows
 
 
 DEFAULT_MEMORY_FILE = "stateful_adaptive_memory.json"
@@ -189,33 +190,49 @@ class StatefulAdaptiveController:
         asset_key: str,
         verdict: Dict[str, Any],
         previous_signal: str,
-    ) -> Dict[str, Any]:
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         regime_id = getattr(gatekeeper, "active_macro_regime_id", "REJIMSIZ_GECIS")
         market_regime = getattr(gatekeeper, "market_regime", "")
-        details = verdict.get("details", []) if isinstance(verdict, dict) else []
+        raw_details = verdict.get("details", []) if isinstance(verdict, dict) else []
 
+        # Sanitize legacy factor outputs: missing sources become None/MISSING,
+        # genuine zeros remain numeric, and selected relative factors are
+        # recomputed from the already-refreshed market grid.
+        details, data_diag = sanitize_factor_rows(asset_key, raw_details, gatekeeper)
         score_model = self.model.recompute_score(asset_key, details)
-        base_thresholds = deepcopy(
-            REGIME_DYNAMIC_THRESHOLDS.get(
-                self.model._as_regime_key(regime_id),
-                REGIME_DYNAMIC_THRESHOLDS["REJIMSIZ_GECIS"],
-            )
-        )
-        direction_thresholds = self.model.dynamic_thresholds(
-            asset_key,
-            regime_id,
-        )
+        # Rebuild displayed factor contributions from the actual adaptive
+        # weights used by the score model; never leave stale legacy points in
+        # the UI after missing-data filtering or XAG relative-value capping.
+        runtime_map = score_model.get("factor_runtime", {})
+        for row in details:
+            fid = str(row.get("faktor_id", ""))
+            node = runtime_map.get(fid, {})
+            if str(row.get("veri_durumu", "")).upper().startswith("VERİ YETERSİZ"):
+                row["puan"] = None
+            else:
+                contrib = node.get("final_contribution")
+                row["puan"] = round(float(contrib), 6) if contrib is not None else None
+        direction_thresholds = self.model.dynamic_thresholds(asset_key, regime_id)
 
         df = self._asset_df(getattr(gatekeeper, "grid_1h", {}) or {}, asset_key)
-        # Execution gate remains completely separate from direction inference.
         entry_eval = self.entry.evaluate(df, require_live=True)
         entry_allowed = bool(entry_eval.get("allowed", False))
         volume_supports = bool(entry_eval.get("volume_supports", False))
         volatility_supports = bool(entry_eval.get("volatility_supports", False))
 
+        coverage = float(score_model.get("data_coverage", data_diag.get("coverage", 0.0)) or 0.0)
+        if coverage < 0.45:
+            entry_allowed = False
+            entry_reason = (
+                "Model veri kapsamı yetersiz (%.0f%%); yön/işlem kararı güvenli moda alındı."
+                % (coverage * 100.0)
+            )
+        else:
+            entry_reason = str(entry_eval.get("reason", ""))
+
         out = deepcopy(verdict)
         out.update({
-            "raw_model_score": float(verdict.get("score", 0.0)),
+            "raw_model_score": float(verdict.get("score", 0.0)) if verdict.get("score") is not None else None,
             "score": float(score_model["score"]),
             "adaptive_score": float(score_model["score"]),
             "adaptive_score_enabled": True,
@@ -227,12 +244,16 @@ class StatefulAdaptiveController:
             "bear_clusters": int(score_model["bear_clusters"]),
             "entry_allowed": entry_allowed,
             "entry_status": "🟢 İŞLEME GİRİŞ ÖNERİLİR" if entry_allowed else "🔴 İŞLEME GİRİŞ ÖNERİLMEZ",
-            "entry_reason": entry_eval.get("reason", ""),
+            "entry_reason": entry_reason,
             "volume_supports": volume_supports,
             "volatility_supports": volatility_supports,
             "stateful_entry_profile": entry_eval.get("profile"),
             "market_regime": market_regime,
             "stateful_previous_signal": previous_signal,
+            "details": details,
+            "factor_data_coverage": coverage,
+            "factor_data_status": score_model.get("data_confidence", data_diag.get("status", "UNKNOWN")),
+            "factor_data_diagnostics": data_diag,
         })
         return out, score_model
 
@@ -314,6 +335,7 @@ class StatefulAdaptiveController:
                 "direction_velocity": direction_state["velocity"],
                 "direction_acceleration": direction_state["acceleration"],
                 "direction_persistence": direction_state["persistence"],
+                "direction_warmup": bool(direction_state.get("diagnostic_warmup", False)),
                 "direction_runtime_n": direction_state["runtime_n"],
                 "direction_strong_impulse": direction_state["strong_impulse"],
                 "direction_velocity_support": direction_state["velocity_support"],
@@ -329,6 +351,7 @@ class StatefulAdaptiveController:
                 "velocity": direction_state["velocity"],
                 "acceleration": direction_state["acceleration"],
                 "persistence": direction_state["persistence"],
+                "warmup": bool(direction_state.get("diagnostic_warmup", False)),
                 "early_threshold": direction_state["thresholds"].get("buy_early") if direction == "LONG" else abs(direction_state["thresholds"].get("sell_early", 0.0)),
                 "confirm_threshold": direction_state["thresholds"].get("buy_enter") if direction == "LONG" else abs(direction_state["thresholds"].get("sell_enter", 0.0)),
                 "entry_allowed": bool(out.get("entry_allowed", False)),

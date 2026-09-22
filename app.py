@@ -83,6 +83,41 @@ def safe_bool(value, default=False):
     return bool(value) if value is not None else default
 
 
+def display_optional(value, digits=2, warmup=False):
+    """Display None as a semantic unavailable/warm-up marker, never as zero."""
+    if value is None:
+        return "WARM-UP" if warmup else "—"
+    try:
+        number = float(value)
+        if pd.isna(number):
+            return "—"
+        return f"{number:+.{digits}f}"
+    except (TypeError, ValueError):
+        return "—"
+
+
+def format_adaptive_weight_map(weight_map):
+    """Render both legacy float maps and current nested multiplier maps safely."""
+    if not isinstance(weight_map, dict):
+        return "—"
+    parts = []
+    for key, node in sorted(weight_map.items()):
+        if isinstance(node, dict):
+            mult = node.get("multiplier")
+            if mult is None:
+                continue
+            try:
+                parts.append(f"{key}={float(mult):.3f}")
+            except (TypeError, ValueError):
+                continue
+        else:
+            try:
+                parts.append(f"{key}={float(node):.3f}")
+            except (TypeError, ValueError):
+                continue
+    return ", ".join(parts) if parts else "—"
+
+
 def get_now_tsi_str():
     """
     Current Türkiye time.
@@ -853,21 +888,8 @@ for k in ASSET_MATRICES.keys():
         "Veri yeterliliği kontrol edilemedi.",
     )
 
-    rvol_val = float(
-        data.get(
-            "rvol",
-            0.0,
-        )
-        or 0.0
-    )
-
-    atr_val = float(
-        data.get(
-            "atr_ratio",
-            0.0,
-        )
-        or 0.0
-    )
+    rvol_val = safe_float(data.get("rvol"), default=None)
+    atr_val = safe_float(data.get("atr_ratio"), default=None)
 
     score_val = float(
         data.get(
@@ -878,8 +900,8 @@ for k in ASSET_MATRICES.keys():
     )
 
     direction_stage = data.get("direction_stage", data.get("direction_state", "NEUTRAL"))
-    direction_velocity = float(data.get("direction_velocity", 0.0) or 0.0)
-    direction_acceleration = float(data.get("direction_acceleration", 0.0) or 0.0)
+    direction_velocity = safe_float(data.get("direction_velocity"), default=None)
+    direction_acceleration = safe_float(data.get("direction_acceleration"), default=None)
     direction_persistence = int(data.get("direction_persistence", 0) or 0)
 
 
@@ -904,7 +926,7 @@ for k in ASSET_MATRICES.keys():
                 direction_stage,
 
             "Yön Hızı":
-                f"{direction_velocity:+.3f}/saat",
+                (f"{direction_velocity:+.3f}/saat" if direction_velocity is not None else "—"),
 
             "Yön Kalıcılığı":
                 str(direction_persistence),
@@ -916,13 +938,13 @@ for k in ASSET_MATRICES.keys():
                 entry_rs,
 
             "Hacim (RVOL)":
-                f"{rvol_val:.2f}x",
+                (f"{rvol_val:.2f}x" if rvol_val is not None else "—"),
 
             "Volatilite (ATR)":
-                f"{atr_val:.2f}x",
+                (f"{atr_val:.2f}x" if atr_val is not None else "—"),
 
             "Model Skoru":
-                f"{score_val:+.2f}",
+                ("VERİ YETERSİZ" if str(data.get("factor_data_status", "")).upper() == "INSUFFICIENT_DATA" else f"{score_val:+.2f}"),
         }
     )
 
@@ -986,13 +1008,11 @@ icon = res.get(
     "⚪",
 )
 
-score = float(
-    res.get(
-        "score",
-        0.0,
-    )
-    or 0.0
-)
+score = safe_float(res.get("score"), default=0.0)
+if score is None:
+    score = 0.0
+score_data_status = str(res.get("factor_data_status", "")).upper()
+score_display = "VERİ YETERSİZ" if score_data_status == "INSUFFICIENT_DATA" else f"{score:+.2f}"
 
 curr_dir = res.get(
     "current_direction",
@@ -1001,10 +1021,11 @@ curr_dir = res.get(
 
 direction_stage = res.get("direction_stage", "NEUTRAL")
 direction_reason = res.get("direction_reason", "")
-direction_z = float(res.get("direction_score_z", 0.0) or 0.0)
-direction_velocity = float(res.get("direction_velocity", 0.0) or 0.0)
-direction_acceleration = float(res.get("direction_acceleration", 0.0) or 0.0)
+direction_z = safe_float(res.get("direction_score_z"), default=None)
+direction_velocity = safe_float(res.get("direction_velocity"), default=None)
+direction_acceleration = safe_float(res.get("direction_acceleration"), default=None)
 direction_persistence = int(res.get("direction_persistence", 0) or 0)
+direction_warmup = bool(res.get("direction_warmup", res.get("direction_state") == "NEUTRAL" and res.get("direction_runtime_n", 0) < 5))
 
 entry_st = res.get(
     "entry_status",
@@ -1020,32 +1041,19 @@ info_cols = st.columns(5)
 with info_cols[0]:
     st.metric("Yön Aşaması", direction_stage)
 with info_cols[1]:
-    st.metric("Score Z", f"{direction_z:+.2f}")
+    st.metric("Score Z", display_optional(direction_z, 2, warmup=direction_z is None))
 with info_cols[2]:
-    st.metric("Velocity", f"{direction_velocity:+.3f}/saat")
+    st.metric("Velocity", display_optional(direction_velocity, 3, warmup=direction_velocity is None))
 with info_cols[3]:
-    st.metric("Acceleration", f"{direction_acceleration:+.3f}")
+    st.metric("Acceleration", display_optional(direction_acceleration, 3, warmup=direction_acceleration is None))
 with info_cols[4]:
     st.metric("Persistence", str(direction_persistence))
 
 if direction_reason:
     st.caption(f"🧭 Yön gerekçesi: {direction_reason}")
 
-rvol_val = float(
-    res.get(
-        "rvol",
-        0.0,
-    )
-    or 0.0
-)
-
-atr_val = float(
-    res.get(
-        "atr_ratio",
-        0.0,
-    )
-    or 0.0
-)
+rvol_val = safe_float(res.get("rvol"), default=None)
+atr_val = safe_float(res.get("atr_ratio"), default=None)
 
 
 # =============================================================================
@@ -1129,12 +1137,12 @@ with col_card2:
         ),
 
         value=(
-            f"{score:+.2f}"
+            score_display
         ),
 
         delta=(
-            f"Hacim: {rvol_val:.2f}x | "
-            f"ATR: {atr_val:.2f}x"
+            f"Hacim: {(f'{rvol_val:.2f}x' if rvol_val is not None else '—')} | "
+            f"ATR: {(f'{atr_val:.2f}x' if atr_val is not None else '—')}"
         ),
     )
 
@@ -1176,6 +1184,12 @@ if details:
 
                     "puan":
                         "Puan Katkısı",
+
+                    "veri_durumu":
+                        "Veri Durumu",
+
+                    "veri_kaynagi":
+                        "Veri Kaynağı",
                 }
             ),
             use_container_width=True,
@@ -1188,20 +1202,24 @@ if details:
     if adaptive_weights:
         st.caption(
             "🧠 Adaptive factor ağırlıkları: "
-            + ", ".join(
-                f"{k}={float(v):.3f}"
-                for k, v in sorted(adaptive_weights.items())
-            )
+            + format_adaptive_weight_map(adaptive_weights)
         )
 
     if adaptive_thresholds:
+        numeric_thresholds = []
+        for k, v in sorted(adaptive_thresholds.items()):
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                numeric_thresholds.append(f"{k}={float(v):.3f}")
         st.caption(
             "🎚️ Stateful adaptive eşikleri: "
-            + ", ".join(
-                f"{k}={float(v):.3f}"
-                for k, v in sorted(adaptive_thresholds.items())
-                if isinstance(v, (int, float))
-            )
+            + (", ".join(numeric_thresholds) if numeric_thresholds else "—")
+        )
+
+    data_cov = safe_float(res.get("factor_data_coverage"), default=None)
+    if data_cov is not None:
+        st.caption(
+            f"📐 Model veri kapsamı: {data_cov * 100:.0f}% | "
+            f"durum: {res.get('factor_data_status', '—')}"
         )
 
 

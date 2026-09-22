@@ -205,10 +205,13 @@ class AdaptiveScoreModel:
             if isinstance(row, dict)
         }
 
+        configured_weight = float(sum(float(f.get("base_weight", 0.0)) for f in matrix.get("factors", [])))
         weighted_sum = 0.0
         total_weight = 0.0
         cluster_scores: Dict[str, float] = {}
         factor_runtime: Dict[str, Dict[str, Any]] = {}
+        contributions: Dict[str, float] = {}
+        valid_base_weight = 0.0
 
         for factor in matrix.get("factors", []):
             fid = str(factor["id"])
@@ -216,6 +219,21 @@ class AdaptiveScoreModel:
             row = by_name.get(fname)
             if row is None:
                 continue
+
+            data_status = str(row.get("veri_durumu", "MEVCUT"))
+            if data_status.upper().startswith("VERİ YETERSİZ"):
+                factor_runtime[fid] = {
+                    "name": fname,
+                    "status": "MISSING",
+                    "raw_value": None,
+                    "base_weight": float(factor.get("base_weight", 0.0)),
+                    "weight_multiplier": 0.0,
+                    "effective_weight": 0.0,
+                    "ic": 0.0,
+                    "factor_n": 0.0,
+                }
+                continue
+
             raw = row.get("ham_deger")
             try:
                 raw_f = float(raw)
@@ -227,39 +245,88 @@ class AdaptiveScoreModel:
             raw_f = float(np.clip(raw_f, -1.8, 1.8))
             sign = float(factor.get("base_sign", 1.0))
             base_weight = float(factor.get("base_weight", 0.0))
-            multiplier = float(weight_map.get(fid, {}).get("multiplier", 1.0))
-            effective_weight = base_weight * multiplier
+            multiplier_node = weight_map.get(fid, {})
+            multiplier = float(multiplier_node.get("multiplier", 1.0)) if isinstance(multiplier_node, dict) else 1.0
+            effective_weight = base_weight * max(multiplier, 0.0)
             signed = raw_f * sign
             contribution = signed * effective_weight
 
-            weighted_sum += contribution
+            contributions[fid] = contribution
+            valid_base_weight += base_weight
             total_weight += effective_weight
             cluster = str(factor.get("cluster", "UNKNOWN"))
             cluster_scores[cluster] = cluster_scores.get(cluster, 0.0) + contribution
             factor_runtime[fid] = {
                 "name": fname,
+                "status": data_status,
                 "raw_value": round(raw_f, 6),
                 "base_weight": base_weight,
                 "base_sign": sign,
                 "weight_multiplier": multiplier,
                 "effective_weight": effective_weight,
-                "ic": weight_map.get(fid, {}).get("ic", 0.0),
-                "factor_n": weight_map.get(fid, {}).get("n", 0.0),
+                "ic": multiplier_node.get("ic", 0.0) if isinstance(multiplier_node, dict) else 0.0,
+                "factor_n": multiplier_node.get("n", 0.0) if isinstance(multiplier_node, dict) else 0.0,
             }
 
-        if total_weight <= 0.0:
+        # XAG: prevent multiple correlated relative-value factors from acting as
+        # independent votes for the same move. Their combined contribution is
+        # capped to a bounded share of total factor magnitude.
+        if asset_key == "XAG" and contributions:
+            relative_ids = {
+                "gold_sympathy",
+                "silver_monetary_catchup",
+                "copper_gold",
+                "silver_copper",
+            }
+            rel_ids = [fid for fid in relative_ids if fid in contributions]
+            rel_abs = float(sum(abs(contributions[fid]) for fid in rel_ids))
+            other_abs = float(sum(abs(v) for fid, v in contributions.items() if fid not in relative_ids))
+            cap_fraction = 0.30
+            cap_abs = cap_fraction * max(other_abs, 1e-12)
+            if rel_abs > cap_abs and cap_abs > 0.0:
+                scale = cap_abs / rel_abs
+                for fid in rel_ids:
+                    old = contributions[fid]
+                    contributions[fid] = old * scale
+                    factor_runtime.setdefault(fid, {})["relative_group_scale"] = round(scale, 6)
+
+        # Rebuild total contribution after any XAG relative-value cap.
+        weighted_sum = 0.0
+        cluster_scores = {}
+        for factor in matrix.get("factors", []):
+            fid = str(factor["id"])
+            if fid not in contributions:
+                continue
+            contrib = contributions[fid]
+            weighted_sum += contrib
+            cluster = str(factor.get("cluster", "UNKNOWN"))
+            cluster_scores[cluster] = cluster_scores.get(cluster, 0.0) + contrib
+            if fid in factor_runtime:
+                factor_runtime[fid]["final_contribution"] = round(contrib, 6)
+
+        coverage = valid_base_weight / max(configured_weight, 1e-12)
+        if total_weight <= 0.0 or coverage < 0.45:
             score = 0.0
+            score_confidence = "INSUFFICIENT_DATA"
         else:
             score = float(np.clip((weighted_sum / total_weight) * 1.5, -3.5, 3.5))
+            score_confidence = "HIGH" if coverage >= 0.75 else "MEDIUM"
+            if coverage < 0.60:
+                score *= float(np.clip(coverage / 0.60, 0.70, 1.0))
+                score_confidence = "LOW"
 
         active_clusters = [c for c, sc in cluster_scores.items() if abs(sc) > 0.15]
         bull_clusters = sum(1 for sc in cluster_scores.values() if sc > 0.20)
         bear_clusters = sum(1 for sc in cluster_scores.values() if sc < -0.20)
 
         return {
-            "score": round(score, 4),
+            "score": round(float(score), 4),
             "weighted_sum": round(weighted_sum, 6),
             "total_weight": round(total_weight, 6),
+            "configured_weight": round(configured_weight, 6),
+            "valid_base_weight": round(valid_base_weight, 6),
+            "data_coverage": round(float(coverage), 4),
+            "data_confidence": score_confidence,
             "cluster_scores": {k: round(v, 6) for k, v in cluster_scores.items()},
             "active_clusters": active_clusters,
             "bull_clusters": bull_clusters,
