@@ -129,20 +129,42 @@ class AdaptiveScoreModel:
         long_base = float(base.get("buy_enter", 0.75))
         short_base = abs(float(base.get("sell_enter", -0.75)))
 
-        long_enter, long_meta = self._adaptive_candidate_threshold(
-            asset_key, regime_id, "long", long_base
-        )
-        short_enter, short_meta = self._adaptive_candidate_threshold(
-            asset_key, regime_id, "short", short_base
-        )
+        long_cal = self.store.direction_calibration_snapshot(asset_key, regime_id, "long", horizon="1")
+        short_cal = self.store.direction_calibration_snapshot(asset_key, regime_id, "short", horizon="1")
+        long_confirm = self.store.score_calibration_snapshot(asset_key, regime_id, "long", min_abs_score=0.45)
+        short_confirm = self.store.score_calibration_snapshot(asset_key, regime_id, "short", min_abs_score=0.45)
 
-        long_exit = float(np.clip(long_enter * 0.42, 0.20, max(long_enter - 0.05, 0.20)))
-        short_exit = -float(np.clip(short_enter * 0.42, 0.20, max(short_enter - 0.05, 0.20)))
+        def early_outcome_adjustment(cal: Dict[str, float]) -> float:
+            n = float(cal.get("effective_n", 0.0))
+            if n < 12.0:
+                return 1.0
+            lcb = float(cal.get("wilson_lower", 0.0))
+            if lcb < 0.45:
+                return float(1.0 + min((0.45 - lcb) * 0.70, 0.15))
+            if lcb > 0.60:
+                return float(1.0 - min((lcb - 0.60) * 0.50, 0.10))
+            return 1.0
+
+        early_adj_long = early_outcome_adjustment(long_cal)
+        early_adj_short = early_outcome_adjustment(short_cal)
+        long_enter, long_meta = self._adaptive_candidate_threshold(asset_key, regime_id, "long", long_base)
+        short_enter, short_meta = self._adaptive_candidate_threshold(asset_key, regime_id, "short", short_base)
+
+        early_long = float(np.clip(long_enter * 0.72 * early_adj_long, 0.30, min(long_enter - 0.10, 1.20)))
+        early_short = float(np.clip(short_enter * 0.72 * early_adj_short, 0.30, min(short_enter - 0.10, 1.20)))
+
+        # Outcome-calibrated confirmation cannot become easier than the early
+        # layer. The two barriers remain separated to reduce churn.
+        long_enter = float(np.clip(max(long_enter, early_long + 0.12), 0.52, 1.85))
+        short_enter = float(np.clip(max(short_enter, early_short + 0.12), 0.52, 1.85))
+
+        long_exit = float(np.clip(long_enter * 0.42, 0.18, 1.10))
+        short_exit = -float(np.clip(short_enter * 0.42, 0.18, 1.10))
 
         base_strong_long = float(base.get("strong_buy_enter", 1.70))
         base_strong_short = abs(float(base.get("strong_sell_enter", -1.70)))
-        strong_long = float(np.clip(max(base_strong_long, long_enter * 1.60), STRONG_MIN, STRONG_MAX))
-        strong_short = float(np.clip(max(base_strong_short, short_enter * 1.60), STRONG_MIN, STRONG_MAX))
+        strong_long = float(np.clip(max(base_strong_long, long_enter * 1.55), 1.15, 3.20))
+        strong_short = float(np.clip(max(base_strong_short, short_enter * 1.55), 1.15, 3.20))
 
         return {
             **base,
@@ -150,12 +172,23 @@ class AdaptiveScoreModel:
             "buy_exit": round(long_exit, 4),
             "sell_enter": round(-short_enter, 4),
             "sell_exit": round(short_exit, 4),
+            "buy_early": round(early_long, 4),
+            "sell_early": round(-early_short, 4),
+            "early_exit": round(float(np.clip(min(early_long, early_short) * 0.30, 0.18, 0.70)), 4),
             "strong_buy_enter": round(strong_long, 4),
             "strong_sell_enter": round(-strong_short, 4),
+            "min_clusters": int(base.get("min_clusters", 2)),
             "adaptive": True,
-            "adaptive_model": "EWMA_FACTOR_IC + SCORE_BIN_WILSON",
+            "adaptive_model": "BOUNDED_DIRECTION + SCORE_BIN_WILSON + 1H_OUTCOME",
             "long_calibration": long_meta,
             "short_calibration": short_meta,
+            "early_outcome_adjustment": {
+                "long": round(early_adj_long, 6),
+                "short": round(early_adj_short, 6),
+                "long_1h": long_cal,
+                "short_1h": short_cal,
+                "confirm_4h": {"long": long_confirm, "short": short_confirm},
+            },
         }
 
     def recompute_score(
@@ -239,56 +272,28 @@ class AdaptiveScoreModel:
     def resolve_signal(
         score: float,
         thresholds: Dict[str, Any],
-        previous_signal: str,
-        bull_clusters: int,
-        bear_clusters: int,
-        entry_allowed: bool,
-        volume_supports: bool,
-        volatility_supports: bool,
+        previous_signal: str = "NÖTR (BEKLE)",
+        bull_clusters: int = 0,
+        bear_clusters: int = 0,
+        entry_allowed: bool = True,
+        volume_supports: bool = False,
+        volatility_supports: bool = False,
         market_regime: str = "",
     ) -> Tuple[str, str, str]:
+        """Backward-compatible wrapper. Direction no longer depends on entry_allowed."""
+        s = float(score)
         prev = str(previous_signal or "NÖTR (BEKLE)")
-        buy_enter = float(thresholds.get("buy_enter", 0.75))
-        sell_enter = float(thresholds.get("sell_enter", -0.75))
+        buy = float(thresholds.get("buy_enter", 0.75))
+        sell = float(thresholds.get("sell_enter", -0.75))
         buy_exit = float(thresholds.get("buy_exit", 0.30))
         sell_exit = float(thresholds.get("sell_exit", -0.30))
-        strong_buy = float(thresholds.get("strong_buy_enter", 1.70))
-        strong_sell = float(thresholds.get("strong_sell_enter", -1.70))
-        req_clusters = int(thresholds.get("min_clusters", 2))
-
-        base_dir = "NÖTR (BEKLE)"
-        if prev in ("AL", "GÜÇLÜ AL", "AL (Hacim/Volatilite Teyitsiz)") and score > buy_exit:
-            base_dir = "AL"
-        elif score >= buy_enter and bull_clusters >= req_clusters and entry_allowed:
-            base_dir = "AL"
-
-        if prev in ("SAT", "GÜÇLÜ SAT", "SAT (Hacim/Volatilite Teyitsiz)") and score < sell_exit:
-            base_dir = "SAT"
-        elif score <= sell_enter and bear_clusters >= req_clusters and entry_allowed:
-            base_dir = "SAT"
-
-        choppy = (
-            "DENGE" in market_regime
-            or "SIKIŞMA" in market_regime
-            or "REJİMSİZ" in market_regime
-        )
-
-        if base_dir == "AL":
-            strong = score >= strong_buy and entry_allowed and volume_supports and volatility_supports
-            if strong:
-                return "GÜÇLÜ AL", "green", "🟢🟢"
-            if score >= strong_buy and not (volume_supports and volatility_supports):
-                return "AL (Hacim/Volatilite Teyitsiz)", "lightgreen", "🟢"
+        req = int(thresholds.get("min_clusters", 2))
+        if s >= buy and bull_clusters >= req:
+            return ("GÜÇLÜ AL" if s >= float(thresholds.get("strong_buy_enter", 1.70)) else "AL", "green", "🟢🟢" if s >= float(thresholds.get("strong_buy_enter", 1.70)) else "🟢")
+        if s <= sell and bear_clusters >= req:
+            return ("GÜÇLÜ SAT" if s <= float(thresholds.get("strong_sell_enter", -1.70)) else "SAT", "darkred" if s <= float(thresholds.get("strong_sell_enter", -1.70)) else "red", "🔴🔴" if s <= float(thresholds.get("strong_sell_enter", -1.70)) else "🔴")
+        if "AL" in prev and "SAT" not in prev and s > buy_exit:
             return "AL", "lightgreen", "🟢"
-
-        if base_dir == "SAT":
-            strong = score <= strong_sell and entry_allowed and volume_supports and volatility_supports
-            if strong:
-                return "GÜÇLÜ SAT", "darkred", "🔴🔴"
-            if score <= strong_sell and not (volume_supports and volatility_supports):
-                return "SAT (Hacim/Volatilite Teyitsiz)", "red", "🔴"
+        if "SAT" in prev and "AL" not in prev and s < sell_exit:
             return "SAT", "red", "🔴"
-
-        if not entry_allowed and abs(score) >= buy_enter:
-            return "NÖTR (GİRİŞ GATE BLOKLU)", "gray", "⚪"
-        return ("NÖTR (TESTERE BANDI)" if choppy and abs(score) > 0.40 else "NÖTR (BEKLE)"), "gray", "⚪"
+        return "NÖTR (BEKLE)", "gray", "⚪"

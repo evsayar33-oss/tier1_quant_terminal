@@ -709,7 +709,8 @@ if stateful_diag:
 
     st.caption(
         "Online adaptasyon geçmiş gerçekleşmelerden decayed güvenilirlik öğrenir; "
-        "rejim state'i kalıcı tutulur ve XAU/XAG ilişkisi dinamik beta + residual ile değerlendirilir."
+        "yön tahmini artık execution gate'den bağımsızdır. EARLY/CONFIRMED state'i, "
+        "score velocity/acceleration ve 1H/4H gerçekleşmeleri birlikte kullanılır."
     )
 
 
@@ -876,6 +877,11 @@ for k in ASSET_MATRICES.keys():
         or 0.0
     )
 
+    direction_stage = data.get("direction_stage", data.get("direction_state", "NEUTRAL"))
+    direction_velocity = float(data.get("direction_velocity", 0.0) or 0.0)
+    direction_acceleration = float(data.get("direction_acceleration", 0.0) or 0.0)
+    direction_persistence = int(data.get("direction_persistence", 0) or 0)
+
 
     summary_rows.append(
         {
@@ -893,6 +899,15 @@ for k in ASSET_MATRICES.keys():
 
             "🔮 Model Sinyali":
                 fore_dir,
+
+            "Yön Aşaması":
+                direction_stage,
+
+            "Yön Hızı":
+                f"{direction_velocity:+.3f}/saat",
+
+            "Yön Kalıcılığı":
+                str(direction_persistence),
 
             "🛡️ Giriş Analizi":
                 entry_st,
@@ -925,10 +940,10 @@ st.dataframe(
 
 
 st.caption(
-    "💡 **V2.2:** Model yönü ile execution gate ayrıdır. "
-    "Yön hesabı 1H/2H/4H impulse + persistence + ADX/DI kullanır. "
-    "İşleme giriş ise gerçek veri, veri tazeliği, ATR ve gerçek RVOL "
-    "koşullarını ayrıca kontrol eder."
+    "💡 **Stateful Direction v3.1:** Model yönü execution gate'den bağımsızdır. "
+    "EARLY/CONFIRMED aşaması dynamic threshold + score velocity/acceleration + "
+    "cluster persistence ile hesaplanır. İşleme giriş ise gerçek veri, veri tazeliği, "
+    "ATR ve gerçek RVOL koşullarını ayrıca kontrol eder."
 )
 
 
@@ -984,6 +999,13 @@ curr_dir = res.get(
     "⚪ VERİ YETERSİZ",
 )
 
+direction_stage = res.get("direction_stage", "NEUTRAL")
+direction_reason = res.get("direction_reason", "")
+direction_z = float(res.get("direction_score_z", 0.0) or 0.0)
+direction_velocity = float(res.get("direction_velocity", 0.0) or 0.0)
+direction_acceleration = float(res.get("direction_acceleration", 0.0) or 0.0)
+direction_persistence = int(res.get("direction_persistence", 0) or 0)
+
 entry_st = res.get(
     "entry_status",
     "🔴 İŞLEME GİRİŞ ÖNERİLMEZ",
@@ -993,6 +1015,21 @@ entry_rs = res.get(
     "entry_reason",
     "",
 )
+
+info_cols = st.columns(5)
+with info_cols[0]:
+    st.metric("Yön Aşaması", direction_stage)
+with info_cols[1]:
+    st.metric("Score Z", f"{direction_z:+.2f}")
+with info_cols[2]:
+    st.metric("Velocity", f"{direction_velocity:+.3f}/saat")
+with info_cols[3]:
+    st.metric("Acceleration", f"{direction_acceleration:+.3f}")
+with info_cols[4]:
+    st.metric("Persistence", str(direction_persistence))
+
+if direction_reason:
+    st.caption(f"🧭 Yön gerekçesi: {direction_reason}")
 
 rvol_val = float(
     res.get(
@@ -1175,7 +1212,7 @@ if details:
 st.divider()
 
 st.caption(
-    "V2.2.1 + Stateful Adaptive v3 | Zero Synthetic Data | "
+    "V2.2.1 + Stateful Adaptive v3.1 | Zero Synthetic Data | "
     "Live Multi-Horizon Direction | "
     "Strict Execution Gate | "
     "Real RVOL | "

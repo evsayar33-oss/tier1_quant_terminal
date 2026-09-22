@@ -24,7 +24,7 @@ from stateful_adaptive_controller import StatefulAdaptiveController
 STATE_FILE = "terminal_state.json"
 MEMORY_FILE = "stateful_adaptive_memory.json"
 HISTORY_FILE = "terminal_history_stateful.csv"
-VERSION = "3.0.0-stateful"
+VERSION = "3.1.0-stateful-direction"
 
 
 def _load_json(path: str) -> Dict[str, Any]:
@@ -133,6 +133,8 @@ def run_background_cycle() -> Dict[str, Any]:
         "pair_residual_z": adaptive_diag.get("pair_state", {}).get("residual_z"),
         "pair_beta_gold": adaptive_diag.get("pair_state", {}).get("beta_gold"),
         "pair_beta_copper": adaptive_diag.get("pair_state", {}).get("beta_copper"),
+        "direction_early_assets": sum(1 for v in adaptive_diag.get("direction", {}).values() if v.get("stage") == "EARLY"),
+        "direction_confirmed_assets": sum(1 for v in adaptive_diag.get("direction", {}).values() if v.get("stage") == "CONFIRMED"),
         "memory_pending": adaptive_diag.get("memory", {}).get("pending_observations"),
         "memory_settled": adaptive_diag.get("memory", {}).get("settled_observations"),
         "anomaly_score": gk.anomaly_score,

@@ -1,23 +1,22 @@
 """
-Stateful Adaptive Controller
-============================
-Integration layer for the existing Tier-1 Quant Terminal.
+Stateful Adaptive Controller v3.1
+=================================
 
-Usage pattern:
-    controller = StatefulAdaptiveController()
-    controller.prepare_cycle(gk)                 # after gk.refresh_market()
-    verdicts = gk.evaluate_all_assets_harmonized(previous_signals)
-    verdicts, diagnostics = controller.finalize_cycle(
-        gk, verdicts, previous_signals
-    )
+Adds a dedicated direction state machine on top of the existing Tier-1 factor
+engine. Direction inference is explicitly separated from execution permission.
 
-The original gatekeeper remains the primary data/factor engine. This layer
-adds persistent regime state, dynamic score calibration, online factor
-reliability, a stateful entry gate, and dynamic XAU/XAG relative-state logic.
+Pipeline:
+    live data -> regime state -> adaptive factor score -> XAU/XAG pair
+    -> dynamic direction threshold -> EARLY/CONFIRMED direction
+    -> separate execution gate -> persistent outcome learning
+
+The existing gatekeeper remains the source of raw factors, market diagnostics,
+and execution-quality information. This layer does not replace those inputs.
 """
 
 from __future__ import annotations
 
+import json
 import os
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -29,6 +28,7 @@ import pandas as pd
 from config import ASSET_MATRICES, REGIME_DYNAMIC_THRESHOLDS
 from dynamic_entry_engine import StatefulDynamicEntryEngine
 from stateful_adaptive_model import AdaptiveScoreModel
+from stateful_direction_engine import StatefulDirectionEngine
 from stateful_memory_store import StatefulMemoryStore
 from stateful_regime_controller import StatefulRegimeController
 from xau_xag_dynamic_pair import DynamicXAU_XAGModel
@@ -46,6 +46,7 @@ class StatefulAdaptiveController:
         self.store = StatefulMemoryStore(memory_file, half_life_hours=half_life_hours)
         self.regime = StatefulRegimeController(self.store)
         self.model = AdaptiveScoreModel(self.store)
+        self.direction = StatefulDirectionEngine(self.store)
         self.entry = StatefulDynamicEntryEngine()
         self.pair = DynamicXAU_XAGModel()
         self.prepared = False
@@ -68,9 +69,10 @@ class StatefulAdaptiveController:
         ]
         alias = {
             "SPX": ("ES=F", "ES", "SPX"),
-            "NQ": ("NQ=F", "NQ"),
+            "NQ": ("NQ=F", "NQ", "NQ=F"),
             "XAU": ("GC=F", "GC", "XAU"),
             "XAG": ("SI=F", "SI", "XAG"),
+            "HG": ("HG=F", "HG"),
         }
         candidates.extend(alias.get(asset_key, ()))
         for key in candidates:
@@ -108,8 +110,14 @@ class StatefulAdaptiveController:
                 values[fid] = float(np.clip(value, -1.8, 1.8))
         return values
 
+    def _price_frames(self, grid: Dict[str, Any]) -> Dict[str, pd.DataFrame]:
+        """Normalize asset aliases so pending observations settle correctly."""
+        return {
+            asset: self._asset_df(grid, asset)
+            for asset in ASSET_MATRICES.keys()
+        }
+
     def _bootstrap_from_existing_state(self) -> None:
-        """Optional one-time bootstrap so existing confirmed state is not lost."""
         current = self.store.get_regime_state()
         if current.get("confirmed_regime_id") is not None:
             return
@@ -117,7 +125,6 @@ class StatefulAdaptiveController:
         if not os.path.exists(state_path):
             return
         try:
-            import json
             with open(state_path, "r", encoding="utf-8") as fh:
                 state = json.load(fh)
             active_id = state.get("active_regime_id")
@@ -137,15 +144,16 @@ class StatefulAdaptiveController:
             return
 
     def prepare_cycle(self, gatekeeper: Any) -> Dict[str, Any]:
-        """
-        Call immediately after gatekeeper.refresh_market().
-        Previous pending forecasts are settled before new calibration is used.
-        """
         self._bootstrap_from_existing_state()
-        self.store.apply_decay(self._now())
+        now = self._now()
+        self.store.apply_decay(now)
 
         grid = getattr(gatekeeper, "grid_1h", {}) or {}
-        settle = self.store.settle_pending(grid, horizon_hours=(1, 4, 8), now=self._now())
+        settle = self.store.settle_pending(
+            self._price_frames(grid),
+            horizon_hours=(1, 4),
+            now=now,
+        )
         controlled = self.regime.apply_to_gatekeeper(gatekeeper)
 
         self.prepared = True
@@ -163,6 +171,18 @@ class StatefulAdaptiveController:
         }
         return controlled
 
+    def _adaptive_score_only(
+        self,
+        gatekeeper: Any,
+        asset_key: str,
+        verdict: Dict[str, Any],
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        score_model = self.model.recompute_score(
+            asset_key,
+            verdict.get("details", []) if isinstance(verdict, dict) else [],
+        )
+        return score_model, deepcopy(score_model)
+
     def _apply_adaptive_asset_state(
         self,
         gatekeeper: Any,
@@ -175,26 +195,23 @@ class StatefulAdaptiveController:
         details = verdict.get("details", []) if isinstance(verdict, dict) else []
 
         score_model = self.model.recompute_score(asset_key, details)
-        thresholds = self.model.dynamic_thresholds(asset_key, regime_id)
+        base_thresholds = deepcopy(
+            REGIME_DYNAMIC_THRESHOLDS.get(
+                self.model._as_regime_key(regime_id),
+                REGIME_DYNAMIC_THRESHOLDS["REJIMSIZ_GECIS"],
+            )
+        )
+        direction_thresholds = self.model.dynamic_thresholds(
+            asset_key,
+            regime_id,
+        )
 
         df = self._asset_df(getattr(gatekeeper, "grid_1h", {}) or {}, asset_key)
+        # Execution gate remains completely separate from direction inference.
         entry_eval = self.entry.evaluate(df, require_live=True)
-
         entry_allowed = bool(entry_eval.get("allowed", False))
         volume_supports = bool(entry_eval.get("volume_supports", False))
         volatility_supports = bool(entry_eval.get("volatility_supports", False))
-
-        signal, color, icon = self.model.resolve_signal(
-            score=float(score_model["score"]),
-            thresholds=thresholds,
-            previous_signal=previous_signal,
-            bull_clusters=int(score_model["bull_clusters"]),
-            bear_clusters=int(score_model["bear_clusters"]),
-            entry_allowed=entry_allowed,
-            volume_supports=volume_supports,
-            volatility_supports=volatility_supports,
-            market_regime=market_regime,
-        )
 
         out = deepcopy(verdict)
         out.update({
@@ -202,8 +219,8 @@ class StatefulAdaptiveController:
             "score": float(score_model["score"]),
             "adaptive_score": float(score_model["score"]),
             "adaptive_score_enabled": True,
-            "adaptive_thresholds": thresholds,
-            "dynamic_thresholds": thresholds,
+            "adaptive_thresholds": direction_thresholds,
+            "dynamic_thresholds": direction_thresholds,
             "adaptive_factor_weights": score_model["weight_map"],
             "adaptive_cluster_scores": score_model["cluster_scores"],
             "bull_clusters": int(score_model["bull_clusters"]),
@@ -214,15 +231,10 @@ class StatefulAdaptiveController:
             "volume_supports": volume_supports,
             "volatility_supports": volatility_supports,
             "stateful_entry_profile": entry_eval.get("profile"),
-            "verdict": signal,
-            "forecast_direction": signal,
-            "forecast_icon": icon,
-            "forecast_color": color,
-            "icon": icon,
-            "color": color,
+            "market_regime": market_regime,
             "stateful_previous_signal": previous_signal,
         })
-        return out
+        return out, score_model
 
     def finalize_cycle(
         self,
@@ -231,26 +243,26 @@ class StatefulAdaptiveController:
         previous_signals: Optional[Dict[str, str]] = None,
         cycle_id: Optional[str] = None,
     ) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, Any]]:
-        """Apply adaptive scoring/pair logic, then persist this cycle as pending."""
         if not self.prepared:
             self.prepare_cycle(gatekeeper)
 
         previous_signals = previous_signals or {}
         cycle = cycle_id or self._now().isoformat()
-
         adaptive: Dict[str, Dict[str, Any]] = {}
+        score_models: Dict[str, Dict[str, Any]] = {}
+
+        # 1) Recompute adaptive scores and independent execution gates.
         for asset_key, verdict in verdicts.items():
-            adaptive[asset_key] = self._apply_adaptive_asset_state(
+            adaptive[asset_key], score_models[asset_key] = self._apply_adaptive_asset_state(
                 gatekeeper,
                 asset_key,
                 verdict,
                 previous_signals.get(asset_key, "NÖTR (BEKLE)"),
             )
 
+        # 2) XAU/XAG relative-state reconciliation modifies score only.
         pair_state = self.pair.fit(getattr(gatekeeper, "grid_1h", {}) or {})
         self.last_pair_state = pair_state
-
-        # Apply pair reconciliation after both legs have their own adaptive score.
         if "XAU" in adaptive and "XAG" in adaptive:
             xau_score = float(adaptive["XAU"].get("score", 0.0))
             xag_score = float(adaptive["XAG"].get("score", 0.0))
@@ -262,31 +274,80 @@ class StatefulAdaptiveController:
             adaptive["XAU"]["pair_state"] = deepcopy(pair_state)
             adaptive["XAG"]["pair_state"] = deepcopy(pair_state)
 
-            for asset_key in ("XAU", "XAG"):
-                v = adaptive[asset_key]
-                s, c, i = self.model.resolve_signal(
-                    score=float(v["score"]),
-                    thresholds=v["adaptive_thresholds"],
-                    previous_signal=previous_signals.get(asset_key, "NÖTR (BEKLE)"),
-                    bull_clusters=int(v.get("bull_clusters", 0)),
-                    bear_clusters=int(v.get("bear_clusters", 0)),
-                    entry_allowed=bool(v.get("entry_allowed", False)),
-                    volume_supports=bool(v.get("volume_supports", False)),
-                    volatility_supports=bool(v.get("volatility_supports", False)),
-                    market_regime=getattr(gatekeeper, "market_regime", ""),
-                )
-                v.update({
-                    "verdict": s,
-                    "forecast_direction": s,
-                    "forecast_icon": i,
-                    "forecast_color": c,
-                    "icon": i,
-                    "color": c,
-                })
+        # 3) Direction is resolved WITHOUT entry_allowed.
+        direction_diag: Dict[str, Any] = {}
+        for asset_key, out in adaptive.items():
+            regime_id = getattr(gatekeeper, "active_macro_regime_id", "REJIMSIZ_GECIS")
+            direction_state = self.direction.evaluate(
+                asset=asset_key,
+                regime_id=regime_id,
+                score=float(out.get("score", 0.0)),
+                bull_clusters=int(out.get("bull_clusters", 0)),
+                bear_clusters=int(out.get("bear_clusters", 0)),
+                thresholds=out.get("adaptive_thresholds", {}),
+                previous_signal=previous_signals.get(asset_key, "NÖTR (BEKLE)"),
+            )
 
-        # Persist current forecast only AFTER all model calculations are finished.
+            stage = direction_state["stage"]
+            direction = direction_state["direction"]
+            verdict = direction_state["verdict"]
+            if stage == "EARLY" and direction in ("LONG", "SHORT"):
+                forecast_label = f"{verdict} (ERKEN)"
+            elif stage == "HELD" and direction in ("LONG", "SHORT"):
+                forecast_label = f"{verdict} (KORUNDU)"
+            else:
+                forecast_label = verdict
+
+            out.update({
+                "direction": direction,
+                "direction_state": stage,
+                "direction_stage": stage,
+                "direction_reason": direction_state["reason"],
+                "forecast_direction": forecast_label,
+                "verdict": verdict,
+                "icon": direction_state["icon"],
+                "color": direction_state["color"],
+                "forecast_icon": direction_state["icon"],
+                "forecast_color": direction_state["color"],
+                "direction_thresholds": direction_state["thresholds"],
+                "direction_score_z": direction_state["score_z"],
+                "direction_velocity": direction_state["velocity"],
+                "direction_acceleration": direction_state["acceleration"],
+                "direction_persistence": direction_state["persistence"],
+                "direction_runtime_n": direction_state["runtime_n"],
+                "direction_strong_impulse": direction_state["strong_impulse"],
+                "direction_velocity_support": direction_state["velocity_support"],
+                "direction_z_support": direction_state["z_support"],
+                # Entry never feeds back into direction.
+                "direction_execution_independent": True,
+            })
+            direction_diag[asset_key] = {
+                "stage": stage,
+                "direction": direction,
+                "score": direction_state["score"],
+                "score_z": direction_state["score_z"],
+                "velocity": direction_state["velocity"],
+                "acceleration": direction_state["acceleration"],
+                "persistence": direction_state["persistence"],
+                "early_threshold": direction_state["thresholds"].get("buy_early") if direction == "LONG" else abs(direction_state["thresholds"].get("sell_early", 0.0)),
+                "confirm_threshold": direction_state["thresholds"].get("buy_enter") if direction == "LONG" else abs(direction_state["thresholds"].get("sell_enter", 0.0)),
+                "entry_allowed": bool(out.get("entry_allowed", False)),
+                "execution_independent": True,
+            }
+
+        # 4) Add current observations to score distribution AFTER thresholds
+        # are calculated, avoiding current-bar self-referential calibration.
+        observed_at = self._now()
+        for asset_key, out in adaptive.items():
+            self.store.update_score_distribution(
+                asset_key,
+                getattr(gatekeeper, "active_macro_regime_id", "REJIMSIZ_GECIS"),
+                float(out.get("score", 0.0)),
+                observed_at,
+            )
+
+        # 5) Persist pending snapshots for 1h / 4h outcome learning.
         grid = getattr(gatekeeper, "grid_1h", {}) or {}
-        observed_at = self._now().isoformat()
         for asset_key, verdict in adaptive.items():
             df = self._asset_df(grid, asset_key)
             if df.empty or "Close" not in df.columns:
@@ -301,12 +362,18 @@ class StatefulAdaptiveController:
             factor_values = self._extract_factor_values(asset_key, verdict)
             obs = {
                 "cycle_id": cycle,
-                "observed_at": observed_at,
+                "observed_at": observed_at.isoformat(),
                 "asset": asset_key,
                 "price": price,
                 "model_score_raw": float(verdict.get("raw_model_score", 0.0)),
                 "model_score_adaptive": float(verdict.get("score", 0.0)),
                 "verdict": str(verdict.get("verdict", "NÖTR (BEKLE)")),
+                "direction": str(verdict.get("direction", "NEUTRAL")),
+                "direction_stage": str(verdict.get("direction_stage", "NEUTRAL")),
+                "direction_thresholds": deepcopy(verdict.get("direction_thresholds", {})),
+                "direction_velocity": verdict.get("direction_velocity"),
+                "direction_acceleration": verdict.get("direction_acceleration"),
+                "direction_persistence": verdict.get("direction_persistence"),
                 "active_regime_id": getattr(gatekeeper, "active_macro_regime_id", "REJIMSIZ_GECIS"),
                 "candidate_regime_id": getattr(gatekeeper, "macro_diagnostics", {}).get("candidate_regime_id"),
                 "entry_allowed": bool(verdict.get("entry_allowed", False)),
@@ -319,21 +386,33 @@ class StatefulAdaptiveController:
             self.store.add_pending_observation(obs)
 
         self.store.memory.setdefault("meta", {})["last_cycle_id"] = cycle
+        self.store.memory.setdefault("meta", {})["direction_model_version"] = "3.1.0"
         self.store.save()
 
         diagnostics = {
-            "version": "1.0.0",
+            "version": "3.1.0",
             "cycle_id": cycle,
             "memory": self.store.diagnostics(),
             "regime": self.last_diagnostics.get("regime", {}),
             "settlement": self.last_diagnostics.get("settlement", {}),
             "pair_state": pair_state,
+            "direction": direction_diag,
+            "architecture": {
+                "direction_execution_separated": True,
+                "bounded_adaptation": True,
+                "velocity_acceleration": True,
+                "persistent_direction_state": True,
+                "one_hour_outcome_learning": True,
+                "four_hour_confirmation_learning": True,
+            },
             "adaptive_assets": {
                 key: {
                     "raw_score": value.get("raw_model_score"),
                     "adaptive_score": value.get("score"),
                     "entry_allowed": value.get("entry_allowed"),
-                    "thresholds": value.get("adaptive_thresholds", {}),
+                    "direction_stage": value.get("direction_stage"),
+                    "direction": value.get("direction"),
+                    "thresholds": value.get("direction_thresholds", {}),
                 }
                 for key, value in adaptive.items()
             },
