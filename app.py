@@ -387,257 +387,281 @@ if (
         "V2.2 yön ve giriş filtreleri hesaplanıyor..."
     ):
 
-        prev_verdicts = (
-            st.session_state.state_data.get(
-                "asset_verdicts",
-                {},
-            )
-        )
-
-        # ----------------------------------------------------
-        # MARKET REFRESH
-        # ----------------------------------------------------
-
-        gk.refresh_market()
-
-
-        # ----------------------------------------------------
-        # STATEFUL ADAPTIVE PREPARATION
-        # ----------------------------------------------------
-
-        # Reconcile pending forecasts, update persistent regime state,
-        # and load the latest decayed model-memory statistics before
-        # calculating this cycle's asset verdicts.
-        stateful_controller.prepare_cycle(gk)
-
-
-        # ----------------------------------------------------
-        # PREVIOUS VERDICTS
-        # ----------------------------------------------------
-
-        prev_map = {
-            k: prev_verdicts.get(
-                k,
-                {},
-            ).get(
-                "verdict",
-                "NÖTR (BEKLE)",
-            )
-            for k in ASSET_MATRICES.keys()
-        }
-
-
-        # ----------------------------------------------------
-        # ASSET EVALUATION
-        # ----------------------------------------------------
-
-        verdicts = (
-            gk.evaluate_all_assets_harmonized(
-                prev_map
-            )
-        )
-
-
-        # ----------------------------------------------------
-        # STATEFUL ADAPTIVE FINALIZATION
-        # ----------------------------------------------------
-
-        # Replace the raw deterministic verdicts with the stateful
-        # adaptive score/threshold/entry results, then persist this
-        # cycle as the pending observation used by future cycles.
-        verdicts, adaptive_diag = stateful_controller.finalize_cycle(
-            gk,
-            verdicts,
-            previous_signals=prev_map,
-        )
-
-
-        # ----------------------------------------------------
-        # MACRO STATE
-        # ----------------------------------------------------
-
-        comp_usd = safe_float(getattr(gk, "composite_usd_risk", None), digits=2)
-        dxy_v = safe_float(getattr(gk, "dxy_velocity", None), digits=2)
-        ndl_val = safe_float(getattr(gk, "ndl_z", None), digits=2)
-        yen_carry = safe_float(getattr(gk, "yen_carry_z", None), digits=2)
-
-
-        # ----------------------------------------------------
-        # DATA QUALITY SNAPSHOT
-        # ----------------------------------------------------
-
-        data_quality = getattr(
-            gk.data_engine,
-            "data_quality",
-            {},
-        )
-
-        data_sources = getattr(
-            gk.data_engine,
-            "data_sources",
-            {},
-        )
-
-
-        # ----------------------------------------------------
-        # CURRENT TIME
-        # ----------------------------------------------------
-
-        current_time_iso = (
-            datetime.now(
-                timezone.utc
-            ).isoformat()
-        )
-
-
-        # ----------------------------------------------------
-        # NEW STATE
-        # ----------------------------------------------------
-
-        new_state = {
-
-            "v22_version": "2.2.1",
-
-            "last_updated":
-                current_time_iso,
-
-            "status":
-                "OK",
-
-            "active_regime_id":
-                getattr(
-                    gk,
-                    "active_macro_regime_id",
-                    "REJIMSIZ_GECIS",
-                ),
-
-            "active_regime_name":
-                getattr(
-                    gk,
-                    "active_macro_regime_name",
-                    "Rejimsiz Geçiş / Veri Yetersiz",
-                ),
-
-            "market_regime":
-                getattr(
-                    gk,
-                    "market_regime",
-                    "⚪ [REJİMSİZ] Veri Yetersiz",
-                ),
-
-            "active_subtype":
-                getattr(
-                    gk,
-                    "active_subtype",
-                    "VERİ YETERSİZ",
-                ),
-
-            "dynamic_thresholds":
-                getattr(
-                    gk,
-                    "dynamic_thresholds",
+        try:
+            prev_verdicts = (
+                st.session_state.state_data.get(
+                    "asset_verdicts",
                     {},
-                ),
+                )
+            )
 
-            "macro_diagnostics":
-                getattr(
-                    gk,
-                    "macro_diagnostics",
+            # ----------------------------------------------------
+            # MARKET REFRESH
+            # ----------------------------------------------------
+
+            gk.refresh_market()
+
+
+            # ----------------------------------------------------
+            # STATEFUL ADAPTIVE PREPARATION
+            # ----------------------------------------------------
+
+            # Reconcile pending forecasts, update persistent regime state,
+            # and load the latest decayed model-memory statistics before
+            # calculating this cycle's asset verdicts.
+            stateful_controller.prepare_cycle(gk)
+
+
+            # ----------------------------------------------------
+            # PREVIOUS VERDICTS
+            # ----------------------------------------------------
+
+            prev_map = {
+                k: prev_verdicts.get(
+                    k,
                     {},
-                ),
+                ).get(
+                    "verdict",
+                    "NÖTR (BEKLE)",
+                )
+                for k in ASSET_MATRICES.keys()
+            }
 
-            "composite_usd_risk":
-                comp_usd,
 
-            "usd_risk_label":
-                getattr(
-                    gk,
-                    "usd_risk_label",
-                    "⚪ VERİ YETERSİZ",
-                ),
+            # ----------------------------------------------------
+            # ASSET EVALUATION
+            # ----------------------------------------------------
 
-            "usd_risk_status":
-                getattr(
-                    gk,
-                    "usd_risk_status",
-                    "UNAVAILABLE",
-                ),
+            verdicts = (
+                gk.evaluate_all_assets_harmonized(
+                    prev_map
+                )
+            )
 
-            "dxy_velocity":
-                dxy_v,
 
-            "ndl_z":
-                ndl_val,
+            # ----------------------------------------------------
+            # STATEFUL ADAPTIVE FINALIZATION
+            # ----------------------------------------------------
 
-            "current_vix": safe_float(getattr(gk, "current_vix", None), digits=1),
-
-            "stagflation_z": safe_float(getattr(gk, "stagflation_z", None), digits=2),
-
-            "yen_carry_z":
-                yen_carry,
-
-            "dfii10_z": safe_float(getattr(gk, "dfii10_z", None), digits=2),
-
-            "curve_label":
-                getattr(
-                    gk,
-                    "curve_label",
-                    "DÜZ EĞRİ",
-                ),
-
-            "crisis_state": {
-
-                "is_active":
-                    getattr(
-                        gk,
-                        "crisis_active",
-                        False,
-                    ),
-
-                "consecutive_breaches":
-                    getattr(
-                        gk,
-                        "consecutive_breaches",
-                        0,
-                    ),
-
-                "anomaly_score": safe_float(getattr(gk, "anomaly_score", None), digits=2),
-
-                "vix_floor_active":
-                    bool(
-                        safe_float(getattr(gk, "current_vix", None), default=999.0) < 20.0
-                    ),
-            },
-
-            "data_quality":
-                data_quality,
-
-            "data_sources":
-                data_sources,
-
-            "asset_verdicts":
+            # Replace the raw deterministic verdicts with the stateful
+            # adaptive score/threshold/entry results, then persist this
+            # cycle as the pending observation used by future cycles.
+            verdicts, adaptive_diag = stateful_controller.finalize_cycle(
+                gk,
                 verdicts,
+                previous_signals=prev_map,
+            )
 
-            "stateful_adaptive":
-                adaptive_diag,
-        }
+            # ----------------------------------------------------
+            # PAIR COHERENCE (post-adaptive)
+            # ----------------------------------------------------
+            # Adaptif motorlar hem "Canlı Fiyat Yönü" hem "Model Sinyali"
+            # alanlarını YENİDEN YAZDIĞI için XAU/XAG ve SPX/NQ fiyat-teyit
+            # uzlaştırması burada, en son (nihai) verdict'ler üzerinde tekrar
+            # uygulanır. Aksi halde bu güvenlik kontrolü sessizce kaybolur.
+            verdicts = gk.reconcile_pairs_post_adaptive(verdicts)
 
 
-        # ----------------------------------------------------
-        # SAVE STATE
-        # ----------------------------------------------------
+            # ----------------------------------------------------
+            # MACRO STATE
+            # ----------------------------------------------------
 
-        st.session_state.state_data = (
-            new_state
-        )
+            comp_usd = safe_float(getattr(gk, "composite_usd_risk", None), digits=2)
+            dxy_v = safe_float(getattr(gk, "dxy_velocity", None), digits=2)
+            ndl_val = safe_float(getattr(gk, "ndl_z", None), digits=2)
+            yen_carry = safe_float(getattr(gk, "yen_carry_z", None), digits=2)
 
-        st.session_state.last_sync_time = (
-            current_time_iso
-        )
 
-        save_persisted_state(
-            new_state
-        )
+            # ----------------------------------------------------
+            # DATA QUALITY SNAPSHOT
+            # ----------------------------------------------------
+
+            data_quality = getattr(
+                gk.data_engine,
+                "data_quality",
+                {},
+            )
+
+            data_sources = getattr(
+                gk.data_engine,
+                "data_sources",
+                {},
+            )
+
+
+            # ----------------------------------------------------
+            # CURRENT TIME
+            # ----------------------------------------------------
+
+            current_time_iso = (
+                datetime.now(
+                    timezone.utc
+                ).isoformat()
+            )
+
+
+            # ----------------------------------------------------
+            # NEW STATE
+            # ----------------------------------------------------
+
+            new_state = {
+
+                "v22_version": "2.2.1",
+
+                "last_updated":
+                    current_time_iso,
+
+                "status":
+                    "OK",
+
+                "active_regime_id":
+                    getattr(
+                        gk,
+                        "active_macro_regime_id",
+                        "REJIMSIZ_GECIS",
+                    ),
+
+                "active_regime_name":
+                    getattr(
+                        gk,
+                        "active_macro_regime_name",
+                        "Rejimsiz Geçiş / Veri Yetersiz",
+                    ),
+
+                "market_regime":
+                    getattr(
+                        gk,
+                        "market_regime",
+                        "⚪ [REJİMSİZ] Veri Yetersiz",
+                    ),
+
+                "active_subtype":
+                    getattr(
+                        gk,
+                        "active_subtype",
+                        "VERİ YETERSİZ",
+                    ),
+
+                "dynamic_thresholds":
+                    getattr(
+                        gk,
+                        "dynamic_thresholds",
+                        {},
+                    ),
+
+                "macro_diagnostics":
+                    getattr(
+                        gk,
+                        "macro_diagnostics",
+                        {},
+                    ),
+
+                "composite_usd_risk":
+                    comp_usd,
+
+                "usd_risk_label":
+                    getattr(
+                        gk,
+                        "usd_risk_label",
+                        "⚪ VERİ YETERSİZ",
+                    ),
+
+                "usd_risk_status":
+                    getattr(
+                        gk,
+                        "usd_risk_status",
+                        "UNAVAILABLE",
+                    ),
+
+                "dxy_velocity":
+                    dxy_v,
+
+                "ndl_z":
+                    ndl_val,
+
+                "current_vix": safe_float(getattr(gk, "current_vix", None), digits=1),
+
+                "stagflation_z": safe_float(getattr(gk, "stagflation_z", None), digits=2),
+
+                "yen_carry_z":
+                    yen_carry,
+
+                "dfii10_z": safe_float(getattr(gk, "dfii10_z", None), digits=2),
+
+                "curve_label":
+                    getattr(
+                        gk,
+                        "curve_label",
+                        "DÜZ EĞRİ",
+                    ),
+
+                "crisis_state": {
+
+                    "is_active":
+                        getattr(
+                            gk,
+                            "crisis_active",
+                            False,
+                        ),
+
+                    "consecutive_breaches":
+                        getattr(
+                            gk,
+                            "consecutive_breaches",
+                            0,
+                        ),
+
+                    "anomaly_score": safe_float(getattr(gk, "anomaly_score", None), digits=2),
+
+                    "vix_floor_active":
+                        bool(
+                            safe_float(getattr(gk, "current_vix", None), default=999.0) < 20.0
+                        ),
+                },
+
+                "data_quality":
+                    data_quality,
+
+                "data_sources":
+                    data_sources,
+
+                "asset_verdicts":
+                    verdicts,
+
+                "stateful_adaptive":
+                    adaptive_diag,
+            }
+
+
+            # ----------------------------------------------------
+            # SAVE STATE
+            # ----------------------------------------------------
+
+            st.session_state.state_data = (
+                new_state
+            )
+
+            st.session_state.last_sync_time = (
+                current_time_iso
+            )
+
+            save_persisted_state(
+                new_state
+            )
+        except Exception as refresh_error:
+            # Yenileme sırasında BEKLENMEDİK bir hata oluşursa artık tüm
+            # sayfa çökmüyor ve önceki (son başarılı) analiz ekranda kalıyor;
+            # kullanıcı 'Yenile' butonuna bastığında analizlerin birden
+            # bozulduğu / çöktüğü şikayetinin ana kaynaklarından biri buydu.
+            st.error(
+                "⚠️ Canlı veri yenileme sırasında bir hata oluştu; "
+                "önceki başarılı analiz gösterilmeye devam ediyor. "
+                f"(Teknik ayrıntı: {refresh_error})"
+            )
+            if not st.session_state.state_data or "asset_verdicts" not in st.session_state.state_data:
+                # İlk yüklemede de hata olursa en azından boş/güvenli bir
+                # durumla devam et; None ile aşağıdaki kod çökmesin.
+                st.session_state.state_data = persisted or {"status": "NOT_INITIALIZED"}
 
 
 # =============================================================================
@@ -904,6 +928,11 @@ for k in ASSET_MATRICES.keys():
     direction_acceleration = safe_float(data.get("direction_acceleration"), default=None)
     direction_persistence = int(data.get("direction_persistence", 0) or 0)
 
+    intraday_regime = data.get("intraday_regime", {}) or {}
+    intraday_regime_label = intraday_regime.get("label", "—")
+    if data.get("live_regime_event"):
+        intraday_regime_label = f"⚠️ {intraday_regime_label} (yeni)"
+
 
     summary_rows.append(
         {
@@ -916,10 +945,13 @@ for k in ASSET_MATRICES.keys():
                     "name"
                 ],
 
-            "📍 Canlı Fiyat Yönü":
+            "📍 Canlı Fiyat Yönü (1-4 Saat)":
                 curr_dir,
 
-            "🔮 Model Sinyali":
+            "Gün-içi Rejim":
+                intraday_regime_label,
+
+            "🔮 Model Sinyali (24 Saat-1 Hafta)":
                 fore_dir,
 
             "Yön Aşaması":
@@ -962,10 +994,16 @@ st.dataframe(
 
 
 st.caption(
-    "💡 **Stateful Direction v3.1:** Model yönü execution gate'den bağımsızdır. "
-    "EARLY/CONFIRMED aşaması dynamic threshold + score velocity/acceleration + "
-    "cluster persistence ile hesaplanır. İşleme giriş ise gerçek veri, veri tazeliği, "
-    "ATR ve gerçek RVOL koşullarını ayrıca kontrol eder."
+    "💡 **İki Ayrı Ufuk:** 📍 *Canlı Fiyat Yönü* günün gün-içi rejimine "
+    "(trend gücü + volatilite) göre kalibre edilmiş **1-4 saatlik** olası yönü; "
+    "🔮 *Model Sinyali* haftalık/aylık makro rejime göre kalibre edilmiş "
+    "**24 saat-1 haftalık** olası yönü gösterir. Her iki motor da kendi eşiklerini "
+    "geçmiş skor dağılımından (yüzdelik dilim) dinamik olarak günceller; rejim "
+    "değişimi anında (⚠️ işareti) eşikler geçici olarak genişletilerek yanlış "
+    "sinyal riski azaltılır. **Stateful Direction v3.1:** Model yönü execution "
+    "gate'den bağımsızdır; EARLY/CONFIRMED aşaması dynamic threshold + score "
+    "velocity/acceleration + cluster persistence ile hesaplanır. İşleme giriş ise "
+    "gerçek veri, veri tazeliği, ATR ve gerçek RVOL koşullarını ayrıca kontrol eder."
 )
 
 
@@ -1050,7 +1088,15 @@ with info_cols[4]:
     st.metric("Persistence", str(direction_persistence))
 
 if direction_reason:
-    st.caption(f"🧭 Yön gerekçesi: {direction_reason}")
+    st.caption(f"🧭 Yön gerekçesi (Model Sinyali, 24s-1h ufuk): {direction_reason}")
+
+intraday_regime = res.get("intraday_regime", {}) or {}
+if intraday_regime.get("label"):
+    event_note = " — ⚠️ **rejim az önce değişti**, eşikler geçici genişletildi" if res.get("live_regime_event") else ""
+    st.caption(
+        f"🕒 Gün-içi rejim (Canlı Fiyat Yönü, 1-4s ufuk): "
+        f"**{intraday_regime.get('label')}**{event_note}"
+    )
 
 rvol_val = safe_float(res.get("rvol"), default=None)
 atr_val = safe_float(res.get("atr_ratio"), default=None)
@@ -1068,7 +1114,7 @@ col_card1, col_card2 = st.columns(
 with col_card1:
 
     st.markdown(
-        f"#### 📍 Canlı Fiyat Durumu: **{curr_dir}**"
+        f"#### 📍 Canlı Fiyat Durumu (1-4 Saat Olası Yön): **{curr_dir}**"
     )
 
 

@@ -178,180 +178,183 @@ class PreTradeGatekeeper:
                 })
                 continue
 
-            if f_id == "asset_direction":
-                vol_scale = matrix.get("vol_scale", 1.0)
-                if asset_key == "XAU":
-                    val = self.processor.compute_intraday_direction_momentum(
-                        df_ast, fast_window=2, slow_window=16, vol_scale=0.90
+            try:
+                if f_id == "asset_direction":
+                    vol_scale = matrix.get("vol_scale", 1.0)
+                    if asset_key == "XAU":
+                        val = self.processor.compute_intraday_direction_momentum(
+                            df_ast, fast_window=2, slow_window=16, vol_scale=0.90
+                        )
+                    elif asset_key == "XAG":
+                        val = self.processor.compute_intraday_direction_momentum(
+                            df_ast, fast_window=4, slow_window=24, vol_scale=1.25
+                        )
+                    else:
+                        val = self.processor.compute_intraday_direction_momentum(
+                            df_ast, vol_scale=vol_scale
+                        )
+                elif f_id == "gold_macro_lead":
+                    val = self.processor.compute_gold_macro_lead(
+                        df_ast,
+                        self.grid_1h.get("DXY", pd.DataFrame()),
+                        self.grid_1h.get("TLT", pd.DataFrame()),
+                        self.grid_1h.get("USDJPY", pd.DataFrame())
                     )
-                elif asset_key == "XAG":
-                    val = self.processor.compute_intraday_direction_momentum(
-                        df_ast, fast_window=4, slow_window=24, vol_scale=1.25
+                elif f_id == "crypto_taker":
+                    if crypto_flow is None:
+                        crypto_flow = self.data_engine.fetch_crypto_taker_flow(ccy)
+                    raw_ratio = crypto_flow.get("value") if isinstance(crypto_flow, dict) else None
+                    if raw_ratio is None:
+                        val = None
+                        continue
+                    val = float(np.tanh(np.log(raw_ratio + 1e-6) * 2.0) * 1.5)
+                elif f_id == "funding_stress":
+                    if crypto_fr is None:
+                        crypto_fr = self.data_engine.fetch_crypto_funding_rate(ccy)
+                    rate = crypto_fr.get("rate") if isinstance(crypto_fr, dict) else None
+                    val = self.processor.compute_crypto_funding_stress(rate) if rate is not None else None
+                elif f_id == "stablecoin_usd_impulse":
+                    if crypto_flow is None:
+                        crypto_flow = self.data_engine.fetch_crypto_taker_flow(ccy)
+                    if crypto_fr is None:
+                        crypto_fr = self.data_engine.fetch_crypto_funding_rate(ccy)
+                    flow_value = crypto_flow.get("value") if isinstance(crypto_flow, dict) else None
+                    funding_value = crypto_fr.get("rate") if isinstance(crypto_fr, dict) else None
+                    if flow_value is None or funding_value is None or self.ndl_z is None:
+                        val = None
+                    else:
+                        val = self.processor.compute_crypto_stablecoin_usd_impulse(
+                            flow_value, funding_value, self.ndl_z
+                        )
+                elif f_id == "liquidation_squeeze_risk":
+                    if crypto_fr is None:
+                        crypto_fr = self.data_engine.fetch_crypto_funding_rate(ccy)
+                    rate = crypto_fr.get("rate") if isinstance(crypto_fr, dict) else None
+                    val = self.processor.compute_liquidation_squeeze_risk(rate, df_ast) if rate is not None else None
+                elif f_id == "btc_dominance":
+                    val = self.processor.compute_ratio_z(
+                        self.grid_1h.get("BTC-USD", pd.DataFrame()),
+                        self.grid_1h.get("ETH-USD", pd.DataFrame())
                     )
-                else:
-                    val = self.processor.compute_intraday_direction_momentum(
-                        df_ast, vol_scale=vol_scale
+                elif f_id == "semi_lead":
+                    val = self.processor.compute_ratio_z(
+                        self.grid_1h.get("SMH", pd.DataFrame()),
+                        self.grid_1h.get("QQQ", pd.DataFrame())
                     )
-            elif f_id == "gold_macro_lead":
-                val = self.processor.compute_gold_macro_lead(
-                    df_ast,
-                    self.grid_1h.get("DXY", pd.DataFrame()),
-                    self.grid_1h.get("TLT", pd.DataFrame()),
-                    self.grid_1h.get("USDJPY", pd.DataFrame())
-                )
-            elif f_id == "crypto_taker":
-                if crypto_flow is None:
-                    crypto_flow = self.data_engine.fetch_crypto_taker_flow(ccy)
-                raw_ratio = crypto_flow.get("value") if isinstance(crypto_flow, dict) else None
-                if raw_ratio is None:
-                    val = None
-                    continue
-                val = float(np.tanh(np.log(raw_ratio + 1e-6) * 2.0) * 1.5)
-            elif f_id == "funding_stress":
-                if crypto_fr is None:
-                    crypto_fr = self.data_engine.fetch_crypto_funding_rate(ccy)
-                rate = crypto_fr.get("rate") if isinstance(crypto_fr, dict) else None
-                val = self.processor.compute_crypto_funding_stress(rate) if rate is not None else None
-            elif f_id == "stablecoin_usd_impulse":
-                if crypto_flow is None:
-                    crypto_flow = self.data_engine.fetch_crypto_taker_flow(ccy)
-                if crypto_fr is None:
-                    crypto_fr = self.data_engine.fetch_crypto_funding_rate(ccy)
-                flow_value = crypto_flow.get("value") if isinstance(crypto_flow, dict) else None
-                funding_value = crypto_fr.get("rate") if isinstance(crypto_fr, dict) else None
-                if flow_value is None or funding_value is None or self.ndl_z is None:
-                    val = None
-                else:
-                    val = self.processor.compute_crypto_stablecoin_usd_impulse(
-                        flow_value, funding_value, self.ndl_z
+                elif f_id == "tech_breadth_dispersion":
+                    val = self.processor.compute_tech_breadth_dispersion(
+                        self.grid_1h.get("SMH", pd.DataFrame()),
+                        self.grid_1h.get("ARKK", pd.DataFrame()),
+                        self.grid_1h.get("QQQ", pd.DataFrame())
                     )
-            elif f_id == "liquidation_squeeze_risk":
-                if crypto_fr is None:
-                    crypto_fr = self.data_engine.fetch_crypto_funding_rate(ccy)
-                rate = crypto_fr.get("rate") if isinstance(crypto_fr, dict) else None
-                val = self.processor.compute_liquidation_squeeze_risk(rate, df_ast) if rate is not None else None
-            elif f_id == "btc_dominance":
-                val = self.processor.compute_ratio_z(
-                    self.grid_1h.get("BTC-USD", pd.DataFrame()),
-                    self.grid_1h.get("ETH-USD", pd.DataFrame())
-                )
-            elif f_id == "semi_lead":
-                val = self.processor.compute_ratio_z(
-                    self.grid_1h.get("SMH", pd.DataFrame()),
-                    self.grid_1h.get("QQQ", pd.DataFrame())
-                )
-            elif f_id == "tech_breadth_dispersion":
-                val = self.processor.compute_tech_breadth_dispersion(
-                    self.grid_1h.get("SMH", pd.DataFrame()),
-                    self.grid_1h.get("ARKK", pd.DataFrame()),
-                    self.grid_1h.get("QQQ", pd.DataFrame())
-                )
-            elif f_id == "equity_duration_drag":
-                val = self.processor.compute_equity_duration_drag(df_ast, self.real_yield_z)
-            elif f_id == "gold_sovereign_decoupling":
-                val = self.processor.compute_gold_sovereign_decoupling(
-                    df_ast, self.real_yield_z, self.grid_1h.get("DXY", pd.DataFrame())
-                )
-            elif f_id == "silver_monetary_catchup":
-                val = self.processor.compute_silver_monetary_catchup(
-                    df_ast,
-                    self.grid_1h.get("GC", self.grid_1h.get("GC=F", pd.DataFrame())),
-                    self.grid_1h.get("HG", self.grid_1h.get("HG=F", pd.DataFrame()))
-                )
-            elif f_id == "eth_staking_utility_drift":
-                val = self.processor.compute_eth_staking_utility_drift(
-                    df_ast, self.grid_1h.get("BTC-USD", pd.DataFrame())
-                )
-            elif f_id == "market_breadth":
-                val = self.processor.compute_market_breadth(
-                    self.grid_1h.get("RSP", pd.DataFrame()),
-                    self.grid_1h.get("SPY", pd.DataFrame())
-                )
-            elif f_id == "duration_risk":
-                val = self.processor.compute_bond_duration_risk(
-                    self.grid_1h.get("TLT", pd.DataFrame()),
-                    self.grid_1h.get("SHY", pd.DataFrame())
-                )
-            elif f_id == "banking_stress":
-                val = self.processor.compute_banking_stress(
-                    self.grid_1h.get("KRE", pd.DataFrame()),
-                    self.grid_1h.get("SPY", pd.DataFrame())
-                )
-            elif f_id == "defensive_flight":
-                bench_sym = "QQQ" if asset_key == "NQ" else "SPY"
-                val = self.processor.compute_defensive_flight(
-                    self.grid_1h.get("XLU", pd.DataFrame()),
-                    self.grid_1h.get(bench_sym, pd.DataFrame())
-                )
-            elif f_id == "consumer_demand":
-                val = self.processor.compute_consumer_confidence(
-                    self.grid_1h.get("XLY", pd.DataFrame()),
-                    self.grid_1h.get("XLP", pd.DataFrame())
-                )
-            elif f_id == "speculative_beta":
-                val = self.processor.compute_ratio_z(
-                    self.grid_1h.get("ARKK", pd.DataFrame()),
-                    self.grid_1h.get("QQQ", pd.DataFrame())
-                )
-            elif f_id == "vix_term":
-                val = self.processor.compute_vix_term_structure(
-                    self.grid_1h.get("VIX", pd.DataFrame()),
-                    self.grid_1h.get("VIX3M", pd.DataFrame())
-                )
-            elif f_id == "copper_gold":
-                val = self.processor.compute_ratio_z(
-                    self.grid_1h.get("HG", self.grid_1h.get("HG=F", pd.DataFrame())),
-                    self.grid_1h.get("GC", self.grid_1h.get("GC=F", pd.DataFrame()))
-                )
-            elif f_id == "gsr_velocity":
-                val = self.processor.compute_gsr_velocity(
-                    self.grid_1h.get("GC", self.grid_1h.get("GC=F", pd.DataFrame())),
-                    self.grid_1h.get("SI", self.grid_1h.get("SI=F", pd.DataFrame()))
-                )
-            elif f_id == "gold_oil_ratio":
-                val = self.processor.compute_gold_oil_ratio(
-                    self.grid_1h.get("GC", self.grid_1h.get("GC=F", pd.DataFrame())),
-                    self.grid_1h.get("USO", self.grid_1h.get("CL", pd.DataFrame()))
-                )
-            elif f_id == "silver_copper":
-                val = self.processor.compute_silver_copper_ratio(
-                    self.grid_1h.get("SI", self.grid_1h.get("SI=F", pd.DataFrame())),
-                    self.grid_1h.get("HG", self.grid_1h.get("HG=F", pd.DataFrame()))
-                )
-            elif f_id == "gold_sympathy":
-                df_gc = self.grid_1h.get("GC", self.grid_1h.get("GC=F", pd.DataFrame()))
-                df_hg = self.grid_1h.get("HG", self.grid_1h.get("HG=F", pd.DataFrame()))
-                val = self.processor.compute_silver_gold_anchor(
-                    df_ast, df_gc, df_hg
-                )
-            elif f_id == "btc_sympathy":
-                df_btc = self.grid_1h.get("BTC-USD", pd.DataFrame())
-                val = self.processor.compute_intraday_direction_momentum(df_btc, vol_scale=1.8)
-            elif f_id == "eth_btc_beta":
-                val = self.processor.compute_ratio_z(
-                    self.grid_1h.get("ETH-USD", pd.DataFrame()),
-                    self.grid_1h.get("BTC-USD", pd.DataFrame())
-                )
-            elif f_id == "usd_strength":
-                val = self.dxy_velocity
-            elif f_id == "net_dollar_liquidity":
-                val = float(np.clip(self.ndl_z, -2.0, 2.0)) if self.ndl_z is not None else None
-            elif f_id == "usd_jpy_carry":
-                val = self.yen_carry_z
-            elif f_id == "credit_spread":
-                val = self.credit_velocity
-            elif f_id == "vix_strain":
-                vix_df = self.grid_1h.get("VIX", pd.DataFrame())
-                val = self.processor.compute_vix_stress(vix_df) if not vix_df.empty else None
-            elif f_id == "real_yield":
-                val = self.real_yield_z
-            elif f_id == "breakeven_infl":
-                val = self.breakeven_z
-            elif f_id == "safe_haven":
-                vix_df = self.grid_1h.get("VIX", pd.DataFrame())
-                val = self.processor.compute_vix_stress(vix_df) if not vix_df.empty else None
-            elif f_id == "stagflation_shock":
-                val = self.stagflation_z
+                elif f_id == "equity_duration_drag":
+                    val = self.processor.compute_equity_duration_drag(df_ast, self.real_yield_z)
+                elif f_id == "gold_sovereign_decoupling":
+                    val = self.processor.compute_gold_sovereign_decoupling(
+                        df_ast, self.real_yield_z, self.grid_1h.get("DXY", pd.DataFrame())
+                    )
+                elif f_id == "silver_monetary_catchup":
+                    val = self.processor.compute_silver_monetary_catchup(
+                        df_ast,
+                        self.grid_1h.get("GC", self.grid_1h.get("GC=F", pd.DataFrame())),
+                        self.grid_1h.get("HG", self.grid_1h.get("HG=F", pd.DataFrame()))
+                    )
+                elif f_id == "eth_staking_utility_drift":
+                    val = self.processor.compute_eth_staking_utility_drift(
+                        df_ast, self.grid_1h.get("BTC-USD", pd.DataFrame())
+                    )
+                elif f_id == "market_breadth":
+                    val = self.processor.compute_market_breadth(
+                        self.grid_1h.get("RSP", pd.DataFrame()),
+                        self.grid_1h.get("SPY", pd.DataFrame())
+                    )
+                elif f_id == "duration_risk":
+                    val = self.processor.compute_bond_duration_risk(
+                        self.grid_1h.get("TLT", pd.DataFrame()),
+                        self.grid_1h.get("SHY", pd.DataFrame())
+                    )
+                elif f_id == "banking_stress":
+                    val = self.processor.compute_banking_stress(
+                        self.grid_1h.get("KRE", pd.DataFrame()),
+                        self.grid_1h.get("SPY", pd.DataFrame())
+                    )
+                elif f_id == "defensive_flight":
+                    bench_sym = "QQQ" if asset_key == "NQ" else "SPY"
+                    val = self.processor.compute_defensive_flight(
+                        self.grid_1h.get("XLU", pd.DataFrame()),
+                        self.grid_1h.get(bench_sym, pd.DataFrame())
+                    )
+                elif f_id == "consumer_demand":
+                    val = self.processor.compute_consumer_confidence(
+                        self.grid_1h.get("XLY", pd.DataFrame()),
+                        self.grid_1h.get("XLP", pd.DataFrame())
+                    )
+                elif f_id == "speculative_beta":
+                    val = self.processor.compute_ratio_z(
+                        self.grid_1h.get("ARKK", pd.DataFrame()),
+                        self.grid_1h.get("QQQ", pd.DataFrame())
+                    )
+                elif f_id == "vix_term":
+                    val = self.processor.compute_vix_term_structure(
+                        self.grid_1h.get("VIX", pd.DataFrame()),
+                        self.grid_1h.get("VIX3M", pd.DataFrame())
+                    )
+                elif f_id == "copper_gold":
+                    val = self.processor.compute_ratio_z(
+                        self.grid_1h.get("HG", self.grid_1h.get("HG=F", pd.DataFrame())),
+                        self.grid_1h.get("GC", self.grid_1h.get("GC=F", pd.DataFrame()))
+                    )
+                elif f_id == "gsr_velocity":
+                    val = self.processor.compute_gsr_velocity(
+                        self.grid_1h.get("GC", self.grid_1h.get("GC=F", pd.DataFrame())),
+                        self.grid_1h.get("SI", self.grid_1h.get("SI=F", pd.DataFrame()))
+                    )
+                elif f_id == "gold_oil_ratio":
+                    val = self.processor.compute_gold_oil_ratio(
+                        self.grid_1h.get("GC", self.grid_1h.get("GC=F", pd.DataFrame())),
+                        self.grid_1h.get("USO", self.grid_1h.get("CL", pd.DataFrame()))
+                    )
+                elif f_id == "silver_copper":
+                    val = self.processor.compute_silver_copper_ratio(
+                        self.grid_1h.get("SI", self.grid_1h.get("SI=F", pd.DataFrame())),
+                        self.grid_1h.get("HG", self.grid_1h.get("HG=F", pd.DataFrame()))
+                    )
+                elif f_id == "gold_sympathy":
+                    df_gc = self.grid_1h.get("GC", self.grid_1h.get("GC=F", pd.DataFrame()))
+                    df_hg = self.grid_1h.get("HG", self.grid_1h.get("HG=F", pd.DataFrame()))
+                    val = self.processor.compute_silver_gold_anchor(
+                        df_ast, df_gc, df_hg
+                    )
+                elif f_id == "btc_sympathy":
+                    df_btc = self.grid_1h.get("BTC-USD", pd.DataFrame())
+                    val = self.processor.compute_intraday_direction_momentum(df_btc, vol_scale=1.8)
+                elif f_id == "eth_btc_beta":
+                    val = self.processor.compute_ratio_z(
+                        self.grid_1h.get("ETH-USD", pd.DataFrame()),
+                        self.grid_1h.get("BTC-USD", pd.DataFrame())
+                    )
+                elif f_id == "usd_strength":
+                    val = self.dxy_velocity
+                elif f_id == "net_dollar_liquidity":
+                    val = float(np.clip(self.ndl_z, -2.0, 2.0)) if self.ndl_z is not None else None
+                elif f_id == "usd_jpy_carry":
+                    val = self.yen_carry_z
+                elif f_id == "credit_spread":
+                    val = self.credit_velocity
+                elif f_id == "vix_strain":
+                    vix_df = self.grid_1h.get("VIX", pd.DataFrame())
+                    val = self.processor.compute_vix_stress(vix_df) if not vix_df.empty else None
+                elif f_id == "real_yield":
+                    val = self.real_yield_z
+                elif f_id == "breakeven_infl":
+                    val = self.breakeven_z
+                elif f_id == "safe_haven":
+                    vix_df = self.grid_1h.get("VIX", pd.DataFrame())
+                    val = self.processor.compute_vix_stress(vix_df) if not vix_df.empty else None
+                elif f_id == "stagflation_shock":
+                    val = self.stagflation_z
+            except Exception:
+                val = None
 
             if val is None or not np.isfinite(float(val)):
                 details.append({
@@ -426,12 +429,41 @@ class PreTradeGatekeeper:
             "details": details
         }
 
+    def _safe_evaluate_asset_direction(self, key, previous_signal):
+        """
+        Tek bir varlığın değerlendirmesi beklenmedik biçimde patlarsa (örn.
+        canlı veri akışında geçici bir bozukluk), bu artık TÜM yenileme
+        döngüsünü ve dolayısıyla ekrandaki diğer varlıkları da çökertmemeli.
+        Sorunlu varlık VERİ YETERSİZ olarak işaretlenir, döngü devam eder.
+        """
+        try:
+            return self.evaluate_asset_direction(key, previous_signal=previous_signal)
+        except Exception as exc:
+            return {
+                "verdict": "NÖTR (BEKLE)",
+                "forecast_direction": "NÖTR (BEKLE)",
+                "forecast_icon": "⚪",
+                "forecast_color": "gray",
+                "current_direction": "⚪ VERİ YETERSİZ",
+                "current_icon": "⚪",
+                "current_color": "gray",
+                "current_roc": 0.0,
+                "icon": "⚪",
+                "color": "gray",
+                "score": 0.0,
+                "entry_allowed": False,
+                "entry_status": "🔴 İŞLEME GİRİŞ ÖNERİLMEZ",
+                "entry_reason": f"Değerlendirme hatası (izole edildi): {exc}",
+                "factor_data_status": "INSUFFICIENT_DATA",
+                "details": [],
+            }
+
     def evaluate_all_assets_harmonized(self, previous_signals=None):
         """Evaluate all assets and reconcile unsupported pair divergence from real prices."""
         previous_signals = previous_signals or {}
         verdicts = {
-            key: self.evaluate_asset_direction(
-                key, previous_signal=previous_signals.get(key, "NÖTR (BEKLE)")
+            key: self._safe_evaluate_asset_direction(
+                key, previous_signals.get(key, "NÖTR (BEKLE)")
             )
             for key in ASSET_MATRICES.keys()
         }
@@ -505,68 +537,123 @@ class PreTradeGatekeeper:
             va["pair_stats"] = vf["pair_stats"] = stats
 
             # ---------------------------------------------------------
-            # CURRENT DIRECTION COHERENCE
-            # ---------------------------------------------------------
-            # XAU/XAG and SPX/NQ should not show opposite/noisy short-term
-            # directions when the real price series move together. If real
-            # divergence is not statistically supported, classify both from
-            # the pair-average model-direction score while retaining each
-            # asset's actual ROC in the label.
-            if not price_supported:
-                qa, sa = self.processor.compute_direction_score(
-                    self.grid_1h.get(anchor, pd.DataFrame())
-                )
-                qf, sf = self.processor.compute_direction_score(
-                    self.grid_1h.get(follower, pd.DataFrame())
-                )
-
-                if qa is not None and qf is not None and sa is not None and sf is not None:
-                    qa_f = float(qa)
-                    qf_f = float(qf)
-                    # When both legs agree in sign, the weaker leg caps the
-                    # common direction. One outlier therefore cannot force
-                    # the pair into a directional label. Opposite signs use
-                    # the mean, naturally moving the pair toward neutral
-                    # unless the real price spread is independently supported.
-                    if qa_f == 0.0 or qf_f == 0.0:
-                        pair_score = 0.0
-                    elif np.sign(qa_f) == np.sign(qf_f):
-                        pair_score = float(np.sign(qa_f) * min(abs(qa_f), abs(qf_f)))
-                    else:
-                        pair_score = 0.50 * qa_f + 0.50 * qf_f
-
-                    va["current_direction"], va["current_icon"], va["current_color"], _ = self.processor.format_direction_score(
-                        pair_score, sa["roc_1h"]
-                    )
-                    vf["current_direction"], vf["current_icon"], vf["current_color"], _ = self.processor.format_direction_score(
-                        pair_score, sf["roc_1h"]
-                    )
-
-                    va["pair_direction_score"] = round(pair_score, 3)
-                    vf["pair_direction_score"] = round(pair_score, 3)
-
-                # Unsupported one-sided model signal gets neutralized.
-                anc_verdict = str(va.get("verdict", ""))
-                fol_verdict = str(vf.get("verdict", ""))
-                opposite_one_sided = (
-                    ("AL" in fol_verdict and "AL" not in anc_verdict)
-                    or ("SAT" in fol_verdict and "SAT" not in anc_verdict)
-                )
-                if opposite_one_sided:
-                    vf.update({
-                        "verdict": "NÖTR (FİYAT TEYİDİ YOK)",
-                        "forecast_direction": "NÖTR (FİYAT TEYİDİ YOK)",
-                        "forecast_icon": "⚪",
-                        "forecast_color": "gray",
-                        "icon": "⚪",
-                        "color": "gray",
-                    })
-
-                    va["pair_model_reconciliation"] = "TEK TARAFLI MODEL SİNYALİ BASTIRILDI"
-                    vf["pair_model_reconciliation"] = "TEK TARAFLI MODEL SİNYALİ BASTIRILDI"
+            # NOT: Fiyat-desteksiz ayrışma durumunda canlı yön ve model
+            # sinyali uzlaştırması artık burada YAPILMIYOR. Önceden burada
+            # yapılıyordu; fakat stateful_adaptive_controller.finalize_cycle()
+            # hem "current_direction" hem "verdict/forecast_direction"
+            # alanlarını kendi adaptif motorlarıyla YENİDEN YAZIYOR, bu da bu
+            # uzlaştırmayı sessizce sıfırlıyordu (canlı-yenile sonrası
+            # XAU/XAG veya SPX/NQ birbiriyle çelişen sinyaller gösterebiliyordu).
+            # Aynı uzlaştırma artık `reconcile_pairs_post_adaptive()` içinde,
+            # adaptif motor çalıştıktan SONRA, nihai verdict/current_direction
+            # üzerinde uygulanıyor (bkz. app.py çağrı sırası).
+            pass
 
         # BTC/ETH broad sympathy is kept intentionally soft; genuine divergence
-        # is not overwritten here.
+        # is not overwritten here. (Bu da nihai skorlar üzerinden çalışması
+        # için reconcile_pairs_post_adaptive() içine taşındı.)
+
+        return verdicts
+
+    def reconcile_pairs_post_adaptive(self, verdicts):
+        """
+        Fiyatla teyit edilmemiş ayrışmalarda hem "Canlı Fiyat Yönü" hem de
+        "Model Sinyali" için nihai (stateful-adaptive sonrası) uzlaştırmayı
+        uygular. `evaluate_all_assets_harmonized()` sadece ham/deterministik
+        verdict'ler üzerinde çalışıyordu; ama stateful_adaptive_controller
+        her iki alanı da adaptif motorlarla yeniden yazdığı için o erken
+        uzlaştırma kayboluyordu. Bu metod app.py'de
+        `stateful_controller.finalize_cycle(...)` çağrısından HEMEN SONRA
+        çalıştırılmalıdır.
+        """
+        pair_specs = (
+            ("SPX", "NQ", 0.70, 1.25),
+            ("XAU", "XAG", 0.60, 1.35),
+        )
+
+        def pair_stats(anchor_key, follower_key, bars=8):
+            a = self.grid_1h.get(anchor_key, pd.DataFrame())
+            b = self.grid_1h.get(follower_key, pd.DataFrame())
+            if not isinstance(a, pd.DataFrame) or not isinstance(b, pd.DataFrame) or a.empty or b.empty:
+                return None
+            if "Close" not in a.columns or "Close" not in b.columns:
+                return None
+            ar = pd.to_numeric(a["Close"], errors="coerce").pct_change()
+            br = pd.to_numeric(b["Close"], errors="coerce").pct_change()
+            x = pd.concat([ar.rename("a"), br.rename("b")], axis=1, join="inner").dropna()
+            if len(x) < max(24, bars + 5):
+                return None
+            recent = x.tail(bars)
+            corr = float(recent["a"].corr(recent["b"])) if recent["a"].std() > 0 and recent["b"].std() > 0 else 0.0
+            anchor_ret = float((1.0 + recent["a"]).prod() - 1.0)
+            follower_ret = float((1.0 + recent["b"]).prod() - 1.0)
+            spread = follower_ret - anchor_ret
+            spread_series = (x["b"] - x["a"]).dropna()
+            hist = spread_series.tail(min(120, len(spread_series)))
+            std = float(hist.std(ddof=1)) if len(hist) >= 10 else 0.0
+            spread_z = float(spread / (std + 1e-12)) if std > 1e-12 else 0.0
+            return {"corr": corr, "spread": spread, "spread_z": spread_z}
+
+        for anchor, follower, min_corr, evidence_z in pair_specs:
+            va = verdicts.get(anchor)
+            vf = verdicts.get(follower)
+            if not va or not vf:
+                continue
+
+            stats = pair_stats(anchor, follower)
+            if stats is None:
+                continue
+
+            price_supported = (
+                stats["corr"] >= min_corr
+                and abs(stats["spread_z"]) >= evidence_z
+                and abs(stats["spread"]) > 0
+            )
+            if price_supported:
+                continue
+
+            # --- Canlı Fiyat Yönü (1-4 saat) uzlaştırması: gerçek fiyat
+            # ayrışmayı doğrulamıyorsa, çift ortak bir skordan etiketlenir. ---
+            qa, sa = self.processor.compute_live_horizon_score(self.grid_1h.get(anchor, pd.DataFrame()))
+            qf, sf = self.processor.compute_live_horizon_score(self.grid_1h.get(follower, pd.DataFrame()))
+            if qa is not None and qf is not None and sa is not None and sf is not None:
+                qa_f, qf_f = float(qa), float(qf)
+                if qa_f == 0.0 or qf_f == 0.0:
+                    pair_score = 0.0
+                elif np.sign(qa_f) == np.sign(qf_f):
+                    pair_score = float(np.sign(qa_f) * min(abs(qa_f), abs(qf_f)))
+                else:
+                    pair_score = 0.50 * qa_f + 0.50 * qf_f
+
+                va["current_direction"], va["current_icon"], va["current_color"], _ = self.processor.format_direction_score(
+                    pair_score, sa["roc_1h"]
+                )
+                vf["current_direction"], vf["current_icon"], vf["current_color"], _ = self.processor.format_direction_score(
+                    pair_score, sf["roc_1h"]
+                )
+                va["pair_direction_score"] = round(pair_score, 3)
+                vf["pair_direction_score"] = round(pair_score, 3)
+
+            # --- Model Sinyali (24 saat-1 hafta) uzlaştırması: fiyatla
+            # teyit edilmemiş tek taraflı AL/SAT bastırılır. ---
+            anc_verdict = str(va.get("verdict", ""))
+            fol_verdict = str(vf.get("verdict", ""))
+            opposite_one_sided = (
+                ("AL" in fol_verdict and "AL" not in anc_verdict)
+                or ("SAT" in fol_verdict and "SAT" not in anc_verdict)
+            )
+            if opposite_one_sided:
+                vf.update({
+                    "verdict": "NÖTR (FİYAT TEYİDİ YOK)",
+                    "forecast_direction": "NÖTR (FİYAT TEYİDİ YOK)",
+                    "forecast_icon": "⚪",
+                    "forecast_color": "gray",
+                    "icon": "⚪",
+                    "color": "gray",
+                })
+                va["pair_model_reconciliation"] = "TEK TARAFLI MODEL SİNYALİ BASTIRILDI"
+                vf["pair_model_reconciliation"] = "TEK TARAFLI MODEL SİNYALİ BASTIRILDI"
+
         vb, ve = verdicts.get("BTC"), verdicts.get("ETH")
         if vb and ve:
             diff = abs(float(vb.get("score", 0.0)) - float(ve.get("score", 0.0)))

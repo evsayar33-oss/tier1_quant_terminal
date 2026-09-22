@@ -109,6 +109,7 @@ def _default_memory() -> Dict[str, Any]:
         "direction_runtime": {},
         "direction_outcomes": {},
         "score_distribution": {},
+        "intraday_regime_state": {},
         "pending_observations": [],
         "meta": {
             "settled_observations": 0,
@@ -800,6 +801,21 @@ class StatefulMemoryStore:
             "abs_score_p70": float(np.quantile(arr, 0.70)),
             "abs_score_p85": float(np.quantile(arr, 0.85)),
         }
+
+    # ------------------------------------------------------------------
+    # Intraday (gün-içi) rejim izleme — "Canlı Fiyat Yönü" için rejim olayı
+    # (rejim değişimi) tespiti. Ayrı bir küçük anahtar-değer alanı; makro
+    # (haftalık/aylık) rejim durumundan bilinçli olarak izole tutulur.
+    # ------------------------------------------------------------------
+    def get_intraday_regime(self, asset: str) -> Dict[str, Any]:
+        return deepcopy(self.memory.setdefault("intraday_regime_state", {}).get(str(asset), {}))
+
+    def set_intraday_regime(self, asset: str, label: str, now: Optional[datetime] = None) -> None:
+        with _LOCK:
+            self.memory.setdefault("intraday_regime_state", {})[str(asset)] = {
+                "label": str(label),
+                "since": _iso(now or _utc_now()),
+            }
 
     # ------------------------------------------------------------------
     # Memory diagnostics

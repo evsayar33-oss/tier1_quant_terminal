@@ -118,9 +118,38 @@ class RobustQuantProcessor:
         df2=df.resample("2h",label="right",closed="right").agg({"Open":"first","High":"max","Low":"min","Close":"last"}).dropna()
         df4=df.resample("4h",label="right",closed="right").agg({"Open":"first","High":"max","Low":"min","Close":"last"}).dropna()
         i1=norm_impulse(close,1); i2=norm_impulse(close,2); i4=norm_impulse(df4["Close"],1) if len(df4)>=16 else norm_impulse(close,4)
-        p1=persistence(close,6); p4=persistence(df4["Close"],5) if len(df4)>=7 else 0.0
+        p1=persistence(close,6); p2=persistence(close,3); p4=persistence(df4["Close"],5) if len(df4)>=7 else 0.0
         a1,b1=adx_di(df,14); a4,b4=adx_di(df4,14) if len(df4)>=28 else (0.0,0.0)
-        return {"roc_1h":float((close.iloc[-1]/close.iloc[-2]-1)*100),"impulse_1h":i1,"impulse_2h":i2,"impulse_4h":i4,"persist_1h":p1,"persist_4h":p4,"adx_1h":a1,"adx_4h":a4,"di_1h":b1,"di_4h":b4}
+
+        # --- Gerçek yüzdesel değişimler (ekranda gösterilecek ve kısa-ufuk
+        # skorunun temel girdisi olacak ham % hareketler; normalize edilmiş
+        # "impulse" değerlerinden ayrı tutulur ki etiket / % gösterimi asla
+        # birbiriyle çelişmesin). ---
+        roc_1h = float((close.iloc[-1] / close.iloc[-2] - 1.0) * 100.0)
+        roc_2h = float((close.iloc[-1] / close.iloc[-3] - 1.0) * 100.0) if len(close) >= 3 else roc_1h
+        roc_4h = (
+            float((df4["Close"].iloc[-1] / df4["Close"].iloc[-2] - 1.0) * 100.0)
+            if len(df4) >= 2 else roc_2h
+        )
+
+        # 1 saatlik getirinin kendi son (40 barlık) dağılımına göre z-skoru.
+        # Ham % değişim piyasadan piyasaya kıyaslanamaz; z-skoru bunu
+        # varlığın kendi güncel volatilite rejimine göre normalize eder.
+        hourly_returns = close.pct_change().tail(40).dropna()
+        if len(hourly_returns) >= 10:
+            mu = float(hourly_returns.mean())
+            sd = float(hourly_returns.std())
+            ret_z_1h = float(np.clip((hourly_returns.iloc[-1] - mu) / (sd + 1e-9), -3.5, 3.5))
+        else:
+            ret_z_1h = 0.0
+
+        return {
+            "roc_1h": roc_1h, "roc_2h": roc_2h, "roc_4h": roc_4h,
+            "ret_z_1h": ret_z_1h,
+            "impulse_1h": i1, "impulse_2h": i2, "impulse_4h": i4,
+            "persist_1h": p1, "persist_2h": p2, "persist_4h": p4,
+            "adx_1h": a1, "adx_4h": a4, "di_1h": b1, "di_4h": b4,
+        }
 
     @staticmethod
     def compute_direction_score(df_1h):
@@ -176,6 +205,83 @@ class RobustQuantProcessor:
         if s is None:
             return "⚪ VERİ YETERSİZ", "⚪", "gray", 0.0
         return RobustQuantProcessor.format_direction_score(score, s["roc_1h"])
+
+    # =========================================================================
+    # CANLI FİYAT YÖNÜ (LIVE / 1-4 SAAT UFUK) — bağımsız kısa-ufuk motoru
+    # =========================================================================
+    # NOT: `compute_direction_score` (yukarıda) 1H+2H+4H etkilerini tek bir
+    # skorda karıştırır; bu da ekranda görünen ham 1H % değişim ile etiketin
+    # (ör. "🟢 YUKARI" yanında negatif bir %) çelişebilmesine yol açıyordu,
+    # çünkü etiketi 4 saatlik bileşen belirleyip yüzdeyi 1 saatlik getiri
+    # gösteriyordu. "Canlı Fiyat Yönü" tanım gereği ŞİMDİKİ (1-4 saat ileriye
+    # dönük) durumu yansıtmalı; bu yüzden 4 saatlik bileşen buradan tamamen
+    # çıkarılmış, skor ve gösterilen % aynı kısa-ufuk girdilerinden üretilir.
+    # Model Sinyali (orta ufuk, 24 saat-1 hafta) zaten ayrı bir çok-faktörlü
+    # motor (gatekeeper.py + stateful_adaptive_*) tarafından hesaplanıyor.
+    @staticmethod
+    def compute_live_horizon_score(df_1h):
+        """
+        Kısa-ufuk (1-4 saat) canlı yön skoru: 1H/2H itki + 1H getiri z-skoru +
+        kısa vadeli yön kalıcılığı (DI) karışımı. 4 saatlik/daha yavaş
+        bileşenler kasıtlı olarak dışarıda bırakılır (onlar Model Sinyali'nin
+        işi). Dönen `score` ile `meta` içindeki ham % değişimler HER ZAMAN
+        aynı girdilerden türetildiği için etiket/yüzde çelişkisi oluşmaz.
+        """
+        s = RobustQuantProcessor._direction_stats(df_1h)
+        if s is None:
+            return None, None
+
+        base = (
+            0.40 * s["ret_z_1h"]
+            + 0.55 * s["impulse_1h"]
+            + 0.30 * s["impulse_2h"]
+            + 0.25 * s["persist_1h"]
+            + 0.15 * s["persist_2h"]
+            + 0.20 * s["di_1h"]
+        )
+        # ADX düşükken (yatay/testere piyasa) kısa-ufuk sinyalin gürültü
+        # olma ihtimali yüksektir; ADX yükseldikçe skor hafifçe güçlendirilir.
+        adx_strength = float(np.clip(s["adx_1h"] / 30.0, 0.0, 1.0))
+        score = float(np.clip(base * (0.80 + 0.35 * adx_strength), -4.0, 4.0))
+
+        meta = dict(s)
+        meta["ret_pct_1h"] = s["roc_1h"]
+        meta["ret_pct_2h"] = s["roc_2h"]
+        return score, meta
+
+    @staticmethod
+    def classify_intraday_regime(adx_val, atr_ratio):
+        """
+        Günün (gün-içi) rejimini trend gücü (ADX) ve volatilite (ATR oranı)
+        eksenlerinde sınıflandırır. Bu etiket, "Canlı Fiyat Yönü" için hangi
+        dinamik eşiklerin ve ne kadar güvenin uygulanacağını belirler.
+        """
+        try:
+            adx_val = float(adx_val)
+        except (TypeError, ValueError):
+            adx_val = 25.0
+        try:
+            atr_ratio = float(atr_ratio)
+        except (TypeError, ValueError):
+            atr_ratio = 1.0
+
+        if adx_val >= 25.0:
+            trend_state = "GÜÇLÜ TREND"
+        elif adx_val >= 20.0:
+            trend_state = "GELİŞEN TREND"
+        else:
+            trend_state = "YATAY / TESTERE"
+
+        if atr_ratio >= 1.35:
+            vol_state = "YÜKSEK VOLATİLİTE"
+        elif atr_ratio <= 0.70:
+            vol_state = "DÜŞÜK VOLATİLİTE / SIKIŞMA"
+        else:
+            vol_state = "NORMAL VOLATİLİTE"
+
+        label = f"{trend_state} · {vol_state}"
+        return {"label": label, "trend_state": trend_state, "vol_state": vol_state,
+                "adx_val": adx_val, "atr_ratio": atr_ratio}
 
     @staticmethod
     def _adaptive_entry_profile(df_1h):
