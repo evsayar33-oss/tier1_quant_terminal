@@ -111,14 +111,27 @@ class RobustQuantProcessor:
         # devreye girer; normal/yüksek volatilite dönemlerinde etkisizdir.
         _all_rets = close.pct_change().dropna()
         baseline_vol = float(_all_rets.tail(150).std()) if len(_all_rets) >= 30 else 0.0
-        VOL_FLOOR_RATIO = 0.35
+        # NOT (denetim düzeltmesi): İlk sürümde taban çok gevşekti (kısa vol
+        # baseline'ın %35'inin altına her düştüğünde devreye giriyordu) ve bu
+        # NORMAL günlük volatilite dalgalanmalarında bile sık sık tetiklenip
+        # skorları gereğinden fazla söndürerek "Canlı Fiyat Yönü"nün genel
+        # olarak nötrleşmesine katkı yapmış olabilirdi. Artık taban SADECE
+        # gerçekten patolojik bir sıkışmada (kısa vol, temel volatilitenin
+        # %20'sinin ALTINA düşerse) devreye girer ve o %20 seviyesine kadar
+        # kaldırır — normal aralıktaki dalgalanmalara dokunmaz.
+        VOL_FLOOR_TRIGGER_RATIO = 0.20
+        VOL_FLOOR_LEVEL_RATIO = 0.20
+
+        def _apply_vol_floor(vol):
+            if baseline_vol > 0 and vol < (VOL_FLOOR_TRIGGER_RATIO * baseline_vol):
+                return VOL_FLOOR_LEVEL_RATIO * baseline_vol
+            return vol
 
         def norm_impulse(x,bars):
             if len(x)<=bars: return 0.0
             ret=float(x.iloc[-1]/x.iloc[-bars-1]-1.0)
             prev=x.pct_change().tail(40).dropna(); vol=float(prev.std()) if len(prev)>=8 else 0.0
-            if baseline_vol > 0:
-                vol = max(vol, VOL_FLOOR_RATIO * baseline_vol)
+            vol = _apply_vol_floor(vol)
             atr=float((x.diff().abs()).rolling(14,min_periods=14).mean().iloc[-1]) if len(x)>=15 else 0.0
             price=float(x.iloc[-1]); scale=(vol*max(bars,1)) if vol>0 else (atr/max(price,1e-9)*max(bars,1) if atr>0 else 0.0)
             return float(np.clip(ret/(scale+1e-12),-4.0,4.0))
@@ -158,8 +171,7 @@ class RobustQuantProcessor:
         if len(hourly_returns) >= 10:
             mu = float(hourly_returns.mean())
             sd = float(hourly_returns.std())
-            if baseline_vol > 0:
-                sd = max(sd, VOL_FLOOR_RATIO * baseline_vol)
+            sd = _apply_vol_floor(sd)
             ret_z_1h = float(np.clip((hourly_returns.iloc[-1] - mu) / (sd + 1e-9), -3.5, 3.5))
         else:
             ret_z_1h = 0.0

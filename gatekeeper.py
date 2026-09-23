@@ -146,6 +146,7 @@ class PreTradeGatekeeper:
         total_weights = 0.0
         cluster_scores = {c: 0.0 for c in CLUSTERS.keys()}
         details = []
+        factor_failures = []
 
         ccy = matrix.get("crypto_ccy", "BTC")
         crypto_flow = None
@@ -353,8 +354,9 @@ class PreTradeGatekeeper:
                     val = self.processor.compute_vix_stress(vix_df) if not vix_df.empty else None
                 elif f_id == "stagflation_shock":
                     val = self.stagflation_z
-            except Exception:
+            except Exception as factor_exc:
                 val = None
+                factor_failures.append({"faktör": factor.get("name", f_id), "id": f_id, "hata": str(factor_exc)})
 
             if val is None or not np.isfinite(float(val)):
                 details.append({
@@ -426,7 +428,10 @@ class PreTradeGatekeeper:
             "dynamic_thresholds": self.dynamic_thresholds,
             "composite_usd_risk": self.composite_usd_risk,
             "usd_risk_label": self.usd_risk_label,
-            "details": details
+            "details": details,
+            "factor_failures": factor_failures,
+            "factor_failure_count": len(factor_failures),
+            "factor_total_count": len(matrix.get("factors", [])),
         }
 
     def _safe_evaluate_asset_direction(self, key, previous_signal):
@@ -493,9 +498,18 @@ class PreTradeGatekeeper:
             follower_ret = float((1.0 + recent["b"]).prod() - 1.0)
             spread = follower_ret - anchor_ret
 
+            # NOT (denetim düzeltmesi): `spread`, `bars` (varsayılan 8) barlık
+            # KÜMÜLATİF getiri farkıdır; ama `std` tek barlık fark serisinin
+            # sapmasıydı. Farklı birimleri doğrudan bölmek spread_z'yi
+            # yaklaşık sqrt(bars) kat büyütüyor, bu da normal/ilişkili fiyat
+            # hareketlerinin bile "istatistiksel olarak teyitli ayrışma"
+            # sayılıp uzlaştırmanın atlanmasına yol açıyordu (SPX-NQ,
+            # XAU-XAG, BTC-ETH'de "mantıksız" görünen ayrışmaların kök
+            # nedeni). Düzeltme: std, aynı `bars` ufkuna ölçeklenir.
             spread_series = (x["b"] - x["a"]).dropna()
             hist = spread_series.tail(min(120, len(spread_series)))
-            std = float(hist.std(ddof=1)) if len(hist) >= 10 else 0.0
+            std_1bar = float(hist.std(ddof=1)) if len(hist) >= 10 else 0.0
+            std = std_1bar * (bars ** 0.5)
             spread_z = float(spread / (std + 1e-12)) if std > 1e-12 else 0.0
 
             # 1H signs are useful for display coherence but not enough to prove divergence.
@@ -569,6 +583,7 @@ class PreTradeGatekeeper:
         pair_specs = (
             ("SPX", "NQ", 0.70, 1.25),
             ("XAU", "XAG", 0.60, 1.35),
+            ("BTC", "ETH", 0.65, 1.20),
         )
 
         def pair_stats(anchor_key, follower_key, bars=8):
@@ -588,9 +603,18 @@ class PreTradeGatekeeper:
             anchor_ret = float((1.0 + recent["a"]).prod() - 1.0)
             follower_ret = float((1.0 + recent["b"]).prod() - 1.0)
             spread = follower_ret - anchor_ret
+            # NOT (denetim düzeltmesi): `spread`, `bars` (varsayılan 8) barlık
+            # KÜMÜLATİF getiri farkıdır; ama `std` tek barlık fark serisinin
+            # sapmasıydı. Farklı birimleri doğrudan bölmek spread_z'yi
+            # yaklaşık sqrt(bars) kat büyütüyor, bu da normal/ilişkili fiyat
+            # hareketlerinin bile "istatistiksel olarak teyitli ayrışma"
+            # sayılıp uzlaştırmanın atlanmasına yol açıyordu (SPX-NQ,
+            # XAU-XAG, BTC-ETH'de "mantıksız" görünen ayrışmaların kök
+            # nedeni). Düzeltme: std, aynı `bars` ufkuna ölçeklenir.
             spread_series = (x["b"] - x["a"]).dropna()
             hist = spread_series.tail(min(120, len(spread_series)))
-            std = float(hist.std(ddof=1)) if len(hist) >= 10 else 0.0
+            std_1bar = float(hist.std(ddof=1)) if len(hist) >= 10 else 0.0
+            std = std_1bar * (bars ** 0.5)
             spread_z = float(spread / (std + 1e-12)) if std > 1e-12 else 0.0
             return {"corr": corr, "spread": spread, "spread_z": spread_z}
 
@@ -654,15 +678,9 @@ class PreTradeGatekeeper:
                 va["pair_model_reconciliation"] = "TEK TARAFLI MODEL SİNYALİ BASTIRILDI"
                 vf["pair_model_reconciliation"] = "TEK TARAFLI MODEL SİNYALİ BASTIRILDI"
 
-        vb, ve = verdicts.get("BTC"), verdicts.get("ETH")
-        if vb and ve:
-            diff = abs(float(vb.get("score", 0.0)) - float(ve.get("score", 0.0)))
-            if diff <= 0.60:
-                if float(vb.get("score", 0.0)) <= -0.40 and float(ve.get("score", 0.0)) <= -0.40:
-                    vb["verdict"] = ve["verdict"] = "SAT"
-                    vb["forecast_direction"] = ve["forecast_direction"] = "SAT"
-                elif float(vb.get("score", 0.0)) >= 0.40 and float(ve.get("score", 0.0)) >= 0.40:
-                    vb["verdict"] = ve["verdict"] = "AL"
-                    vb["forecast_direction"] = ve["forecast_direction"] = "AL"
-
+        # NOT: BTC/ETH artık yukarıdaki `pair_specs` döngüsünde SPX/NQ ve
+        # XAU/XAG ile AYNI, tutarlı fiyat-teyit mekanizmasından geçiyor
+        # (hem Canlı Fiyat Yönü hem Model Sinyali için). Önceden burada ayrı
+        # ve daha yumuşak bir "sempati" kuralı vardı; bu, yukarıdaki asıl
+        # uzlaştırmayla çakışıp birbirini geçersiz kılabildiğinden kaldırıldı.
         return verdicts

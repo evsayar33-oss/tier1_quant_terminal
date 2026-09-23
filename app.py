@@ -472,6 +472,33 @@ if (
             # uygulanır. Aksi halde bu güvenlik kontrolü sessizce kaybolur.
             verdicts = gk.reconcile_pairs_post_adaptive(verdicts)
 
+            # ----------------------------------------------------
+            # VERİ KALİTESİ TEŞHİSİ (data-quality diagnostics)
+            # ----------------------------------------------------
+            # Önceki turda, tek bir faktör hesaplaması patlarsa tüm sayfanın
+            # çökmesini önlemek için faktör döngüsü try/except ile izole
+            # edilmişti. Ama bu, bir veri kaynağının (ör. FRED/yfinance)
+            # geçici olarak kesilmesi durumunda BİRÇOK/TÜM varlığın sessizce
+            # "VERİ YETERSİZ" -> NÖTR'e düşmesini de görünmez kılabiliyordu.
+            # Artık kaç faktörün başarısız olduğu sayılıyor ve eşik aşılırsa
+            # kullanıcıya AÇIKÇA gösteriliyor (gerçek bir veri kesintisini,
+            # sessizce "her şey nötr" görünmesinden ayırt etmek için).
+            total_factors = sum(int(v.get("factor_total_count", 0) or 0) for v in verdicts.values())
+            failed_factors = sum(int(v.get("factor_failure_count", 0) or 0) for v in verdicts.values())
+            if total_factors > 0 and (failed_factors / total_factors) >= 0.25:
+                failing_names = sorted({
+                    f.get("faktör", f.get("id", "?"))
+                    for v in verdicts.values()
+                    for f in (v.get("factor_failures") or [])
+                })
+                st.warning(
+                    f"⚠️ Veri kalitesi uyarısı: faktörlerin %{100*failed_factors/total_factors:.0f}'ü "
+                    f"({failed_factors}/{total_factors}) bu döngüde hesaplanamadı — sonuçlardaki "
+                    f"NÖTR ağırlığı bu yüzden gerçekte olduğundan yüksek görünüyor olabilir. "
+                    f"Etkilenen faktörler: {', '.join(failing_names[:8])}"
+                    + (" ..." if len(failing_names) > 8 else "")
+                )
+
 
             # ----------------------------------------------------
             # MACRO STATE
