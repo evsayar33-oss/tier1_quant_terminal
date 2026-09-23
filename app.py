@@ -315,6 +315,17 @@ if (
 
 gk = st.session_state.gatekeeper
 
+# Streamlit `st.session_state.gatekeeper` nesnesini SADECE BİR KEZ oluşturur ve
+# tarayıcı oturumu açık kaldığı sürece saklar. Dosyalar güncellenip sunucu tam
+# olarak yeniden başlatılmadan (sadece sayfa yenilenirse) eski oturumdaki
+# `gatekeeper` nesnesi ÖNCEKİ kod sürümünden kalma haliyle bellekte kalabilir
+# ve yeni eklenen metodlara sahip olmaz (ör. "'PreTradeGatekeeper' object has
+# no attribute 'reconcile_pairs_post_adaptive'"). Bu güvenlik kontrolü, böyle
+# bayat bir oturum nesnesi tespit edilirse onu şeffafça tazeler.
+if not hasattr(gk, "reconcile_pairs_post_adaptive"):
+    st.session_state.gatekeeper = PreTradeGatekeeper(fred_api_key=effective_fred_key)
+    gk = st.session_state.gatekeeper
+
 
 # =============================================================================
 # STATEFUL ADAPTIVE CONTROLLER

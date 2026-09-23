@@ -96,10 +96,29 @@ class RobustQuantProcessor:
         df=df.replace([np.inf,-np.inf],np.nan).dropna(subset=["Open","High","Low","Close"])
         if len(df)<8: return None
         close=df["Close"]
+
+        # --- Volatilite normalizasyonu için TABAN (floor) ---
+        # `norm_impulse` ve aşağıdaki `ret_z_1h`, kısa dönem (son 40 bar)
+        # gerçekleşen volatiliteye bölerek normalize eder. Bir varlığın kısa
+        # dönemi tesadüfen sakinleşirse (vol ~0'a yaklaşırsa), bölen küçüldüğü
+        # için AYNI küçük ham fiyat hareketi bile yapay şekilde "GÜÇLÜ" bir
+        # sinyale şişebiliyordu. Bu, iki gerçekte birlikte hareket eden varlık
+        # (ör. BTC/ETH) arasında, sadece biri kısa süreliğine sakinleşmiş diye
+        # "Canlı Fiyat Yönü" etiketlerinin gereğinden fazla ayrışmasına yol
+        # açan asıl mekanizmaydı. Çözüm: kısa dönem volatiliteyi, varlığın
+        # kendi daha uzun (150 bar) temel volatilitesinin bir payının ALTINA
+        # düşürmemek (taban uygulamak). Bu sadece anormal sıkışma anlarında
+        # devreye girer; normal/yüksek volatilite dönemlerinde etkisizdir.
+        _all_rets = close.pct_change().dropna()
+        baseline_vol = float(_all_rets.tail(150).std()) if len(_all_rets) >= 30 else 0.0
+        VOL_FLOOR_RATIO = 0.35
+
         def norm_impulse(x,bars):
             if len(x)<=bars: return 0.0
             ret=float(x.iloc[-1]/x.iloc[-bars-1]-1.0)
             prev=x.pct_change().tail(40).dropna(); vol=float(prev.std()) if len(prev)>=8 else 0.0
+            if baseline_vol > 0:
+                vol = max(vol, VOL_FLOOR_RATIO * baseline_vol)
             atr=float((x.diff().abs()).rolling(14,min_periods=14).mean().iloc[-1]) if len(x)>=15 else 0.0
             price=float(x.iloc[-1]); scale=(vol*max(bars,1)) if vol>0 else (atr/max(price,1e-9)*max(bars,1) if atr>0 else 0.0)
             return float(np.clip(ret/(scale+1e-12),-4.0,4.0))
@@ -139,6 +158,8 @@ class RobustQuantProcessor:
         if len(hourly_returns) >= 10:
             mu = float(hourly_returns.mean())
             sd = float(hourly_returns.std())
+            if baseline_vol > 0:
+                sd = max(sd, VOL_FLOOR_RATIO * baseline_vol)
             ret_z_1h = float(np.clip((hourly_returns.iloc[-1] - mu) / (sd + 1e-9), -3.5, 3.5))
         else:
             ret_z_1h = 0.0
@@ -265,6 +286,18 @@ class RobustQuantProcessor:
         except (TypeError, ValueError):
             atr_ratio = 1.0
 
+        # --- Veri-kalitesi koruması ---
+        # `evaluate_trade_entry_gate()` gerçek/taze veri veya yeterli profil
+        # bulamadığında atr_ratio'yu KASITLI OLARAK 0.0 döndürür (bkz.
+        # quant_processor.evaluate_trade_entry_gate ilk guard'ları). Bu 0.0
+        # bir "hesaplanmış düşük volatilite" değeri DEĞİLDİR; "ölçülemedi"
+        # anlamına gelir. Önceden bu ayrım yapılmadığı için özellikle NQ
+        # (seans dışı/stale veri anları) ve ETH gibi varlıklarda veri
+        # kalitesi sorunu yanlışlıkla "DÜŞÜK VOLATİLİTE / SIKIŞMA" gün-içi
+        # rejimi olarak gösteriliyordu. Bu durumda volatilite bilinmiyor
+        # kabul edilir; sahte bir vol_state üretilmez.
+        atr_known = atr_ratio > 0.05
+
         if adx_val >= 25.0:
             trend_state = "GÜÇLÜ TREND"
         elif adx_val >= 20.0:
@@ -272,7 +305,9 @@ class RobustQuantProcessor:
         else:
             trend_state = "YATAY / TESTERE"
 
-        if atr_ratio >= 1.35:
+        if not atr_known:
+            vol_state = "VOLATİLİTE BİLİNMİYOR (VERİ YETERSİZ)"
+        elif atr_ratio >= 1.35:
             vol_state = "YÜKSEK VOLATİLİTE"
         elif atr_ratio <= 0.70:
             vol_state = "DÜŞÜK VOLATİLİTE / SIKIŞMA"
@@ -281,7 +316,7 @@ class RobustQuantProcessor:
 
         label = f"{trend_state} · {vol_state}"
         return {"label": label, "trend_state": trend_state, "vol_state": vol_state,
-                "adx_val": adx_val, "atr_ratio": atr_ratio}
+                "adx_val": adx_val, "atr_ratio": atr_ratio, "atr_known": atr_known}
 
     @staticmethod
     def _adaptive_entry_profile(df_1h):
