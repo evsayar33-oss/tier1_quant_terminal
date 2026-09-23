@@ -470,7 +470,24 @@ if (
             # alanlarını YENİDEN YAZDIĞI için XAU/XAG ve SPX/NQ fiyat-teyit
             # uzlaştırması burada, en son (nihai) verdict'ler üzerinde tekrar
             # uygulanır. Aksi halde bu güvenlik kontrolü sessizce kaybolur.
-            verdicts = gk.reconcile_pairs_post_adaptive(verdicts)
+            # Bu çağrı ekstra bir try/except ile korunuyor: eğer (ör. bir
+            # önceki kod sürümünün bellekte kalması / modülün tam olarak
+            # yeniden yüklenmemesi gibi bir sebeple) bu metod bulunamaz veya
+            # beklenmedik bir hata verirse, artık TÜM yenileme döngüsü
+            # çökmüyor — sadece bu tek uzlaştırma adımı atlanıyor ve
+            # kullanıcıya net bir uyarı gösteriliyor.
+            try:
+                verdicts = gk.reconcile_pairs_post_adaptive(verdicts)
+            except AttributeError:
+                st.warning(
+                    "⚠️ Çift (pair) uzlaştırma adımı atlandı: çalışan uygulama "
+                    "süreci güncel kod dosyalarını henüz tam olarak yüklememiş "
+                    "görünüyor. Dosyaları güncelledikten sonra uygulamayı SAYFA "
+                    "YENİLEME değil, TAM YENİDEN BAŞLATMA (restart/reboot) ile "
+                    "açmanız gerekiyor."
+                )
+            except Exception as pair_exc:
+                st.warning(f"⚠️ Çift (pair) uzlaştırma adımında beklenmeyen bir hata oluştu, bu adım atlandı: {pair_exc}")
 
             # ----------------------------------------------------
             # VERİ KALİTESİ TEŞHİSİ (data-quality diagnostics)
