@@ -20,6 +20,7 @@ import pandas as pd
 
 from config import ASSET_MATRICES
 from quant_processor import RobustQuantProcessor
+from dynamic_pair_model import DynamicPairModel, XAG_XAU_MODEL, ETH_BTC_MODEL
 
 
 _ALIAS = {

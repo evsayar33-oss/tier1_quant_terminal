@@ -27,6 +27,15 @@ ENTRY_GATES_CONFIG = ENTRY_FILTER_CONFIG
 from data_engine import ResilientDataEngine
 from quant_processor import RobustQuantProcessor
 from macro_regime_engine import MacroRegimeEngine
+from dynamic_pair_model import DynamicPairModel, XAG_XAU_MODEL, NQ_SPX_MODEL, ETH_BTC_MODEL
+from timeframe_confluence import evaluate_confluence, TimeframeReliabilityStore
+
+# Symbols that need a genuine 1D (HTF) series fetched for multi-timeframe
+# confluence and/or feed the relative-value pair models above.
+_DAILY_FETCH_SYMBOLS = {
+    "SPX": "ES=F", "NQ": "NQ=F", "XAU": "GC=F", "XAG": "SI=F",
+    "HG": "HG=F", "BTC-USD": "BTC-USD", "ETH-USD": "ETH-USD",
+}
 
 
 class PreTradeGatekeeper:
@@ -46,6 +55,9 @@ class PreTradeGatekeeper:
         self.processor = RobustQuantProcessor()
         self.macro_engine = MacroRegimeEngine(fred_api_key=self.fred_api_key)
         self.grid_1h = {}
+        self.grid_daily = {}
+        self.tf_store = TimeframeReliabilityStore()
+        self._pair_state_cache = {}
         self.active_macro_regime_id = "REJIMSIZ_GECIS"
         self.active_macro_regime_name = "Rejimsiz Geçiş / Veri Yetersiz"
         self.market_regime = "⚪ [REJİMSİZ] Veri Yetersiz"
@@ -59,6 +71,19 @@ class PreTradeGatekeeper:
 
     def refresh_market(self):
         self.grid_1h = self.data_engine.fetch_global_market_grid()
+        self._pair_state_cache = {}
+        self.grid_daily = {}
+        for alias_key, yf_symbol in _DAILY_FETCH_SYMBOLS.items():
+            try:
+                _, daily_df = self.data_engine.fetch_single_ticker_daily(yf_symbol)
+                if isinstance(daily_df, pd.DataFrame) and not daily_df.empty:
+                    self.grid_daily[alias_key] = daily_df
+            except Exception:
+                # Daily HTF leg is additive; its absence must never break the
+                # existing 1H pipeline. evaluate_confluence() degrades to
+                # resampled-1H HTF, or skips the HTF rung entirely when even
+                # that has too little history -- see timeframe_confluence.py.
+                pass
         def has(key, minimum=5):
             df=self.grid_1h.get(key,pd.DataFrame()); return isinstance(df,pd.DataFrame) and len(df)>=minimum
         vix_df=self.grid_1h.get("VIX",pd.DataFrame()); self.current_vix=float(vix_df["Close"].iloc[-1]) if has("VIX",1) else None
@@ -83,6 +108,16 @@ class PreTradeGatekeeper:
             self.consecutive_breaches=self.consecutive_breaches+1 if self.crisis_active else 0
         else:
             self.crisis_active=False; self.anomaly_score=None; self.consecutive_breaches=0
+
+    def _pair_state(self, model):
+        """Fits a DynamicPairModel at most once per refresh_market() cycle
+        (all three assets can call this for the same pair within one
+        refresh, e.g. both legs of NQ~SPX)."""
+        key = model.model if hasattr(model, "model") else id(model)
+        key = f"{model.dependent}~{'+'.join(model.anchors)}"
+        if key not in self._pair_state_cache:
+            self._pair_state_cache[key] = model.fit(self.grid_1h)
+        return self._pair_state_cache[key]
 
     def evaluate_asset_direction(self, asset_key, previous_signal="NÖTR (BEKLE)"):
         matrix = ASSET_MATRICES.get(asset_key, {})
@@ -111,6 +146,26 @@ class PreTradeGatekeeper:
         entry_allowed, entry_reason, atr_ratio, rvol = self.processor.evaluate_trade_entry_gate(
             df_ast, asset_key=asset_key
         )
+
+        # 🧭 HTF/MTF/LTF Confluence: "tüm zaman dilimleri onaylı mı?" gate.
+        # Uses a real fetched daily series when available (self.grid_daily),
+        # otherwise resamples the 1H grid; if even that lacks enough bars
+        # for the HTF rung, the gate is skipped rather than faked (no
+        # confident-looking answer from insufficient history).
+        daily_key = asset_key if asset_key in self.grid_daily else clean_sym
+        df_daily_htf = self.grid_daily.get(daily_key, self.grid_daily.get(symbol))
+        confluence = evaluate_confluence(
+            df_ast, asset_key=asset_key, regime_id=self.active_macro_regime_id,
+            store=self.tf_store, df_daily=df_daily_htf,
+        )
+        htf_available = bool(confluence.get("timeframes", {}).get("HTF_1D", {}).get("available"))
+        if entry_allowed and htf_available and not confluence.get("entry_confirmed", True):
+            entry_allowed = False
+            entry_reason = (
+                f"{entry_reason} | HTF/LTF confluence yetersiz "
+                f"(skor {confluence.get('confluence_score')}, "
+                f"tüm zaman dilimleri onaylı: {confluence.get('all_aligned')})"
+            )
 
         volume_supports = rvol >= ENTRY_FILTER_CONFIG.get("rvol_strong_min", 1.25)
         volatility_supports = (ENTRY_FILTER_CONFIG.get("vol_shock_low", 0.65) <= atr_ratio <= ENTRY_FILTER_CONFIG.get("vol_shock_high", 2.20))
@@ -321,19 +376,54 @@ class PreTradeGatekeeper:
                         self.grid_1h.get("HG", self.grid_1h.get("HG=F", pd.DataFrame()))
                     )
                 elif f_id == "gold_sympathy":
+                    # Was a fixed two-regime blend (0.82/0.13/0.05 vs
+                    # 0.55/0.35/0.10 at a hardcoded |z|<1.5 cutoff). Now a
+                    # continuous, model-derived blend: beta comes from a
+                    # recency-weighted ridge fit of XAG on XAU+HG instead of
+                    # a fixed "82% gold sympathy" assumption, and the
+                    # anchor/own-momentum mix shifts smoothly with how much
+                    # the residual actually supports divergence.
                     df_gc = self.grid_1h.get("GC", self.grid_1h.get("GC=F", pd.DataFrame()))
-                    df_hg = self.grid_1h.get("HG", self.grid_1h.get("HG=F", pd.DataFrame()))
-                    val = self.processor.compute_silver_gold_anchor(
-                        df_ast, df_gc, df_hg
+                    gold_signal = self.processor.compute_intraday_direction_momentum(
+                        df_gc, fast_window=2, slow_window=16, vol_scale=0.90
+                    ) if not df_gc.empty else 0.0
+                    silver_signal = self.processor.compute_intraday_direction_momentum(
+                        df_ast, fast_window=4, slow_window=24, vol_scale=1.25
                     )
+                    xag_xau_state = self._pair_state(XAG_XAU_MODEL)
+                    val = DynamicPairModel.blended_anchor_signal(xag_xau_state, silver_signal, gold_signal)
+                elif f_id == "gold_divergence_residual":
+                    # New: dedicated divergence-only signal for XAG vs its
+                    # XAU/HG-implied "fair" move. Near 0 when silver is just
+                    # following gold/copper as usual; only moves away from 0
+                    # when silver is genuinely decoupling -- this is the
+                    # ayrışma (divergence) detector that did not exist before.
+                    xag_xau_state = self._pair_state(XAG_XAU_MODEL)
+                    val = DynamicPairModel.factor_signal(xag_xau_state)
                 elif f_id == "btc_sympathy":
+                    # Was literally BTC's own raw momentum re-used verbatim as
+                    # an ETH factor (not a sympathy/anchor measure at all).
+                    # Now a genuine anchor blend using the ETH~BTC pair fit.
                     df_btc = self.grid_1h.get("BTC-USD", pd.DataFrame())
-                    val = self.processor.compute_intraday_direction_momentum(df_btc, vol_scale=1.8)
+                    btc_signal = self.processor.compute_intraday_direction_momentum(df_btc, vol_scale=1.8) if not df_btc.empty else 0.0
+                    eth_signal = self.processor.compute_intraday_direction_momentum(df_ast, vol_scale=matrix.get("vol_scale", 1.0))
+                    eth_btc_state = self._pair_state(ETH_BTC_MODEL)
+                    val = DynamicPairModel.blended_anchor_signal(eth_btc_state, eth_signal, btc_signal)
                 elif f_id == "eth_btc_beta":
-                    val = self.processor.compute_ratio_z(
-                        self.grid_1h.get("ETH-USD", pd.DataFrame()),
-                        self.grid_1h.get("BTC-USD", pd.DataFrame())
-                    )
+                    # Was a raw price-ratio MAD z-score (conflates price
+                    # level drift with genuine relative-value divergence).
+                    # Now the regression residual z-score from a proper
+                    # ETH ~ BTC beta fit -- the same divergence-detection
+                    # math already proven on XAU/XAG, applied here.
+                    eth_btc_state = self._pair_state(ETH_BTC_MODEL)
+                    val = DynamicPairModel.factor_signal(eth_btc_state)
+                elif f_id == "spx_relative_divergence":
+                    # New factor (NQ only): NQ did not have ANY cross-asset
+                    # divergence detector versus SPX before. Positive = NQ
+                    # pulling away to the upside beyond what its usual beta
+                    # to SPX would predict; negative = downside decoupling.
+                    nq_spx_state = self._pair_state(NQ_SPX_MODEL)
+                    val = DynamicPairModel.factor_signal(nq_spx_state)
                 elif f_id == "usd_strength":
                     val = self.dxy_velocity
                 elif f_id == "net_dollar_liquidity":
@@ -432,6 +522,7 @@ class PreTradeGatekeeper:
             "factor_failures": factor_failures,
             "factor_failure_count": len(factor_failures),
             "factor_total_count": len(matrix.get("factors", [])),
+            "timeframe_confluence": confluence,
         }
 
     def _safe_evaluate_asset_direction(self, key, previous_signal):

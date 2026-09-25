@@ -62,6 +62,10 @@ ASSET_MATRICES = {
         ]
     },
     "NQ": {
+        # NOTE: "spx_relative_divergence" factor added below (adaptive
+        # NQ~SPX residual model) — previously NQ had no cross-asset
+        # divergence detector at all versus its own benchmark pair.
+
         "name": "NASDAQ 100",
         "benchmark_symbol": "NQ=F",
         "vol_scale": 1.2,
@@ -80,7 +84,8 @@ ASSET_MATRICES = {
             {"id": "stagflation_shock", "name": "Petrol / Enerji Baskısı", "cluster": "D", "base_weight": 0.45, "base_sign": -1.0},
             {"id": "usd_strength", "name": "DXY Dolar Likidite Sıkışması", "cluster": "A", "base_weight": 0.60, "base_sign": -1.0},
             {"id": "net_dollar_liquidity", "name": "Fed Net Dolar Likiditesi (NDL)", "cluster": "A", "base_weight": 0.65, "base_sign": 1.0},
-            {"id": "usd_jpy_carry", "name": "USD/JPY Carry Tasfiye Riski", "cluster": "A", "base_weight": 0.55, "base_sign": 1.0}
+            {"id": "usd_jpy_carry", "name": "USD/JPY Carry Tasfiye Riski", "cluster": "A", "base_weight": 0.55, "base_sign": 1.0},
+            {"id": "spx_relative_divergence", "name": "🎯 NQ/SPX Adaptif Ayrışma (Rezidüel)", "cluster": "E", "base_weight": 0.75, "base_sign": 1.0}
         ]
     },
     "XAU": {
@@ -110,6 +115,7 @@ ASSET_MATRICES = {
         "factors": [
             {"id": "asset_direction", "name": "Gümüş 4H/24H Trend İvmesi", "cluster": "E", "base_weight": 1.20, "base_sign": 1.0},
             {"id": "gold_sympathy", "name": "🥇 Altın Çapa / Beta (Adaptif)", "cluster": "E", "base_weight": 1.45, "base_sign": 1.0},
+            {"id": "gold_divergence_residual", "name": "🎯 XAU/XAG Adaptif Ayrışma (Rezidüel)", "cluster": "E", "base_weight": 0.55, "base_sign": 1.0},
             {"id": "silver_monetary_catchup", "name": "🥈 Gümüş Parasal Yakalama & Değerleme İvmesi", "cluster": "E", "base_weight": 0.80, "base_sign": 1.0},
             {"id": "copper_gold", "name": "Bakır/Altın Sanayi Talebi", "cluster": "D", "base_weight": 0.55, "base_sign": 1.0},
             {"id": "silver_copper", "name": "Gümüş / Bakır Sanayi Rotasyonu", "cluster": "D", "base_weight": 0.65, "base_sign": 1.0},

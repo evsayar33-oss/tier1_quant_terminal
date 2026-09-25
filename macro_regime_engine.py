@@ -14,11 +14,18 @@ from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional, Tuple
 
 from config import MACRO_EVENT_SYSTEM_SPEC, REGIME_DYNAMIC_THRESHOLDS
+from adaptive_regime_thresholds import AdaptiveThresholdStore, default_store
 
 
 class MacroRegimeEngine:
     def __init__(self, fred_api_key=None, *args, **kwargs):
         self.spec = MACRO_EVENT_SYSTEM_SPEC
+        # Self-improving trigger calibration: every evaluate() call adds one
+        # more real observation per indicator, and shock/risk-on thresholds
+        # below are a shrinkage blend of the indicator's own recency-weighted
+        # empirical quantile and the original literal (used as-is until
+        # enough history accrues). See adaptive_regime_thresholds.py.
+        self.threshold_store: AdaptiveThresholdStore = kwargs.get("threshold_store") or default_store()
         # Başlangıçta yapay ralli yerine gerçekçi olarak Nötr Denge ile başla
         self.confirmed_regime_id: Any = "REJIMSIZ_GECIS"
         self.candidate_regime_id: Optional[Any] = None
@@ -86,14 +93,25 @@ class MacroRegimeEngine:
             "NDL_Z": None if not np.isfinite(ndl_z) else round(ndl_z, 2)
         }
 
+        # Feed today's real, already-computed z-scores into the adaptive
+        # threshold store. This is the ONLY place trigger calibration
+        # learns from -- no synthetic or forward-filled values ever enter it.
+        for _key, _val in z_scores_dict.items():
+            self.threshold_store.update(_key, _val)
+
+        def th(indicator_key: str, quantile: float, fallback_value: float) -> float:
+            return self.threshold_store.get_threshold(indicator_key, quantile, fallback_value)
+
         # -------------------------------------------------------------
         # 2. 5 REJİMİN AYRI AYRI DEĞERLENDİRİLMESİ
         # -------------------------------------------------------------
         triggered_regimes = {}
 
         # REGIME 1: Küresel Enflasyon & Stagflasyon Şoku (SHOCK)
-        r1_triggers_met = (oil_20d_z > 1.5) and (bdi_level_z < -1.0)
-        r1_confirmations_met = (hy_oas_z > 0.5) and (spx_ust_corr > 0.0)
+        # Thresholds below adapt to each indicator's own trailing
+        # distribution (see th()); literals are only the cold-start prior.
+        r1_triggers_met = (oil_20d_z > th("OIL_20D_Z", 0.90, 1.5)) and (bdi_level_z < th("BDI_LEVEL_Z", 0.15, -1.0))
+        r1_confirmations_met = (hy_oas_z > th("HY_OAS_Z", 0.65, 0.5)) and (spx_ust_corr > 0.0)
         r1_active = r1_triggers_met and r1_confirmations_met
         if r1_active:
             triggered_regimes[1] = {
@@ -106,11 +124,11 @@ class MacroRegimeEngine:
             }
 
         # REGIME 2: Sistemik Likidite Şoku & Carry Çöküşü (SHOCK)
-        r2_t1 = (dtwexbgs_5d_z > 1.0)
-        r2_t2 = (usdjpy_1d_z < -2.0)
-        r2_t3 = (vix_level_z > 1.5)
+        r2_t1 = (dtwexbgs_5d_z > th("DTWEXBGS_5D_Z", 0.85, 1.0))
+        r2_t2 = (usdjpy_1d_z < th("USDJPY_1D_Z", 0.03, -2.0))
+        r2_t3 = (vix_level_z > th("VIX_LEVEL_Z", 0.90, 1.5))
         r2_triggers_met = (r2_t1 or r2_t2 or r2_t3)
-        r2_confirmations_met = (risk_basket_5d_z < -1.5)
+        r2_confirmations_met = (risk_basket_5d_z < th("RISK_BASKET_5D_Z", 0.08, -1.5))
         r2_active = r2_triggers_met and r2_confirmations_met
         if r2_active:
             trigger_candidates = []
@@ -128,8 +146,8 @@ class MacroRegimeEngine:
             }
 
         # REGIME 3: Reel Faiz Şoku (SHOCK)
-        r3_t1 = (dfii10_1d_z > 1.5)
-        r3_t2 = (t10yie_z < 0.5)
+        r3_t1 = (dfii10_1d_z > th("DFII10_1D_Z", 0.90, 1.5))
+        r3_t2 = (t10yie_z < th("T10YIE_Z", 0.60, 0.5))
         r3_triggers_met = r3_t1 and r3_t2
         if r3_triggers_met:
             if dgs2_change < 0 and dgs10_change > 0:
@@ -155,10 +173,10 @@ class MacroRegimeEngine:
                 }
 
         # REGIME 4: Kredi Temerrüt Baskısı (SHOCK)
-        r4_t1 = (hy_oas_z > 2.0)
+        r4_t1 = (hy_oas_z > th("HY_OAS_Z", 0.95, 2.0))
         r4_t2 = (hy_oas_slope > 0.0)
         r4_triggers_met = r4_t1 and r4_t2
-        r4_confirmations_met = (ig_oas_z > 1.0)
+        r4_confirmations_met = (ig_oas_z > th("IG_OAS_Z", 0.85, 1.0))
         r4_active = r4_triggers_met and r4_confirmations_met
         if r4_active:
             triggered_regimes[4] = {
@@ -171,7 +189,7 @@ class MacroRegimeEngine:
             }
 
         # REGIME 5: Küresel Likidite Rallisi (Risk-On)
-        r5_c1 = (hy_oas_z < -0.5)
+        r5_c1 = (hy_oas_z < th("HY_OAS_Z", 0.35, -0.5))
         r5_c2 = (-1.0 <= dtwexbgs_level_z <= 0.5)
         r5_c3 = (vix_pct < 30.0)
         r5_c4 = (ndl_z > 0.0)
@@ -318,4 +336,5 @@ class MacroRegimeEngine:
                 "r5_triggers_met": r5_triggers_met
             }
         }
+        self.threshold_store.save()
         return result

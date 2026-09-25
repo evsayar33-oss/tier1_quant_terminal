@@ -229,6 +229,70 @@ class ResilientDataEngine:
         self.data_sources[source] = source
         return source, pd.DataFrame()
 
+    def fetch_single_ticker_daily(self, symbol, period="1y"):
+        """
+        HTF (1D) leg for the multi-timeframe confluence engine. Mirrors
+        fetch_single_ticker_1h's DIRECT -> cache -> persisted-history
+        fallback chain, but stored under a distinct history key
+        (f"{symbol}_1D") so it never collides with the 1H persistence file
+        for the same symbol. Falls back to resampling the 1H grid when this
+        call is unavailable (network disabled, rate-limited, etc.) -- see
+        timeframe_confluence.resample_ohlc.
+        """
+        source = str(symbol)
+        history_key = f"{source}_1D"
+        fetched_at = datetime.now(timezone.utc).isoformat()
+
+        def clean_frame(frame):
+            if frame is None or not isinstance(frame, pd.DataFrame) or frame.empty:
+                return pd.DataFrame()
+            x = frame.copy()
+            if isinstance(x.columns, pd.MultiIndex):
+                x.columns = [c[0] if isinstance(c, tuple) else c for c in x.columns]
+            x = x.loc[:, ~x.columns.duplicated(keep="last")]
+            for c in ("Open", "High", "Low", "Close"):
+                if c not in x.columns:
+                    return pd.DataFrame()
+            if "Volume" not in x.columns:
+                x["Volume"] = np.nan
+            x = x[["Open", "High", "Low", "Close", "Volume"]]
+            for c in x.columns:
+                x[c] = pd.to_numeric(x[c], errors="coerce")
+            x = x.replace([np.inf, -np.inf], np.nan).dropna(subset=["Open", "High", "Low", "Close"])
+            if x.empty:
+                return pd.DataFrame()
+            idx = pd.to_datetime(x.index, errors="coerce")
+            x.index = idx
+            x = x[~x.index.isna()]
+            x = x[~x.index.duplicated(keep="last")].sort_index()
+            return x
+
+        if yf is None:
+            return source, pd.DataFrame()
+        try:
+            raw = yf.download(
+                source, period=period, interval="1d",
+                progress=False, timeout=12, auto_adjust=False,
+            )
+            clean = clean_frame(raw)
+            if len(clean) >= 2:
+                clean = merge_and_persist(history_key, clean, max_bars=400)
+                self._cache[history_key] = clean.copy()
+                self._cache_fetched_at[history_key] = time.time()
+                return source, clean
+        except Exception:
+            pass
+
+        cached = self._cache.get(history_key)
+        if cached is not None and not cached.empty:
+            return source, cached
+
+        persisted = load_history(history_key)
+        if len(persisted) >= 2:
+            return source, persisted.tail(400)
+
+        return source, pd.DataFrame()
+
     def fetch_global_market_grid(self):
         """Fetch every configured instrument directly; no proxy/synthetic branch exists."""
         tickers = [
