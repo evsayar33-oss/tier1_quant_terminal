@@ -194,6 +194,76 @@ class TimeframeReliabilityStore:
             self._data["cells"][key] = cell
             self._save()
 
+    # ------------------------------------------------------------------
+    # Self-improving loop: record a prediction now, settle it once its
+    # forward horizon has elapsed by checking what price actually did.
+    # This is what makes reliability weights genuinely learn from live
+    # outcomes rather than starting (and staying) at the prior forever.
+    # ------------------------------------------------------------------
+    def record_prediction(
+        self,
+        asset_key: str,
+        regime_id: Any,
+        timeframe: str,
+        direction_sign: int,
+        reference_price: float,
+        horizon_hours: float = 4.0,
+    ) -> None:
+        if direction_sign == 0 or reference_price is None or not np.isfinite(reference_price):
+            return
+        with _LOCK:
+            pending = self._data.setdefault("pending", [])
+            # One live prediction per (asset, regime, timeframe) at a time --
+            # a fresh evaluation while one is still outstanding simply
+            # doesn't queue a duplicate (avoids the same rung being graded
+            # many times for what is really one ongoing forecast window).
+            cell_key = self._key(asset_key, regime_id, timeframe)
+            if any(p["key"] == cell_key for p in pending):
+                return
+            pending.append({
+                "key": cell_key,
+                "asset_key": asset_key,
+                "regime_id": regime_id,
+                "timeframe": timeframe,
+                "direction_sign": int(direction_sign),
+                "reference_price": float(reference_price),
+                "created_at": _utc_now_iso(),
+                "due_hours": float(horizon_hours),
+            })
+            self._save()
+
+    def settle_due_predictions(self, current_prices: Dict[str, float]) -> int:
+        """Checks every pending prediction whose horizon has elapsed against
+        `current_prices` (asset_key -> latest close) and feeds the result
+        into record_outcome(). Returns how many were settled. Predictions
+        for an asset missing from `current_prices` are left pending (never
+        guessed at, never silently dropped)."""
+        settled = 0
+        with _LOCK:
+            pending = self._data.setdefault("pending", [])
+            still_pending = []
+            now = datetime.now(timezone.utc)
+            for p in pending:
+                try:
+                    created = datetime.fromisoformat(p["created_at"])
+                except (KeyError, ValueError):
+                    continue  # malformed entry; drop rather than block forever
+                age_hours = (now - created).total_seconds() / 3600.0
+                if age_hours < float(p.get("due_hours", 4.0)):
+                    still_pending.append(p)
+                    continue
+                current = current_prices.get(p["asset_key"])
+                if current is None or not np.isfinite(current):
+                    still_pending.append(p)  # can't settle yet without a real price
+                    continue
+                realized_sign = 1 if current > p["reference_price"] else (-1 if current < p["reference_price"] else 0)
+                was_correct = bool(realized_sign == p["direction_sign"]) if realized_sign != 0 else False
+                self.record_outcome(p["asset_key"], p["regime_id"], p["timeframe"], was_correct)
+                settled += 1
+            self._data["pending"] = still_pending
+            self._save()
+        return settled
+
 
 _DEFAULT_STORE: Optional[TimeframeReliabilityStore] = None
 

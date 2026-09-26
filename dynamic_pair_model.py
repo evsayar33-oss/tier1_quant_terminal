@@ -34,6 +34,8 @@ from typing import Any, Dict, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
+from adaptive_regime_thresholds import AdaptiveThresholdStore, default_store
+
 
 class DynamicPairModel:
     def __init__(
@@ -46,6 +48,8 @@ class DynamicPairModel:
         min_observations: int = 40,
         divergence_z: float = 1.75,
         divergence_residual_frac: float = 0.75,
+        threshold_store: Optional[AdaptiveThresholdStore] = None,
+        divergence_quantile: float = 0.90,
     ) -> None:
         if not anchors or len(anchors) > 2:
             raise ValueError("DynamicPairModel supports 1 or 2 anchor assets.")
@@ -57,6 +61,28 @@ class DynamicPairModel:
         self.min_observations = int(min_observations)
         self.divergence_z = float(divergence_z)
         self.divergence_residual_frac = float(divergence_residual_frac)
+        # Self-calibrating divergence bar: a pair whose residual has
+        # genuinely fatter tails (e.g. a 24/7 crypto pair vs. a session-based
+        # futures pair) needs a proportionally larger residual before it
+        # counts as real divergence rather than that pair's normal noise.
+        # This directly targets over-triggering ("too much divergence
+        # flagged") on any single pair without hand-tuning per asset --
+        # cold start behaves identically to the fixed `divergence_z` literal.
+        self.threshold_store = threshold_store or default_store()
+        self.divergence_quantile = float(divergence_quantile)
+
+    @property
+    def model(self) -> str:
+        return f"EW_RIDGE_{self.dependent}~{'+'.join(self.anchors)}"
+
+    @property
+    def _z_history_key(self) -> str:
+        return f"PAIR_ABS_RESIDUAL_Z::{self.dependent}~{'+'.join(self.anchors)}"
+
+    def _effective_divergence_z(self) -> float:
+        return self.threshold_store.get_threshold(
+            self._z_history_key, self.divergence_quantile, self.divergence_z
+        )
 
     # ------------------------------------------------------------------
     # Data plumbing (mirrors xau_xag_dynamic_pair.py exactly, generalized)
@@ -152,19 +178,27 @@ class DynamicPairModel:
         mad = float(np.median(np.abs(residual - med)))
         robust_scale = max(1.4826 * mad, float(np.std(residual, ddof=1)) * 0.25, 1e-8)
         residual_z = float((residual[-1] - med) / robust_scale)
+        self.threshold_store.update(self._z_history_key, abs(residual_z))
+        effective_divergence_z = self._effective_divergence_z()
 
         corr = float(returns["dep"].corr(returns[self.anchors[0]])) if n >= 5 else 0.0
         expected_dep = float(alpha + sum(b * a[-1] for b, a in zip(betas, anchor_arrays)))
         observed_dep = float(y[-1])
 
         divergence_supported = bool(
-            abs(residual_z) >= self.divergence_z
+            abs(residual_z) >= effective_divergence_z
             and abs(residual[-1]) >= self.divergence_residual_frac * robust_scale
         )
 
-        if not divergence_supported and abs(residual_z) < 0.90 and corr >= 0.55:
+        # Coherence-blend cutoffs scale with the same adaptive bar (as a
+        # fraction of it) instead of the original fixed 0.90 / 1.50, so a
+        # pair that has earned a wider divergence bar also gets a wider
+        # "clearly coherent" zone, and vice versa.
+        coherence_soft = 0.514 * effective_divergence_z
+        coherence_hard = 0.857 * effective_divergence_z
+        if not divergence_supported and abs(residual_z) < coherence_soft and corr >= 0.55:
             coherence_blend = 0.20
-        elif not divergence_supported and abs(residual_z) < 1.50 and corr >= 0.45:
+        elif not divergence_supported and abs(residual_z) < coherence_hard and corr >= 0.45:
             coherence_blend = 0.08
         else:
             coherence_blend = 0.0
@@ -183,6 +217,7 @@ class DynamicPairModel:
             "expected_return": round(expected_dep, 8),
             "observed_return": round(observed_dep, 8),
             "divergence_supported": divergence_supported,
+            "divergence_z_used": round(effective_divergence_z, 4),
             "coherence_blend": coherence_blend,
             "model": f"EW_RIDGE_{self.dependent}~{'+'.join(self.anchors)}",
             "window": int(n),
@@ -235,13 +270,14 @@ class DynamicPairModel:
         """
         if not pair_state.get("available"):
             return float(np.clip(dependent_momentum, -2.0, 2.0))
-        divergence_z = float(pair_state.get("residual_z", 0.0))
-        # Normalize against the model's own divergence threshold rather than
-        # a magic number, so tightening/loosening divergence_z on the model
-        # automatically retunes this blend too.
-        ref_z = 1.75  # DynamicPairModel default divergence_z; harmless if the
-        # instance used a different value, since this only shapes the ramp.
-        coherence = 1.0 - min(abs(divergence_z) / (2.0 * ref_z), 1.0)
+        divergence_z_val = float(pair_state.get("residual_z", 0.0))
+        # Normalize against the ADAPTIVE divergence bar this fit actually
+        # used (see DynamicPairModel._effective_divergence_z), so a pair
+        # that has earned a wider bar (e.g. a naturally noisier pair) also
+        # ramps its anchor-weight release more gradually, instead of every
+        # pair sharing one fixed reference magnitude.
+        ref_z = float(pair_state.get("divergence_z_used", 1.75))
+        coherence = 1.0 - min(abs(divergence_z_val) / (2.0 * ref_z), 1.0)
         anchor_weight = min_anchor_weight + (max_anchor_weight - min_anchor_weight) * coherence
         own_weight = 1.0 - anchor_weight
         blended = anchor_weight * float(anchor_momentum) + own_weight * float(dependent_momentum)
@@ -269,4 +305,5 @@ class DynamicPairModel:
 # ----------------------------------------------------------------------
 XAG_XAU_MODEL = DynamicPairModel(dependent="XAG", anchors=("XAU", "HG"), window=120, half_life_hours=36.0)
 NQ_SPX_MODEL = DynamicPairModel(dependent="NQ", anchors=("SPX",), window=120, half_life_hours=48.0)
+SPX_NQ_MODEL = DynamicPairModel(dependent="SPX", anchors=("NQ",), window=120, half_life_hours=48.0)
 ETH_BTC_MODEL = DynamicPairModel(dependent="ETH", anchors=("BTC",), window=120, half_life_hours=48.0)

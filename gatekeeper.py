@@ -27,7 +27,7 @@ ENTRY_GATES_CONFIG = ENTRY_FILTER_CONFIG
 from data_engine import ResilientDataEngine
 from quant_processor import RobustQuantProcessor
 from macro_regime_engine import MacroRegimeEngine
-from dynamic_pair_model import DynamicPairModel, XAG_XAU_MODEL, NQ_SPX_MODEL, ETH_BTC_MODEL
+from dynamic_pair_model import DynamicPairModel, XAG_XAU_MODEL, NQ_SPX_MODEL, SPX_NQ_MODEL, ETH_BTC_MODEL
 from timeframe_confluence import evaluate_confluence, TimeframeReliabilityStore
 
 # Symbols that need a genuine 1D (HTF) series fetched for multi-timeframe
@@ -35,6 +35,21 @@ from timeframe_confluence import evaluate_confluence, TimeframeReliabilityStore
 _DAILY_FETCH_SYMBOLS = {
     "SPX": "ES=F", "NQ": "NQ=F", "XAU": "GC=F", "XAG": "SI=F",
     "HG": "HG=F", "BTC-USD": "BTC-USD", "ETH-USD": "ETH-USD",
+}
+
+# (anchor, follower) -> the DynamicPairModel that already measures follower's
+# divergence FROM anchor. Used to replace the old hand-tuned, per-pair
+# (min_corr, evidence_z) literals in the pair-reconciliation steps below --
+# those numbers were asymmetric across pairs (BTC/ETH's evidence_z=1.20 vs
+# SPX/NQ's 1.25 and XAU/XAG's 1.35), which meant BTC/ETH divergence was
+# confirmed-as-real (and therefore left unreconciled/shown to the user) far
+# more easily than the other two pairs -- a structural bias, not a genuine
+# crypto-specific property. Every pair now clears the SAME kind of bar: its
+# own adaptive residual-z threshold (see dynamic_pair_model.py).
+_RECONCILIATION_PAIR_MODELS = {
+    ("SPX", "NQ"): NQ_SPX_MODEL,
+    ("XAU", "XAG"): XAG_XAU_MODEL,
+    ("BTC", "ETH"): ETH_BTC_MODEL,
 }
 
 
@@ -84,6 +99,28 @@ class PreTradeGatekeeper:
                 # resampled-1H HTF, or skips the HTF rung entirely when even
                 # that has too little history -- see timeframe_confluence.py.
                 pass
+
+        # Self-improving loop, step 1: before recording any NEW timeframe
+        # predictions this cycle, settle whatever predictions from earlier
+        # cycles have reached their horizon, using this cycle's fresh
+        # closes. This is what lets TimeframeReliabilityStore's weights
+        # actually learn from live outcomes instead of sitting at their
+        # prior forever.
+        try:
+            current_prices = {}
+            for asset_key in ASSET_MATRICES.keys():
+                df = self.grid_1h.get(asset_key)
+                if isinstance(df, pd.DataFrame) and not df.empty and "Close" in df.columns:
+                    last_close = pd.to_numeric(df["Close"], errors="coerce").dropna()
+                    if not last_close.empty:
+                        current_prices[asset_key] = float(last_close.iloc[-1])
+            if current_prices:
+                self.tf_store.settle_due_predictions(current_prices)
+        except Exception:
+            # Settlement is best-effort bookkeeping; it must never block a
+            # market refresh.
+            pass
+
         def has(key, minimum=5):
             df=self.grid_1h.get(key,pd.DataFrame()); return isinstance(df,pd.DataFrame) and len(df)>=minimum
         vix_df=self.grid_1h.get("VIX",pd.DataFrame()); self.current_vix=float(vix_df["Close"].iloc[-1]) if has("VIX",1) else None
@@ -166,6 +203,31 @@ class PreTradeGatekeeper:
                 f"(skor {confluence.get('confluence_score')}, "
                 f"tüm zaman dilimleri onaylı: {confluence.get('all_aligned')})"
             )
+
+        # Self-improving loop, step 2: record this cycle's per-timeframe
+        # directional call so a future cycle's refresh_market() can grade it
+        # once its horizon elapses (see settle_due_predictions above).
+        try:
+            last_close_series = pd.to_numeric(df_ast["Close"], errors="coerce").dropna() if "Close" in df_ast.columns else pd.Series(dtype=float)
+            if not last_close_series.empty:
+                reference_price = float(last_close_series.iloc[-1])
+                _horizon_hours_by_tf = {"HTF_1D": 24.0, "MTF_4H": 12.0, "LTF_1H": 4.0}
+                for tf_label, tf_info in confluence.get("timeframes", {}).items():
+                    if not tf_info.get("available"):
+                        continue
+                    tf_score = float(tf_info.get("score", 0.0))
+                    if abs(tf_score) <= 0.05:
+                        continue  # too close to flat to call a direction
+                    self.tf_store.record_prediction(
+                        asset_key=asset_key,
+                        regime_id=self.active_macro_regime_id,
+                        timeframe=tf_label,
+                        direction_sign=1 if tf_score > 0 else -1,
+                        reference_price=reference_price,
+                        horizon_hours=_horizon_hours_by_tf.get(tf_label, 8.0),
+                    )
+        except Exception:
+            pass
 
         volume_supports = rvol >= ENTRY_FILTER_CONFIG.get("rvol_strong_min", 1.25)
         volatility_supports = (ENTRY_FILTER_CONFIG.get("vol_shock_low", 0.65) <= atr_ratio <= ENTRY_FILTER_CONFIG.get("vol_shock_high", 2.20))
@@ -424,6 +486,14 @@ class PreTradeGatekeeper:
                     # to SPX would predict; negative = downside decoupling.
                     nq_spx_state = self._pair_state(NQ_SPX_MODEL)
                     val = DynamicPairModel.factor_signal(nq_spx_state)
+                elif f_id == "nq_relative_divergence":
+                    # Symmetric counterpart on the SPX side (separate
+                    # regression: SPX ~ NQ, not just the sign-flip of the
+                    # factor above -- a reverse OLS/ridge fit minimizes a
+                    # different residual and is the statistically correct
+                    # way to give SPX its own view of the same pair).
+                    spx_nq_state = self._pair_state(SPX_NQ_MODEL)
+                    val = DynamicPairModel.factor_signal(spx_nq_state)
                 elif f_id == "usd_strength":
                     val = self.dxy_velocity
                 elif f_id == "net_dollar_liquidity":
@@ -554,6 +624,81 @@ class PreTradeGatekeeper:
                 "details": [],
             }
 
+    def _legacy_pair_stats(self, anchor_key, follower_key, bars=8):
+        """Fallback correlation/spread-z pair check, used only when the
+        adaptive DynamicPairModel for this pair doesn't have enough aligned
+        history yet (see _pair_price_supported)."""
+        a = self.grid_1h.get(anchor_key, pd.DataFrame())
+        b = self.grid_1h.get(follower_key, pd.DataFrame())
+        if not isinstance(a, pd.DataFrame) or not isinstance(b, pd.DataFrame) or a.empty or b.empty:
+            return None
+        if "Close" not in a.columns or "Close" not in b.columns:
+            return None
+        ar = pd.to_numeric(a["Close"], errors="coerce").pct_change()
+        br = pd.to_numeric(b["Close"], errors="coerce").pct_change()
+        x = pd.concat([ar.rename("a"), br.rename("b")], axis=1, join="inner").dropna()
+        if len(x) < max(24, bars + 5):
+            return None
+        recent = x.tail(bars)
+        corr = float(recent["a"].corr(recent["b"])) if recent["a"].std() > 0 and recent["b"].std() > 0 else 0.0
+        anchor_ret = float((1.0 + recent["a"]).prod() - 1.0)
+        follower_ret = float((1.0 + recent["b"]).prod() - 1.0)
+        spread = follower_ret - anchor_ret
+        spread_series = (x["b"] - x["a"]).dropna()
+        hist = spread_series.tail(min(120, len(spread_series)))
+        std_1bar = float(hist.std(ddof=1)) if len(hist) >= 10 else 0.0
+        std = std_1bar * (bars ** 0.5)
+        spread_z = float(spread / (std + 1e-12)) if std > 1e-12 else 0.0
+        anchor_1h = float(ar.iloc[-1]) if np.isfinite(ar.iloc[-1]) else 0.0
+        follower_1h = float(br.iloc[-1]) if np.isfinite(br.iloc[-1]) else 0.0
+        return {
+            "corr": corr, "anchor_return": anchor_ret, "follower_return": follower_ret,
+            "spread": spread, "spread_z": spread_z,
+            "anchor_1h": anchor_1h, "follower_1h": follower_1h,
+        }
+
+    # Only used as a fallback when a pair's DynamicPairModel has insufficient
+    # aligned history -- kept intentionally conservative (harder to trigger
+    # than the model path) since it's a cruder same-window spread-z test.
+    _LEGACY_PAIR_FALLBACK_THRESHOLDS = {
+        ("SPX", "NQ"): (0.70, 1.25),
+        ("XAU", "XAG"): (0.60, 1.35),
+        ("BTC", "ETH"): (0.65, 1.35),  # was 1.20 -- the asymmetry this whole
+        # fix removes; kept only as the (now-rare) fallback's own bar, raised
+        # to match XAU/XAG rather than being the easiest pair to "confirm."
+    }
+
+    def _pair_price_supported(self, anchor_key, follower_key):
+        """Single source of truth for 'is this pair's divergence real?',
+        used identically by both reconciliation passes below. Prefers the
+        adaptive DynamicPairModel (self-calibrated per pair, no manual
+        per-asset tuning); falls back to the legacy spread-z check only when
+        the model itself doesn't have enough data yet."""
+        model = _RECONCILIATION_PAIR_MODELS.get((anchor_key, follower_key))
+        if model is not None:
+            state = self._pair_state(model)
+            if state.get("available"):
+                stats = {
+                    "corr": state.get("corr_primary_anchor"),
+                    "residual_z": state.get("residual_z"),
+                    "divergence_z_used": state.get("divergence_z_used"),
+                    "spread": state.get("residual"),
+                    "method": "dynamic_pair_model",
+                }
+                return bool(state.get("divergence_supported")), stats
+
+        stats = self._legacy_pair_stats(anchor_key, follower_key)
+        if stats is None:
+            return None, None
+        min_corr, evidence_z = self._LEGACY_PAIR_FALLBACK_THRESHOLDS.get((anchor_key, follower_key), (0.65, 1.35))
+        price_supported = (
+            stats["corr"] >= min_corr
+            and abs(stats["spread_z"]) >= evidence_z
+            and abs(stats["spread"]) > 0
+        )
+        stats["method"] = "legacy_spread_z"
+        return bool(price_supported), stats
+
     def evaluate_all_assets_harmonized(self, previous_signals=None):
         """Evaluate all assets and reconcile unsupported pair divergence from real prices."""
         previous_signals = previous_signals or {}
@@ -564,74 +709,18 @@ class PreTradeGatekeeper:
             for key in ASSET_MATRICES.keys()
         }
 
-        pair_specs = (
-            ("SPX", "NQ", 0.70, 1.25),
-            ("XAU", "XAG", 0.60, 1.35),
-        )
+        pair_specs = (("SPX", "NQ"), ("XAU", "XAG"), ("BTC", "ETH"))
 
-        def pair_stats(anchor_key, follower_key, bars=8):
-            a = self.grid_1h.get(anchor_key, pd.DataFrame())
-            b = self.grid_1h.get(follower_key, pd.DataFrame())
-            if not isinstance(a, pd.DataFrame) or not isinstance(b, pd.DataFrame) or a.empty or b.empty:
-                return None
-            if "Close" not in a.columns or "Close" not in b.columns:
-                return None
-
-            ar = pd.to_numeric(a["Close"], errors="coerce").pct_change()
-            br = pd.to_numeric(b["Close"], errors="coerce").pct_change()
-            x = pd.concat([ar.rename("a"), br.rename("b")], axis=1, join="inner").dropna()
-            if len(x) < max(24, bars + 5):
-                return None
-
-            recent = x.tail(bars)
-            corr = float(recent["a"].corr(recent["b"])) if recent["a"].std() > 0 and recent["b"].std() > 0 else 0.0
-            anchor_ret = float((1.0 + recent["a"]).prod() - 1.0)
-            follower_ret = float((1.0 + recent["b"]).prod() - 1.0)
-            spread = follower_ret - anchor_ret
-
-            # NOT (denetim düzeltmesi): `spread`, `bars` (varsayılan 8) barlık
-            # KÜMÜLATİF getiri farkıdır; ama `std` tek barlık fark serisinin
-            # sapmasıydı. Farklı birimleri doğrudan bölmek spread_z'yi
-            # yaklaşık sqrt(bars) kat büyütüyor, bu da normal/ilişkili fiyat
-            # hareketlerinin bile "istatistiksel olarak teyitli ayrışma"
-            # sayılıp uzlaştırmanın atlanmasına yol açıyordu (SPX-NQ,
-            # XAU-XAG, BTC-ETH'de "mantıksız" görünen ayrışmaların kök
-            # nedeni). Düzeltme: std, aynı `bars` ufkuna ölçeklenir.
-            spread_series = (x["b"] - x["a"]).dropna()
-            hist = spread_series.tail(min(120, len(spread_series)))
-            std_1bar = float(hist.std(ddof=1)) if len(hist) >= 10 else 0.0
-            std = std_1bar * (bars ** 0.5)
-            spread_z = float(spread / (std + 1e-12)) if std > 1e-12 else 0.0
-
-            # 1H signs are useful for display coherence but not enough to prove divergence.
-            anchor_1h = float(ar.iloc[-1]) if np.isfinite(ar.iloc[-1]) else 0.0
-            follower_1h = float(br.iloc[-1]) if np.isfinite(br.iloc[-1]) else 0.0
-            return {
-                "corr": corr,
-                "anchor_return": anchor_ret,
-                "follower_return": follower_ret,
-                "spread": spread,
-                "spread_z": spread_z,
-                "anchor_1h": anchor_1h,
-                "follower_1h": follower_1h,
-            }
-
-        for anchor, follower, min_corr, evidence_z in pair_specs:
+        for anchor, follower in pair_specs:
             va = verdicts.get(anchor)
             vf = verdicts.get(follower)
             if not va or not vf:
                 continue
 
-            stats = pair_stats(anchor, follower)
+            price_supported, stats = self._pair_price_supported(anchor, follower)
             if stats is None:
                 va["pair_coherence"] = vf["pair_coherence"] = "FİYAT KARŞILAŞTIRMASI İÇİN VERİ YETERSİZ"
                 continue
-
-            price_supported = (
-                stats["corr"] >= min_corr
-                and abs(stats["spread_z"]) >= evidence_z
-                and abs(stats["spread"]) > 0
-            )
 
             status = (
                 "GERÇEK FİYAT AYRIŞMASI TEYİTLİ"
@@ -651,12 +740,10 @@ class PreTradeGatekeeper:
             # XAU/XAG veya SPX/NQ birbiriyle çelişen sinyaller gösterebiliyordu).
             # Aynı uzlaştırma artık `reconcile_pairs_post_adaptive()` içinde,
             # adaptif motor çalıştıktan SONRA, nihai verdict/current_direction
-            # üzerinde uygulanıyor (bkz. app.py çağrı sırası).
+            # üzerinde uygulanıyor (bkz. app.py çağrı sırası). BTC/ETH artık
+            # burada da diğer iki çiftle AYNI (adaptif) teyit barını kullanıyor
+            # -- önceden ayrı tutuluyordu ve daha kolay "teyitli" sayılıyordu.
             pass
-
-        # BTC/ETH broad sympathy is kept intentionally soft; genuine divergence
-        # is not overwritten here. (Bu da nihai skorlar üzerinden çalışması
-        # için reconcile_pairs_post_adaptive() içine taşındı.)
 
         return verdicts
 
@@ -671,59 +758,17 @@ class PreTradeGatekeeper:
         `stateful_controller.finalize_cycle(...)` çağrısından HEMEN SONRA
         çalıştırılmalıdır.
         """
-        pair_specs = (
-            ("SPX", "NQ", 0.70, 1.25),
-            ("XAU", "XAG", 0.60, 1.35),
-            ("BTC", "ETH", 0.65, 1.20),
-        )
+        pair_specs = (("SPX", "NQ"), ("XAU", "XAG"), ("BTC", "ETH"))
 
-        def pair_stats(anchor_key, follower_key, bars=8):
-            a = self.grid_1h.get(anchor_key, pd.DataFrame())
-            b = self.grid_1h.get(follower_key, pd.DataFrame())
-            if not isinstance(a, pd.DataFrame) or not isinstance(b, pd.DataFrame) or a.empty or b.empty:
-                return None
-            if "Close" not in a.columns or "Close" not in b.columns:
-                return None
-            ar = pd.to_numeric(a["Close"], errors="coerce").pct_change()
-            br = pd.to_numeric(b["Close"], errors="coerce").pct_change()
-            x = pd.concat([ar.rename("a"), br.rename("b")], axis=1, join="inner").dropna()
-            if len(x) < max(24, bars + 5):
-                return None
-            recent = x.tail(bars)
-            corr = float(recent["a"].corr(recent["b"])) if recent["a"].std() > 0 and recent["b"].std() > 0 else 0.0
-            anchor_ret = float((1.0 + recent["a"]).prod() - 1.0)
-            follower_ret = float((1.0 + recent["b"]).prod() - 1.0)
-            spread = follower_ret - anchor_ret
-            # NOT (denetim düzeltmesi): `spread`, `bars` (varsayılan 8) barlık
-            # KÜMÜLATİF getiri farkıdır; ama `std` tek barlık fark serisinin
-            # sapmasıydı. Farklı birimleri doğrudan bölmek spread_z'yi
-            # yaklaşık sqrt(bars) kat büyütüyor, bu da normal/ilişkili fiyat
-            # hareketlerinin bile "istatistiksel olarak teyitli ayrışma"
-            # sayılıp uzlaştırmanın atlanmasına yol açıyordu (SPX-NQ,
-            # XAU-XAG, BTC-ETH'de "mantıksız" görünen ayrışmaların kök
-            # nedeni). Düzeltme: std, aynı `bars` ufkuna ölçeklenir.
-            spread_series = (x["b"] - x["a"]).dropna()
-            hist = spread_series.tail(min(120, len(spread_series)))
-            std_1bar = float(hist.std(ddof=1)) if len(hist) >= 10 else 0.0
-            std = std_1bar * (bars ** 0.5)
-            spread_z = float(spread / (std + 1e-12)) if std > 1e-12 else 0.0
-            return {"corr": corr, "spread": spread, "spread_z": spread_z}
-
-        for anchor, follower, min_corr, evidence_z in pair_specs:
+        for anchor, follower in pair_specs:
             va = verdicts.get(anchor)
             vf = verdicts.get(follower)
             if not va or not vf:
                 continue
 
-            stats = pair_stats(anchor, follower)
+            price_supported, stats = self._pair_price_supported(anchor, follower)
             if stats is None:
                 continue
-
-            price_supported = (
-                stats["corr"] >= min_corr
-                and abs(stats["spread_z"]) >= evidence_z
-                and abs(stats["spread"]) > 0
-            )
             if price_supported:
                 continue
 

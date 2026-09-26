@@ -18,6 +18,42 @@ try:
     import yfinance as yf
 except ImportError:
     yf = None
+from adaptive_regime_thresholds import AdaptiveThresholdStore
+
+# Per-symbol LIVE/STALE cutoff, self-calibrating around each symbol's own
+# observed data-provider gap behavior. Fixes: XAU (GC=F) legitimately shows
+# longer quiet/thin-quote gaps overnight than ES=F/NQ=F/BTC-USD on this data
+# provider, so a single fixed cutoff for every symbol either (a) falsely
+# marks XAU STALE during its normal quiet periods -- which is exactly why
+# RVOL/ATR could not be computed for XAU until a manual live refresh forced
+# a brand-new fetch with age≈0 -- or (b) has to be loosened for everyone,
+# which would let a genuinely broken feed slip through as "LIVE" for other
+# assets. Bounded both ways (floor = the original 150 min literal, hard
+# ceiling = 360 min) so a persistently dead feed can never "teach" this
+# check to stop noticing outages.
+_FRESHNESS_STORE = AdaptiveThresholdStore(path="data_freshness_state.json")
+_LIVE_CUTOFF_FLOOR_SECONDS = 150 * 60
+_LIVE_CUTOFF_CEILING_SECONDS = 360 * 60
+
+
+def _live_cutoff_seconds(symbol: str) -> float:
+    key = f"BAR_AGE_SECONDS::{symbol}"
+    empirical = _FRESHNESS_STORE.get_threshold(key, 0.80, _LIVE_CUTOFF_FLOOR_SECONDS)
+    # Headroom is applied only to the amount ABOVE the floor that the data has
+    # actually earned -- never to the floor itself, so a cold-start / no-real-
+    # evidence symbol stays at exactly the original 150 min, not a loosened
+    # value produced by multiplying the fallback by the headroom factor.
+    excess = max(0.0, empirical - _LIVE_CUTOFF_FLOOR_SECONDS)
+    widened = _LIVE_CUTOFF_FLOOR_SECONDS + excess * 1.3
+    return float(np.clip(widened, _LIVE_CUTOFF_FLOOR_SECONDS, _LIVE_CUTOFF_CEILING_SECONDS))
+
+
+def save_freshness_store() -> None:
+    """Call once per refresh cycle (fetch_global_market_grid does this
+    automatically) rather than after every single symbol fetch."""
+    _FRESHNESS_STORE.save()
+
+
 import concurrent.futures
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
@@ -143,7 +179,9 @@ class ResilientDataEngine:
             last = pd.Timestamp(frame.index[-1])
             now = pd.Timestamp.now(tz=last.tz) if last.tz is not None else pd.Timestamp.now()
             age = max(0.0, (now - last).total_seconds())
-            actual_status = status or ("LIVE" if age <= 150 * 60 else "STALE")
+            _FRESHNESS_STORE.update(f"BAR_AGE_SECONDS::{source}", age)
+            live_cutoff = _live_cutoff_seconds(source)
+            actual_status = status or ("LIVE" if age <= live_cutoff else "STALE")
             frame.attrs.update({
                 "source": source,
                 "source_type": "DIRECT",
@@ -351,6 +389,7 @@ class ResilientDataEngine:
                         "reason":"DOĞRUDAN VERİ YOK"
                     })
                     self.data_sources[returned] = returned
+        save_freshness_store()
         return results
 
     def fetch_fred_series_observations(self, series_id, limit=300):
