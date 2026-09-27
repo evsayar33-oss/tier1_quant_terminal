@@ -335,7 +335,7 @@ class ResilientDataEngine:
         """Fetch every configured instrument directly; no proxy/synthetic branch exists."""
         tickers = [
             "ES=F", "NQ=F", "SPY", "QQQ", "SMH", "RSP", "HYG", "LQD",
-            "^VIX", "^VIX3M", "^VXN", "^GVZ", "^VXSLV", "XLU", "XLP", "XLY",
+            "^VIX", "^VIX3M", "^VXN", "^GVZ", "^VXSLV", "^SKEW", "XLU", "XLP", "XLY",
             "ARKK", "TLT", "SHY", "KRE", "XLF", "USO", "CL=F", "IYT", "BDRY",
             "DX-Y.NYB", "TIP", "IEF", "^TNX", "USDJPY=X", "GC=F", "SI=F",
             "HG=F", "BTC-USD", "ETH-USD"
@@ -354,6 +354,7 @@ class ResilientDataEngine:
             "^VXN": ["^VXN", "VXN"],
             "^GVZ": ["^GVZ", "GVZ"],
             "^VXSLV": ["^VXSLV", "VXSLV"],
+            "^SKEW": ["^SKEW", "SKEW"],
             "^TNX": ["^TNX", "TNX"],
         }
         self.data_quality = {}

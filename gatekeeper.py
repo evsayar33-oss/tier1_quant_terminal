@@ -517,12 +517,23 @@ class PreTradeGatekeeper:
                     # GVZ (CBOE Gold ETF Volatility Index): the gold options
                     # market's own forward-looking vol pricing. A z-scored
                     # jump here can precede a large gold move rather than
-                    # follow it.
+                    # follow it. Also reused for XAG (silver often shares
+                    # gold's implied-vol regime shifts before its own
+                    # dedicated VXSLV index fully reflects it).
                     val = compute_relative_vol_premium_lead(self.grid_1h.get("GVZ", pd.DataFrame()))
                 elif f_id == "silver_vol_premium_lead":
                     # VXSLV (CBOE Silver ETF Volatility Index): silver's own
                     # options-market fear gauge, distinct from gold's.
                     val = compute_relative_vol_premium_lead(self.grid_1h.get("VXSLV", pd.DataFrame()))
+                elif f_id == "tail_risk_skew_lead":
+                    # CBOE SKEW Index: the S&P 500 options market's pricing
+                    # of tail/crash risk specifically (distinct from VIX's
+                    # "how big will moves be" -- SKEW asks "how likely is a
+                    # 2+ sigma crash"). Historically documented to spike
+                    # ahead of major drawdowns (1987, 2010 Flash Crash, 2018,
+                    # 2022) rather than merely following them. Shared by
+                    # SPX and NQ (single US-equity tail-risk read).
+                    val = compute_relative_vol_premium_lead(self.grid_1h.get("SKEW", pd.DataFrame()))
                 elif f_id == "usd_strength":
                     val = self.dxy_velocity
                 elif f_id == "net_dollar_liquidity":

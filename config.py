@@ -45,10 +45,10 @@ ASSET_MATRICES = {
         "vol_scale": 1.0,
         "factors": [
             {"id": "asset_direction", "name": "ES 4H Anlık Fiyat Hızı", "cluster": "E", "base_weight": 1.10, "base_sign": 1.0},
-            {"id": "semi_lead", "name": "SMH Çip / AI Sektör İvmesi", "cluster": "E", "base_weight": 0.80, "base_sign": 1.0},
-            {"id": "market_breadth", "name": "RSP/SPY Piyasa Katılım Genişliği", "cluster": "E", "base_weight": 0.55, "base_sign": 1.0},
-            {"id": "defensive_flight", "name": "XLU/SPY Kurumsal Defansif Kaçış", "cluster": "E", "base_weight": 0.55, "base_sign": -1.0},
-            {"id": "consumer_demand", "name": "XLY/XLP Tüketici Talebi & Büyüme", "cluster": "E", "base_weight": 0.55, "base_sign": 1.0},
+            {"id": "semi_lead", "name": "SMH Çip / AI Sektör İvmesi", "cluster": "E", "base_weight": 0.35, "base_sign": 1.0},
+            {"id": "market_breadth", "name": "RSP/SPY Piyasa Katılım Genişliği", "cluster": "E", "base_weight": 0.30, "base_sign": 1.0},
+            {"id": "defensive_flight", "name": "XLU/SPY Kurumsal Defansif Kaçış", "cluster": "E", "base_weight": 0.30, "base_sign": -1.0},
+            {"id": "consumer_demand", "name": "XLY/XLP Tüketici Talebi & Büyüme", "cluster": "E", "base_weight": 0.30, "base_sign": 1.0},
             {"id": "equity_duration_drag", "name": "10Y Reel Faiz Değerleme Baskısı", "cluster": "B", "base_weight": 0.65, "base_sign": -1.0},
             {"id": "duration_risk", "name": "TLT/SHY Uzun Vade Tahvil Süre Riski", "cluster": "B", "base_weight": 0.55, "base_sign": 1.0},
             {"id": "banking_stress", "name": "KRE/SPY Bölgesel Bankacılık Likiditesi", "cluster": "C", "base_weight": 0.50, "base_sign": 1.0},
@@ -59,8 +59,9 @@ ASSET_MATRICES = {
             {"id": "usd_strength", "name": "DXY Kısa Vade Dolar Baskısı", "cluster": "A", "base_weight": 0.60, "base_sign": -1.0},
             {"id": "net_dollar_liquidity", "name": "Fed Net Dolar Likiditesi (NDL)", "cluster": "A", "base_weight": 0.65, "base_sign": 1.0},
             {"id": "usd_jpy_carry", "name": "USD/JPY Carry & Küresel Likidite", "cluster": "A", "base_weight": 0.55, "base_sign": 1.0},
-            {"id": "nq_relative_divergence", "name": "🎯 SPX/NQ Adaptif Ayrışma (Rezidüel)", "cluster": "E", "base_weight": 0.55, "base_sign": 1.0},
-            {"id": "vix_term_lead", "name": "🔮 VIX Vade Yapısı Öncü Sinyali (Backwardation/Contango)", "cluster": "E", "base_weight": 0.70, "base_sign": 1.0}
+            {"id": "nq_relative_divergence", "name": "🎯 SPX/NQ Adaptif Ayrışma (Rezidüel)", "cluster": "E", "base_weight": 0.40, "base_sign": 1.0},
+            {"id": "vix_term_lead", "name": "🔮 VIX Vade Yapısı Öncü Sinyali (Backwardation/Contango)", "cluster": "E", "base_weight": 0.70, "base_sign": 1.0},
+            {"id": "tail_risk_skew_lead", "name": "🔮 CBOE SKEW Kuyruk Riski Fiyatlaması (Öncü)", "cluster": "E", "base_weight": 0.95, "base_sign": 1.0}
         ]
     },
     "NQ": {
@@ -73,10 +74,10 @@ ASSET_MATRICES = {
         "vol_scale": 1.2,
         "factors": [
             {"id": "asset_direction", "name": "NQ 4H Anlık Fiyat Hızı", "cluster": "E", "base_weight": 1.10, "base_sign": 1.0},
-            {"id": "semi_lead", "name": "SMH Çip / AI Sektör İvmesi", "cluster": "E", "base_weight": 0.95, "base_sign": 1.0},
-            {"id": "tech_breadth_dispersion", "name": "Çip & Yüksek Beta Ayrışması", "cluster": "E", "base_weight": 0.65, "base_sign": 1.0},
-            {"id": "speculative_beta", "name": "ARKK/QQQ Yüksek Beta Spekülasyon", "cluster": "E", "base_weight": 0.60, "base_sign": 1.0},
-            {"id": "defensive_flight", "name": "XLU/QQQ Kurumsal Defansif Kaçış", "cluster": "E", "base_weight": 0.50, "base_sign": -1.0},
+            {"id": "semi_lead", "name": "SMH Çip / AI Sektör İvmesi", "cluster": "E", "base_weight": 0.40, "base_sign": 1.0},
+            {"id": "tech_breadth_dispersion", "name": "Çip & Yüksek Beta Ayrışması", "cluster": "E", "base_weight": 0.35, "base_sign": 1.0},
+            {"id": "speculative_beta", "name": "ARKK/QQQ Yüksek Beta Spekülasyon", "cluster": "E", "base_weight": 0.30, "base_sign": 1.0},
+            {"id": "defensive_flight", "name": "XLU/QQQ Kurumsal Defansif Kaçış", "cluster": "E", "base_weight": 0.25, "base_sign": -1.0},
             {"id": "equity_duration_drag", "name": "Teknoloji Değerleme / Reel Getiri Baskısı", "cluster": "B", "base_weight": 0.70, "base_sign": -1.0},
             {"id": "duration_risk", "name": "TLT Tahvil Süre Duyarlılığı", "cluster": "B", "base_weight": 0.55, "base_sign": 1.0},
             {"id": "banking_stress", "name": "Finansal Sistem Likidite Stresi (KRE)", "cluster": "C", "base_weight": 0.40, "base_sign": 1.0},
@@ -87,9 +88,10 @@ ASSET_MATRICES = {
             {"id": "usd_strength", "name": "DXY Dolar Likidite Sıkışması", "cluster": "A", "base_weight": 0.60, "base_sign": -1.0},
             {"id": "net_dollar_liquidity", "name": "Fed Net Dolar Likiditesi (NDL)", "cluster": "A", "base_weight": 0.65, "base_sign": 1.0},
             {"id": "usd_jpy_carry", "name": "USD/JPY Carry Tasfiye Riski", "cluster": "A", "base_weight": 0.55, "base_sign": 1.0},
-            {"id": "spx_relative_divergence", "name": "🎯 NQ/SPX Adaptif Ayrışma (Rezidüel)", "cluster": "E", "base_weight": 0.75, "base_sign": 1.0},
+            {"id": "spx_relative_divergence", "name": "🎯 NQ/SPX Adaptif Ayrışma (Rezidüel)", "cluster": "E", "base_weight": 0.50, "base_sign": 1.0},
             {"id": "vix_term_lead", "name": "🔮 VIX Vade Yapısı Öncü Sinyali (Backwardation/Contango)", "cluster": "E", "base_weight": 0.60, "base_sign": 1.0},
-            {"id": "tech_vol_premium_lead", "name": "🔮 VXN/VIX Teknoloji Volatilite Primi (Öncü)", "cluster": "E", "base_weight": 0.55, "base_sign": 1.0}
+            {"id": "tech_vol_premium_lead", "name": "🔮 VXN/VIX Teknoloji Volatilite Primi (Öncü)", "cluster": "E", "base_weight": 0.55, "base_sign": 1.0},
+            {"id": "tail_risk_skew_lead", "name": "🔮 CBOE SKEW Kuyruk Riski Fiyatlaması (Öncü)", "cluster": "E", "base_weight": 0.85, "base_sign": 1.0}
         ]
     },
     "XAU": {
@@ -119,10 +121,11 @@ ASSET_MATRICES = {
         "vol_scale": 1.25,
         "factors": [
             {"id": "asset_direction", "name": "Gümüş 4H/24H Trend İvmesi", "cluster": "E", "base_weight": 0.55, "base_sign": 1.0},
-            {"id": "gold_sympathy", "name": "🥇 Altın Çapa / Beta (Adaptif)", "cluster": "E", "base_weight": 1.45, "base_sign": 1.0},
+            {"id": "gold_sympathy", "name": "🥇 Altın Çapa / Beta (Adaptif)", "cluster": "E", "base_weight": 0.70, "base_sign": 1.0},
             {"id": "gold_divergence_residual", "name": "🎯 XAU/XAG Adaptif Ayrışma (Rezidüel)", "cluster": "E", "base_weight": 0.55, "base_sign": 1.0},
-            {"id": "silver_monetary_catchup", "name": "🥈 Gümüş Parasal Yakalama & Değerleme İvmesi", "cluster": "E", "base_weight": 0.80, "base_sign": 1.0},
-            {"id": "silver_vol_premium_lead", "name": "🔮 VXSLV Opsiyon Volatilite Primi (Öncü)", "cluster": "E", "base_weight": 0.60, "base_sign": 1.0},
+            {"id": "silver_monetary_catchup", "name": "🥈 Gümüş Parasal Yakalama & Değerleme İvmesi", "cluster": "E", "base_weight": 0.30, "base_sign": 1.0},
+            {"id": "silver_vol_premium_lead", "name": "🔮 VXSLV Opsiyon Volatilite Primi (Öncü)", "cluster": "E", "base_weight": 1.10, "base_sign": 1.0},
+            {"id": "gold_vol_premium_lead", "name": "🔮 GVZ Çapraz-Volatilite Rejimi (Öncü)", "cluster": "E", "base_weight": 0.55, "base_sign": 1.0},
             {"id": "copper_gold", "name": "Bakır/Altın Sanayi Talebi", "cluster": "D", "base_weight": 0.55, "base_sign": 1.0},
             {"id": "silver_copper", "name": "Gümüş / Bakır Sanayi Rotasyonu", "cluster": "D", "base_weight": 0.65, "base_sign": 1.0},
             {"id": "duration_risk", "name": "TLT Tahvil Getiri Baskısı", "cluster": "B", "base_weight": 0.55, "base_sign": 1.0},
@@ -162,13 +165,13 @@ ASSET_MATRICES = {
         "vol_scale": 2.2,
         "factors": [
             {"id": "asset_direction", "name": "ETH 4H Anlık Fiyat İvmesi", "cluster": "E", "base_weight": 0.75, "base_sign": 1.0},
-            {"id": "crypto_taker", "name": "OKX/Bybit ETH Taker Alış Akışı", "cluster": "E", "base_weight": 0.95, "base_sign": 1.0},
-            {"id": "stablecoin_usd_impulse", "name": "💵 Kripto-Yerel USD Likiditesi & Stabilcoin Akışı", "cluster": "E", "base_weight": 0.80, "base_sign": 1.0},
-            {"id": "funding_stress", "name": "Canlı ETH Fonlama Oranı (Funding Riski)", "cluster": "E", "base_weight": 0.65, "base_sign": -1.0},
-            {"id": "liquidation_squeeze_risk", "name": "⚠️ ETH Türev Kaldıraç & Sıkışma Riski", "cluster": "E", "base_weight": 0.60, "base_sign": -1.0},
-            {"id": "btc_sympathy", "name": "⚡ Bitcoin İtici Gücü (BTC Beta)", "cluster": "E", "base_weight": 0.55, "base_sign": 1.0},
-            {"id": "eth_btc_beta", "name": "ETH/BTC Göreceli Güç (Risk İştahı)", "cluster": "E", "base_weight": 0.45, "base_sign": 1.0},
-            {"id": "eth_staking_utility_drift", "name": "⛓️ L1 Ağ Aktivitesi & DeFi Likidite İvmesi", "cluster": "E", "base_weight": 0.60, "base_sign": 1.0},
+            {"id": "crypto_taker", "name": "OKX/Bybit ETH Taker Alış Akışı", "cluster": "E", "base_weight": 1.05, "base_sign": 1.0},
+            {"id": "stablecoin_usd_impulse", "name": "💵 Kripto-Yerel USD Likiditesi & Stabilcoin Akışı", "cluster": "E", "base_weight": 0.85, "base_sign": 1.0},
+            {"id": "funding_stress", "name": "Canlı ETH Fonlama Oranı (Funding Riski)", "cluster": "E", "base_weight": 0.75, "base_sign": -1.0},
+            {"id": "liquidation_squeeze_risk", "name": "⚠️ ETH Türev Kaldıraç & Sıkışma Riski", "cluster": "E", "base_weight": 0.65, "base_sign": -1.0},
+            {"id": "btc_sympathy", "name": "⚡ Bitcoin İtici Gücü (BTC Beta)", "cluster": "E", "base_weight": 0.30, "base_sign": 1.0},
+            {"id": "eth_btc_beta", "name": "ETH/BTC Göreceli Güç (Risk İştahı)", "cluster": "E", "base_weight": 0.25, "base_sign": 1.0},
+            {"id": "eth_staking_utility_drift", "name": "⛓️ L1 Ağ Aktivitesi & DeFi Likidite İvmesi", "cluster": "E", "base_weight": 0.65, "base_sign": 1.0},
             {"id": "duration_risk", "name": "TLT Likidite Baskısı", "cluster": "B", "base_weight": 0.45, "base_sign": 1.0},
             {"id": "credit_spread", "name": "Kurumsal Kredi & Likidite", "cluster": "C", "base_weight": 0.60, "base_sign": 1.0},
             {"id": "vix_strain", "name": "Sistemik Volatilite Baskısı", "cluster": "C", "base_weight": 0.50, "base_sign": -1.0},

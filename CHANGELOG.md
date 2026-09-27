@@ -253,3 +253,63 @@ bağlarız).
 
 ## Test durumu
 Mevcut 30 test geçti.
+
+---
+
+# 2026-09-26 (devam 3) — Derin araştırma: kalan reaktif ağırlığın kaynağı ve düzeltmesi
+
+## Araştırma bulgusu
+XAU/BTC'nin öncü orana ulaşmasının nedeni gerçek pozisyon/akış/opsiyon verisi
+kullanmalarıydı (funding rate, taker flow, GVZ, CB rezerv talebi). SPX/NQ/XAG
+bunlardan yoksundu; kalan reaktif ağırlıklarının kaynağı üç ayrı sorun:
+
+1. **SPX/NQ**: "sektör rotasyon oranları" (SMH/QQQ, RSP/SPY, XLU/SPY,
+   ARKK/QQQ) — bunlar hâlâ FİYAT verisi, sadece iki enstrümanın oranı.
+   Gerçek anlamda öncü değiller, eş-zamanlı (coincident) rotasyon
+   sinyalleri. Cluster A-D'deki kredi/reel-faiz gibi GERÇEKTEN öncü
+   ilişkilerle karıştırılmamalı.
+2. **XAG**: `silver_monetary_catchup` faktörü, `gold_divergence_residual`
+   ile SANAL bir çeşitlilik yaratıyordu — ikisi de aslında altın/gümüş
+   fiyat oranının farklı versiyonlarıydı (biri ham MAD z-score, diğeri
+   regresyon rezidüeli). Aynı ilişkiyi iki kez, üstüne bir de `gold_sympathy`
+   ile üç kez ağırlıklandırıyorduk.
+3. **CBOE SKEW Endeksi hiç kullanılmıyordu** — S&P 500 opsiyon piyasasının
+   "kaç sigma'lık çöküş riski fiyatlanıyor" sorusuna cevabı (VIX'ten farklı
+   bir boyut). 1987, 2010 Flash Crash, 2018, 2022'de fiyat hareketinden
+   ÖNCE sıçradığı belgelenmiş, gerçek öncü bir gösterge.
+
+## Yapılanlar
+- `^SKEW` verisi eklendi (`data_engine.py`), yeni `tail_risk_skew_lead`
+  faktörü SPX (w=0.95) ve NQ'ya (w=0.85) bağlandı.
+- SPX/NQ'daki rotasyon-oranı faktörleri (semi_lead, market_breadth,
+  defensive_flight, consumer_demand, tech_breadth_dispersion,
+  speculative_beta) ağırlıkları ~%55-60 kesildi.
+- XAG: `gold_sympathy` 1.45→0.70, `silver_monetary_catchup` 0.80→0.30
+  (redundant faktör küçültüldü, silinmedi), `silver_vol_premium_lead`
+  0.60→1.10'a çıkarıldı, XAU'nun GVZ faktörü XAG'a da eklendi
+  (`gold_vol_premium_lead`, w=0.55 — gümüş genelde altının volatilite
+  rejimini paylaşır, kendi VXSLV'sinden önce sinyal verebilir).
+- ETH: `btc_sympathy` 0.55→0.30, `eth_btc_beta` 0.45→0.25; zaten güçlü olan
+  gerçek pozisyon faktörleri (taker flow, funding, likidasyon riski) hafifçe
+  artırıldı.
+
+## Sonuç (reaktif pay)
+SPX %39→%27, NQ %40→%28, XAG %38→%24, ETH %20→%15. XAU/BTC zaten iyiydi,
+dokunulmadı (%7 / %9).
+
+## Bilinçli olarak yapılmayan
+`silver_monetary_catchup` tamamen silinmedi (küçük bir ağırlıkla, sinyal
+çeşitliliği için bırakıldı); tamamen kaldırmak isterseniz ayrı bir turda
+yapılabilir. Sektör rotasyon oranları tamamen atılmadı, sadece kırpıldı —
+sıfıra indirmek "sistemi bozmama" ilkesiyle çelişirdi, çünkü bu sinyaller
+gerçek bilgi taşıyor, sadece dominant olmamaları gerekiyordu.
+
+## Test durumu
+Mevcut 30 test + yeni SKEW/GVZ-çapraz faktörlerin sentetik veriyle uçtan uca
+çalıştığı doğrulandı.
+
+## Bu ortamda DOĞRULANAMAYAN kısım
+`^SKEW`'ın CBOE/Wikipedia kaynaklarıyla gerçek ve halâ yayınlanan bir endeks
+olduğu doğrulandı, ancak yfinance üzerinden canlı veri döndürdüğü ağ
+erişimim olmadığı için test edilemedi (dönmezse ilgili faktör otomatik
+nötr kalır, sistemi bozmaz).
