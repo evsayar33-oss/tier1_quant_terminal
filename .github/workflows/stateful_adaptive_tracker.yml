@@ -1,4 +1,4 @@
-name: Tier-1 Stateful Adaptive Quant Tracker v3.1
+name: Tier-1 Stateful Adaptive Quant Tracker v3.2
 
 on:
   schedule:
@@ -15,6 +15,7 @@ permissions:
 jobs:
   stateful-track:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - name: Repository Checkout
         uses: actions/checkout@v6
@@ -41,5 +42,24 @@ jobs:
         run: |
           git config --local user.email "quantbot@github.com"
           git config --local user.name "QuantBot Tier-1"
-          git add terminal_state.json terminal_history_stateful.csv stateful_adaptive_memory.json ohlcv_history/
-          git diff --quiet && git diff --staged --quiet || (git commit -m "🤖 Stateful Adaptive Quant State: $(date -u)" && git push)
+          # Every file the system LEARNS into must be committed, otherwise the
+          # next run starts from scratch and "self-improving" never happens.
+          for f in terminal_state.json terminal_history_stateful.csv \
+                   stateful_adaptive_memory.json ohlcv_history \
+                   adaptive_regime_thresholds_state.json data_freshness_state.json \
+                   timeframe_confluence_state.json performance_ledger.json \
+                   performance_report.md state_backups; do
+            if [ -e "$f" ]; then git add "$f"; fi
+          done
+          if git diff --staged --quiet; then
+            echo "Değişiklik yok."
+            exit 0
+          fi
+          git commit -m "🤖 Stateful Adaptive Quant State: $(date -u)"
+          # The weekly historical-validation job may have pushed in between:
+          # rebase onto it instead of failing the push.
+          for i in 1 2 3; do
+            git pull --rebase --autostash && git push && exit 0
+            sleep 5
+          done
+          echo "Push başarısız" && exit 1
