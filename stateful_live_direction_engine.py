@@ -27,6 +27,7 @@ Bu motor üç şeyi garanti eder:
 
 from __future__ import annotations
 
+from system_clock import now_utc
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
@@ -50,7 +51,7 @@ class StatefulLiveDirectionEngine:
 
     @staticmethod
     def _now() -> datetime:
-        return datetime.now(timezone.utc)
+        return now_utc()
 
     @staticmethod
     def _finite(value: Any, default: float = 0.0) -> float:

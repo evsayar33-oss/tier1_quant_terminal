@@ -36,12 +36,14 @@ Design choices, and why:
 
 from __future__ import annotations
 
+from system_clock import now_utc
+from state_schema import atomic_write_json, load_versioned_json, register_migration
 import json
 import math
 import os
 import tempfile
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -50,7 +52,7 @@ import pandas as pd
 _LOCK = threading.RLock()
 
 DEFAULT_STATE_FILE = "timeframe_confluence_state.json"
-STATE_VERSION = "1.0.0"
+STATE_VERSION = "1.1.0"
 
 # Timeframe ladder: (label, resample_rule, fast_bars, slow_bars, prior_weight)
 # Prior weight reflects an institutional starting point -- HTF sets context,
@@ -66,7 +68,7 @@ HALF_LIFE_OBSERVATIONS = 60.0
 
 
 def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return now_utc().isoformat()
 
 
 def _atomic_write_json(path: str, payload: Dict[str, Any]) -> None:
@@ -144,23 +146,27 @@ class TimeframeReliabilityStore:
 
     def __init__(self, path: str = DEFAULT_STATE_FILE) -> None:
         self.path = path
-        self._data: Dict[str, Any] = {"version": STATE_VERSION, "cells": {}}
+        self._data: Dict[str, Any] = {"schema_version": STATE_VERSION, "cells": {}, "pending": []}
         self._load()
 
     def _load(self) -> None:
         with _LOCK:
-            if os.path.exists(self.path):
-                try:
-                    with open(self.path, "r", encoding="utf-8") as fh:
-                        loaded = json.load(fh)
-                    if isinstance(loaded, dict) and "cells" in loaded:
-                        self._data = loaded
-                except (json.JSONDecodeError, OSError):
-                    pass
+            loaded = load_versioned_json(
+                self.path,
+                STATE_VERSION,
+                validator=lambda p: isinstance(p.get("cells", {}), dict),
+            )
+            if loaded:
+                loaded.setdefault("cells", {})
+                loaded.setdefault("pending", [])
+                loaded["schema_version"] = STATE_VERSION
+                self._data = loaded
 
     def _save(self) -> None:
         with _LOCK:
-            _atomic_write_json(self.path, self._data)
+            self._data["schema_version"] = STATE_VERSION
+            self._data.pop("version", None)
+            atomic_write_json(self.path, self._data)
 
     @staticmethod
     def _key(asset_key: str, regime_id: Any, timeframe: str) -> str:
@@ -208,6 +214,7 @@ class TimeframeReliabilityStore:
         direction_sign: int,
         reference_price: float,
         horizon_hours: float = 4.0,
+        reference_time: Any = None,
     ) -> None:
         if direction_sign == 0 or reference_price is None or not np.isfinite(reference_price):
             return
@@ -228,41 +235,109 @@ class TimeframeReliabilityStore:
                 "direction_sign": int(direction_sign),
                 "reference_price": float(reference_price),
                 "created_at": _utc_now_iso(),
+                "reference_time": _to_utc_iso(reference_time),
                 "due_hours": float(horizon_hours),
             })
             self._save()
 
-    def settle_due_predictions(self, current_prices: Dict[str, float]) -> int:
-        """Checks every pending prediction whose horizon has elapsed against
-        `current_prices` (asset_key -> latest close) and feeds the result
-        into record_outcome(). Returns how many were settled. Predictions
-        for an asset missing from `current_prices` are left pending (never
-        guessed at, never silently dropped)."""
+    def settle_due_predictions(
+        self,
+        current_prices: Dict[str, float],
+        price_series: Optional[Dict[str, pd.Series]] = None,
+    ) -> int:
+        """Grades every pending prediction whose horizon has elapsed and
+        feeds the result into record_outcome(). Returns how many were graded.
+
+        Grading uses the price AT the prediction's horizon (as-of lookup in
+        the asset's 1H close series, ``price_series``), not whatever the
+        price happens to be when this job next runs. GitHub Actions
+        schedules are routinely delayed by hours and markets close for
+        weekends, so "price at settle time" would grade a 4-hour call on a
+        2-3 day move. If no bar printed inside the prediction window
+        (market closed) or price did not move, the prediction is VOIDED
+        (dropped without a grade) instead of being scored as wrong.
+
+        ``current_prices`` remains as a fallback for callers that cannot
+        supply a series (keeps the original contract working)."""
         settled = 0
+        price_series = price_series or {}
         with _LOCK:
             pending = self._data.setdefault("pending", [])
             still_pending = []
-            now = datetime.now(timezone.utc)
+            now = now_utc()
             for p in pending:
                 try:
-                    created = datetime.fromisoformat(p["created_at"])
-                except (KeyError, ValueError):
+                    ref_time = datetime.fromisoformat(p.get("reference_time") or p["created_at"])
+                    if ref_time.tzinfo is None:
+                        ref_time = ref_time.replace(tzinfo=timezone.utc)
+                except (KeyError, ValueError, TypeError):
                     continue  # malformed entry; drop rather than block forever
-                age_hours = (now - created).total_seconds() / 3600.0
-                if age_hours < float(p.get("due_hours", 4.0)):
+                due_hours = float(p.get("due_hours", 4.0))
+                target = ref_time + timedelta(hours=due_hours)
+                if now < target:
                     still_pending.append(p)
                     continue
-                current = current_prices.get(p["asset_key"])
-                if current is None or not np.isfinite(current):
-                    still_pending.append(p)  # can't settle yet without a real price
+                reference = float(p.get("reference_price", float("nan")))
+                if not np.isfinite(reference) or reference <= 0:
                     continue
-                realized_sign = 1 if current > p["reference_price"] else (-1 if current < p["reference_price"] else 0)
-                was_correct = bool(realized_sign == p["direction_sign"]) if realized_sign != 0 else False
+
+                series = price_series.get(p["asset_key"])
+                outcome_price = None
+                if series is not None and len(series) > 0:
+                    s = series.dropna()
+                    idx = pd.to_datetime(s.index, utc=True, errors="coerce")
+                    s = pd.Series(s.values, index=idx).dropna()
+                    s = s[~s.index.isna()].sort_index()
+                    t_ref = pd.Timestamp(ref_time)
+                    t_target = pd.Timestamp(target)
+                    if len(s) and s.index[-1] >= t_target:
+                        window = s[(s.index > t_ref) & (s.index <= t_target)]
+                        if window.empty:
+                            continue  # market closed through the window -> void
+                        outcome_price = float(window.iloc[-1])
+                    elif (now - target).total_seconds() > 7 * 86400:
+                        continue  # data never arrived for a week -> void
+                    else:
+                        still_pending.append(p)  # series does not cover target yet
+                        continue
+                else:
+                    current = current_prices.get(p["asset_key"])
+                    if current is None or not np.isfinite(current):
+                        still_pending.append(p)  # can't settle yet without a real price
+                        continue
+                    outcome_price = float(current)
+
+                realized_sign = 1 if outcome_price > reference else (-1 if outcome_price < reference else 0)
+                if realized_sign == 0:
+                    continue  # no move -> void, never counted as a miss
+                was_correct = bool(realized_sign == p["direction_sign"])
                 self.record_outcome(p["asset_key"], p["regime_id"], p["timeframe"], was_correct)
                 settled += 1
             self._data["pending"] = still_pending
             self._save()
         return settled
+
+
+def _to_utc_iso(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    try:
+        ts = pd.Timestamp(value)
+        if ts.tzinfo is None:
+            ts = ts.tz_localize("UTC")
+        return ts.tz_convert("UTC").isoformat()
+    except Exception:
+        return None
+
+
+@register_migration(DEFAULT_STATE_FILE, "1.0.0", "1.1.0")
+def _migrate_tfc_1_0_to_1_1(payload):
+    # 1.0.0 graded predictions with the price at settle time (could be days
+    # late). Learned cells are kept; outstanding predictions are dropped
+    # because they lack the reference bar time needed for honest grading.
+    payload["pending"] = []
+    payload.pop("version", None)
+    return payload
 
 
 _DEFAULT_STORE: Optional[TimeframeReliabilityStore] = None

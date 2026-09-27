@@ -16,6 +16,7 @@ and execution-quality information. This layer does not replace those inputs.
 
 from __future__ import annotations
 
+from system_clock import now_utc
 import json
 import os
 from copy import deepcopy
@@ -59,7 +60,7 @@ class StatefulAdaptiveController:
 
     @staticmethod
     def _now() -> datetime:
-        return datetime.now(timezone.utc)
+        return now_utc()
 
     @staticmethod
     def _asset_df(grid: Dict[str, Any], asset_key: str) -> pd.DataFrame:

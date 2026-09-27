@@ -55,7 +55,7 @@ def _close_series(df: Any, window: int = 250) -> Optional[pd.Series]:
     return s.tail(window) if not s.empty else None
 
 
-def compute_vol_term_structure_lead(near_vol_df: Any, far_vol_df: Any) -> float:
+def compute_vol_term_structure_lead(near_vol_df: Any, far_vol_df: Any) -> Optional[float]:
     """near_vol_df=VIX (or VXN), far_vol_df=VIX3M. Positive = calm/contango
     (muted bullish lean), negative = backwardation (genuine near-term stress
     being priced in ahead of price) -- asymmetric by design, see module
@@ -63,7 +63,11 @@ def compute_vol_term_structure_lead(near_vol_df: Any, far_vol_df: Any) -> float:
     near = _last_close(near_vol_df)
     far = _last_close(far_vol_df)
     if near is None or far is None:
-        return 0.0
+        # Missing data is NOT "neutral". Returning 0.0 here used to make the
+        # factor count as present-with-full-weight in the gatekeeper's
+        # weighted average, silently dragging every SPX/NQ score toward
+        # NÖTR whenever the feed was down. None = excluded from the average.
+        return None
     slope_pct = (far - near) / near * 100.0
     if slope_pct < 0:
         val = np.tanh(slope_pct / 8.0)      # backwardation: steep, high-conviction stress read
@@ -76,7 +80,8 @@ def compute_relative_vol_premium_lead(
     asset_vol_df: Any,
     benchmark_vol_df: Any = None,
     lookback: int = 120,
-) -> float:
+    min_history: int = 20,
+) -> Optional[float]:
     """Self-calibrating (no fixed magic threshold) read of whether THIS
     asset's own implied-vol pricing (and, if a benchmark is given, its
     premium/spread over that benchmark) is running hot or cold relative to
@@ -85,7 +90,7 @@ def compute_relative_vol_premium_lead(
     before it has happened."""
     level = _last_close(asset_vol_df)
     if level is None:
-        return 0.0
+        return None
 
     series = _close_series(asset_vol_df, lookback)
     spread_now = None
@@ -95,12 +100,12 @@ def compute_relative_vol_premium_lead(
         bench_now = _last_close(benchmark_vol_df)
         if bench_series is not None and bench_now is not None and series is not None:
             aligned = pd.concat([series.rename("a"), bench_series.rename("b")], axis=1, join="inner").dropna()
-            if len(aligned) >= 20:
+            if len(aligned) >= min_history:
                 spread_series = (aligned["a"] - aligned["b"])
                 spread_now = float(level - bench_now)
 
     def _zscore_last(hist: pd.Series, current: float) -> Optional[float]:
-        if hist is None or len(hist) < 20:
+        if hist is None or len(hist) < min_history:
             return None
         mu = float(hist.mean())
         sd = float(hist.std(ddof=1))
@@ -116,7 +121,10 @@ def compute_relative_vol_premium_lead(
     # fallback (still meaningful, just less discriminating).
     z = spread_z if spread_z is not None else level_z
     if z is None:
-        return 0.0
+        # Not enough history to know what "unusual" means for this index
+        # yet (e.g. CBOE SKEW prints ~1 bar per day, so a 1H feed needs
+        # weeks before 20 points exist). Excluded rather than faked as 0.
+        return None
     # Rising implied vol -> priced-in future risk -> treated as a bearish
     # lead (negative), consistent with compute_vol_term_structure_lead's
     # sign convention; falling implied vol (complacency) is muted, not a
@@ -126,3 +134,39 @@ def compute_relative_vol_premium_lead(
     else:
         val = -np.tanh(z / 3.5) * 0.4
     return float(np.clip(val * 2.0, -2.0, 2.0))
+
+
+def build_vol_history_frame(intraday_df: Any, daily_df: Any) -> Any:
+    """Combines a volatility index's DAILY history (for a months-long,
+    statistically meaningful norm) with its latest INTRADAY print (for a
+    current reading).
+
+    Why: z-scoring VXN/GVZ/VXSLV/SKEW against only the ~40 hourly bars the
+    1H feed keeps compares today with the last few days -- that is a
+    short-term momentum read of the index (reactive), not "is the options
+    market pricing unusual risk versus its normal". Daily history gives the
+    proper ~6-month baseline the leading-signal logic assumes.
+
+    Point-in-time safe: only daily bars from dates strictly BEFORE the
+    latest intraday bar's date are used, so today's (possibly still
+    forming) daily bar never leaks into the baseline.
+    """
+    intraday = _close_series(intraday_df, 10_000)
+    daily = _close_series(daily_df, 10_000)
+    if daily is None or len(daily) < 5:
+        return intraday_df if intraday is not None else pd.DataFrame()
+    daily = daily.copy()
+    daily.index = pd.to_datetime(daily.index, utc=True, errors="coerce")
+    daily = daily[~daily.index.isna()]
+    if intraday is None or intraday.empty:
+        return pd.DataFrame({"Close": daily})
+    intraday = intraday.copy()
+    intraday.index = pd.to_datetime(intraday.index, utc=True, errors="coerce")
+    intraday = intraday[~intraday.index.isna()]
+    if intraday.empty:
+        return pd.DataFrame({"Close": daily})
+    last_ts = intraday.index[-1]
+    hist = daily[daily.index.normalize() < last_ts.normalize()]
+    combined = pd.concat([hist, pd.Series([float(intraday.iloc[-1])], index=[last_ts])])
+    combined = combined[~combined.index.duplicated(keep="last")].sort_index()
+    return pd.DataFrame({"Close": combined})

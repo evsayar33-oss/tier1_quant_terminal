@@ -1,4 +1,12 @@
 """
+⚠️ SENTETİK VERİ UYARISI (2026-09-27)
+Bu dosya rastgele üretilmiş, rejim hipotezine göre tasarlanmış veriler
+üzerinde çalışır. Kodun çalıştığını gösterir; sistemin gerçek piyasayı
+tahmin edip etmediğini GÖSTEREMEZ (cevap veriye önceden gömülüdür).
+Gerçek performans ölçümü için: historical_replay.py (tarihsel
+walk-forward) ve performance_report.md (canlı örneklem-dışı karne).
+"""
+"""
 Backtest Engine: Multi-Regime Quantitative Evaluation for Macro Event Interpretation System v1.0
 Evaluates Hit Rate, Sharpe Ratio, Profit Factor, Max Drawdown, and Whipsaw reduction across all 5 Macro Regimes:
 1. Küresel Enflasyon & Stagflasyon Şoku (Regime 1 - SHOCK)

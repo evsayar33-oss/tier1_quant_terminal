@@ -5,6 +5,7 @@ Fixes:
 - Realistic Intraday Price Action Thresholds (SPX -0.34%, NQ -0.48%, BTC -0.61% are correctly flagged as DOWN)
 - Quantitative Trade Entry Gating
 """
+from system_clock import now_utc
 import numpy as np
 import pandas as pd
 from datetime import datetime, timezone
@@ -611,7 +612,7 @@ class RobustQuantProcessor:
 
     @staticmethod
     def check_catalyst_event_window():
-        now = datetime.now(timezone.utc)
+        now = now_utc()
         current_hour = now.hour + (now.minute / 60.0)
         current_day = now.weekday()
         if current_day in [0, 1, 2, 3, 4]:

@@ -334,3 +334,18 @@ REGIME_DYNAMIC_THRESHOLDS = {
         "description": "Rejimsiz Geçiş / Denge: Testere filtresi devrede, simetrik eşikler (±0.75 Giriş / ±0.30 Çıkış)."
     }
 }
+
+
+# ---------------------------------------------------------------------------
+# Final entry-TIMING gate (gatekeeper.apply_final_entry_gate)
+# ---------------------------------------------------------------------------
+# These do NOT change forecast direction -- only whether an entry is timed.
+# They are deliberately few and explainable; the performance ledger
+# (performance_ledger.py) reports hit-rates per entry grade (A/B/C), so any
+# future change to these numbers can be justified with measured evidence
+# instead of opinion.
+ENTRY_TIMING_CONFIG = {
+    "ltf_trigger_min": 0.05,          # LTF directional score (x signal sign) needed to count as "trigger turned"
+    "max_opposing_confluence": 0.35,  # aggregate multi-TF score against the signal beyond this blocks timing
+    "grade_a_min_confluence": 0.35,   # aggregate multi-TF score with the signal needed for grade A
+}

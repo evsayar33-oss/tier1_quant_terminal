@@ -20,6 +20,8 @@ is a UI/state snapshot; this file is the model's longitudinal learning memory.
 
 from __future__ import annotations
 
+from system_clock import now_utc
+from state_schema import backup_file
 import json
 import math
 import os
@@ -46,7 +48,7 @@ _LOCK = threading.RLock()
 
 
 def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return now_utc()
 
 
 def _iso(dt: datetime) -> str:
@@ -140,11 +142,21 @@ class StatefulMemoryStore:
             with self.path.open("r", encoding="utf-8") as fh:
                 data = json.load(fh)
             if not isinstance(data, dict):
+                backup_file(str(self.path), "not_a_dict")
+                return _default_memory()
+            stored_major = str(data.get("version", MEMORY_VERSION)).split(".")[0]
+            if stored_major != str(MEMORY_VERSION).split(".")[0]:
+                # A different MAJOR version means an incompatible layout:
+                # keep the old learning safely aside instead of misreading it.
+                backup_file(str(self.path), f"major_version_{stored_major}")
                 return _default_memory()
             base = _default_memory()
             base.update(data)
             return base
         except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            # Never let the next save() silently overwrite months of learned
+            # memory with an empty default: copy the unreadable file aside.
+            backup_file(str(self.path), "corrupt")
             return _default_memory()
 
     def save(self) -> None:

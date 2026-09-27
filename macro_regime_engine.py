@@ -7,6 +7,7 @@ Enhanced with:
 - Priority Rules: SHOCK_REGIMES (1, 2, 3, 4) > RISK_ON_REGIME (5) > REJIMSIZ_GECIS
 - Conflict Resolution: Highest |Z| & T10YIE Breakeven Tie-Breaker
 """
+from system_clock import now_utc
 import os
 import numpy as np
 import pandas as pd
@@ -39,7 +40,7 @@ class MacroRegimeEngine:
         Evaluates current macro indicators against the 5 regimes using deterministic logic,
         strict priority rules, conflict resolution, and objective regime fallback.
         """
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso = now_utc().isoformat()
         self.last_evaluation_time = now_iso
 
         # -------------------------------------------------------------
@@ -96,8 +97,12 @@ class MacroRegimeEngine:
         # Feed today's real, already-computed z-scores into the adaptive
         # threshold store. This is the ONLY place trigger calibration
         # learns from -- no synthetic or forward-filled values ever enter it.
+        # One observation per indicator per UTC day (see
+        # AdaptiveThresholdStore.update): repeated intraday runs refresh
+        # today's sample instead of inflating the sample count.
+        _obs_day = now_utc().strftime("%Y-%m-%d")
         for _key, _val in z_scores_dict.items():
-            self.threshold_store.update(_key, _val)
+            self.threshold_store.update(_key, _val, obs_id=_obs_day)
 
         def th(indicator_key: str, quantile: float, fallback_value: float) -> float:
             return self.threshold_store.get_threshold(indicator_key, quantile, fallback_value)

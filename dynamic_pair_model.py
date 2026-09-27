@@ -178,7 +178,13 @@ class DynamicPairModel:
         mad = float(np.median(np.abs(residual - med)))
         robust_scale = max(1.4826 * mad, float(np.std(residual, ddof=1)) * 0.25, 1e-8)
         residual_z = float((residual[-1] - med) / robust_scale)
-        self.threshold_store.update(self._z_history_key, abs(residual_z))
+        # One sample per underlying bar: repeated runs on the same last bar
+        # must not be counted as new evidence (see AdaptiveThresholdStore).
+        try:
+            _bar_id = str(returns.index[-1])
+        except Exception:
+            _bar_id = None
+        self.threshold_store.update(self._z_history_key, abs(residual_z), obs_id=_bar_id)
         effective_divergence_z = self._effective_divergence_z()
 
         corr = float(returns["dep"].corr(returns[self.anchors[0]])) if n >= 5 else 0.0

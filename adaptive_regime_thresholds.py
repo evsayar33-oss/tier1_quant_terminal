@@ -34,6 +34,8 @@ manual re-tuning.
 
 from __future__ import annotations
 
+from system_clock import now_utc
+from state_schema import atomic_write_json, load_versioned_json, register_migration
 import json
 import os
 import tempfile
@@ -47,14 +49,32 @@ import numpy as np
 _LOCK = threading.RLock()
 
 DEFAULT_STATE_FILE = "adaptive_regime_thresholds_state.json"
-STATE_VERSION = "1.0.0"
+STATE_VERSION = "1.1.0"
 MAX_HISTORY = 500          # bounded reservoir per indicator
 HALF_LIFE_OBSERVATIONS = 180.0   # ~ one trading-year at weekly cadence
 TARGET_OBSERVATIONS_FOR_FULL_TRUST = 60.0  # below this, lean on the literal default
 
 
+@register_migration(DEFAULT_STATE_FILE, "1.0.0", "1.1.0")
+@register_migration("data_freshness_state.json", "1.0.0", "1.1.0")
+def _migrate_1_0_to_1_1(payload):
+    # 1.0.0 had no per-observation identity. Consecutive identical values
+    # are almost certainly the same daily observation re-sampled by
+    # repeated runs, so collapse them (conservative: keeps real changes).
+    series = {}
+    for key, values in (payload.get("series") or {}).items():
+        out = []
+        for v in values if isinstance(values, list) else []:
+            if not out or out[-1] != v:
+                out.append(v)
+        series[key] = out
+    payload["series"] = series
+    payload["last_obs_id"] = {}
+    return payload
+
+
 def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return now_utc().isoformat()
 
 
 def _atomic_write_json(path: str, payload: Dict) -> None:
@@ -77,32 +97,58 @@ class AdaptiveThresholdStore:
         self.path = path
         self.max_history = int(max_history)
         self._series: Dict[str, Deque[float]] = {}
+        self._last_obs_id: Dict[str, str] = {}
         self._load()
 
     def _load(self) -> None:
         with _LOCK:
-            if os.path.exists(self.path):
-                try:
-                    with open(self.path, "r", encoding="utf-8") as fh:
-                        payload = json.load(fh)
-                    for key, values in payload.get("series", {}).items():
-                        self._series[key] = deque(values[-self.max_history:], maxlen=self.max_history)
-                except (json.JSONDecodeError, OSError):
-                    pass
+            payload = load_versioned_json(
+                self.path,
+                STATE_VERSION,
+                validator=lambda p: isinstance(p.get("series", {}), dict),
+            )
+            if not payload:
+                return
+            for key, values in payload.get("series", {}).items():
+                clean = []
+                for v in values if isinstance(values, list) else []:
+                    try:
+                        fv = float(v)
+                    except (TypeError, ValueError):
+                        continue
+                    if np.isfinite(fv):
+                        clean.append(fv)
+                self._series[key] = deque(clean[-self.max_history:], maxlen=self.max_history)
+            last_obs = payload.get("last_obs_id", {})
+            if isinstance(last_obs, dict):
+                self._last_obs_id = {str(k): str(v) for k, v in last_obs.items()}
 
     def _save(self) -> None:
         with _LOCK:
             payload = {
-                "version": STATE_VERSION,
+                "schema_version": STATE_VERSION,
                 "updated_at": _utc_now_iso(),
                 "series": {k: list(v) for k, v in self._series.items()},
+                "last_obs_id": dict(self._last_obs_id),
             }
-            _atomic_write_json(self.path, payload)
+            atomic_write_json(self.path, payload)
 
-    def update(self, indicator_key: str, value: Optional[float]) -> None:
+    def update(self, indicator_key: str, value: Optional[float], obs_id: Optional[str] = None) -> None:
         """Feed one fresh, real observation. Never called with fabricated
         or forward-filled data -- callers should only pass values that were
-        actually computed for the current cycle."""
+        actually computed for the current cycle.
+
+        ``obs_id`` identifies WHICH real-world observation this value
+        belongs to (e.g. the UTC date for daily macro data, or the last bar
+        timestamp for hourly pair residuals). The GitHub Actions job runs
+        many times per day, but the underlying FRED/daily data only changes
+        once per day: without this key the same daily value would be
+        appended dozens of times, the store would "believe" it has 60
+        independent observations after ~1-2 days, jump to full trust, and
+        its quantiles would collapse onto the last couple of days -- the
+        opposite of a multi-year calibration. With ``obs_id`` a repeated
+        observation REPLACES the latest sample (keeps it fresh) instead of
+        being counted again."""
         if value is None:
             return
         try:
@@ -112,7 +158,14 @@ class AdaptiveThresholdStore:
         if not np.isfinite(v):
             return
         with _LOCK:
-            self._series.setdefault(indicator_key, deque(maxlen=self.max_history)).append(v)
+            series = self._series.setdefault(indicator_key, deque(maxlen=self.max_history))
+            if obs_id is not None:
+                obs_id = str(obs_id)
+                if self._last_obs_id.get(indicator_key) == obs_id and len(series) > 0:
+                    series[-1] = v
+                    return
+                self._last_obs_id[indicator_key] = obs_id
+            series.append(v)
 
     def save(self) -> None:
         self._save()

@@ -490,6 +490,17 @@ if (
                 st.warning(f"⚠️ Çift (pair) uzlaştırma adımında beklenmeyen bir hata oluştu, bu adım atlandı: {pair_exc}")
 
             # ----------------------------------------------------
+            # NİHAİ YÖN-DUYARLI GİRİŞ ZAMANLAMASI (A/B/C)
+            # ----------------------------------------------------
+            # Arka plan takipçisiyle BİREBİR aynı son adım: giriş izni
+            # artık sinyal YÖNÜ ile zaman dilimlerinin uyumuna bakar.
+            # Sadece izni kısıtlayabilir, asla yeni izin vermez.
+            try:
+                verdicts = gk.apply_final_entry_gate(verdicts)
+            except Exception as gate_exc:
+                st.warning(f"⚠️ Nihai giriş zamanlama kapısı atlandı: {gate_exc}")
+
+            # ----------------------------------------------------
             # VERİ KALİTESİ TEŞHİSİ (data-quality diagnostics)
             # ----------------------------------------------------
             # Önceki turda, tek bir faktör hesaplaması patlarsa tüm sayfanın
@@ -966,6 +977,8 @@ for k in ASSET_MATRICES.keys():
         "entry_reason",
         "Veri yeterliliği kontrol edilemedi.",
     )
+    if data.get("entry_grade") not in (None, "-", ""):
+        entry_rs = f"{entry_rs} | Zamanlama notu {data.get('entry_grade')}: {data.get('entry_timing', '')}"
 
     rvol_val = safe_float(data.get("rvol"), default=None)
     atr_val = safe_float(data.get("atr_ratio"), default=None)
@@ -1129,6 +1142,8 @@ entry_rs = res.get(
     "entry_reason",
     "",
 )
+if res.get("entry_grade") not in (None, "-", ""):
+    entry_rs = f"{entry_rs} | Zamanlama notu {res.get('entry_grade')}: {res.get('entry_timing', '')}"
 
 info_cols = st.columns(5)
 with info_cols[0]:
@@ -1325,13 +1340,34 @@ if details:
 
 
 # =============================================================================
+# CANLI PERFORMANS KARNESİ + TARİHSEL DOĞRULAMA (salt okunur)
+# =============================================================================
+# Arka plan işinin ürettiği örneklem-dışı karne ve haftalık tarihsel
+# walk-forward raporu. Sadece dosyadan okunur; hiçbir karar mantığını
+# etkilemez.
+
+st.divider()
+for _title, _path in (
+    ("📊 Canlı Performans Karnesi (gerçekleşen fiyatla notlanan sinyaller)", "performance_report.md"),
+    ("🧪 Tarihsel Doğrulama Raporu (walk-forward)", os.path.join("validation_reports", "historical_replay_report.md")),
+):
+    try:
+        if os.path.exists(_path):
+            with st.expander(_title, expanded=False):
+                with open(_path, "r", encoding="utf-8") as _fh:
+                    st.markdown(_fh.read())
+    except Exception as _rep_exc:
+        st.caption(f"{_title}: okunamadı ({_rep_exc})")
+
+
+# =============================================================================
 # V2.2 FOOTER
 # =============================================================================
 
 st.divider()
 
 st.caption(
-    "V2.2.1 + Stateful Adaptive v3.1 | Zero Synthetic Data | "
+    "V2.2.1 + Stateful Adaptive v3.2 (Foundation) | Zero Synthetic Data | "
     "Live Multi-Horizon Direction | "
     "Strict Execution Gate | "
     "Real RVOL | "

@@ -19,12 +19,14 @@ import requests
 from config import ASSET_MATRICES
 from gatekeeper import PreTradeGatekeeper
 from stateful_adaptive_controller import StatefulAdaptiveController
+from performance_ledger import run_ledger_cycle
+from state_schema import recent_events
 
 
 STATE_FILE = "terminal_state.json"
 MEMORY_FILE = "stateful_adaptive_memory.json"
 HISTORY_FILE = "terminal_history_stateful.csv"
-VERSION = "3.1.0-stateful-direction"
+VERSION = "3.2.0-foundation"
 
 
 def _load_json(path: str) -> Dict[str, Any]:
@@ -93,6 +95,49 @@ def run_background_cycle() -> Dict[str, Any]:
         cycle_id=now,
     )
 
+    # Same post-adaptive steps as app.py, in the same order, so the state
+    # the background job publishes is the SAME decision the UI would show.
+    # (Previously the tracker skipped pair reconciliation entirely.)
+    try:
+        verdicts = gk.reconcile_pairs_post_adaptive(verdicts)
+    except Exception as exc:
+        print(f"Pair reconciliation atlandı: {exc}")
+    try:
+        verdicts = gk.apply_final_entry_gate(verdicts)
+    except Exception as exc:
+        print(f"Final entry gate atlandı: {exc}")
+
+    # Out-of-sample scoreboard: settle earlier calls, record this cycle's
+    # FINAL decisions, refresh performance_report.md. Pure observer -- it
+    # never feeds back into the model, so it cannot destabilize it.
+    performance: Dict[str, Any] = {}
+    try:
+        events = recent_events(10)
+        extra = ["## Durum dosyası olayları (yedekleme / göç)"] + (
+            [f"- {e}" for e in events] if events else ["- Kayıt yok ✅"]
+        )
+        performance = run_ledger_cycle(
+            gk, verdicts, StatefulAdaptiveController._asset_df, extra_report_lines=extra
+        )
+    except Exception as exc:
+        performance = {"error": str(exc)}
+        print(f"Performance ledger atlandı: {exc}")
+
+    data_health = {}
+    for key, v in verdicts.items():
+        rows = v.get("details", []) or []
+        missing = [
+            str(r.get("faktör") or r.get("faktor") or r.get("faktor_id"))
+            for r in rows
+            if r.get("ham_deger") is None
+        ]
+        data_health[key] = {
+            "factors_total": len(rows),
+            "factors_missing": len(missing),
+            "missing": missing,
+            "coverage": round(1.0 - len(missing) / len(rows), 3) if rows else 0.0,
+        }
+
     payload = {
         "v22_version": VERSION,
         "last_updated": now,
@@ -123,6 +168,8 @@ def run_background_cycle() -> Dict[str, Any]:
         "data_quality": gk.data_engine.data_quality,
         "data_sources": gk.data_engine.data_sources,
         "asset_verdicts": verdicts,
+        "performance": performance,
+        "data_health": data_health,
     }
     _save_json(STATE_FILE, payload)
 

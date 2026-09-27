@@ -8,6 +8,7 @@ single transient cycle from becoming the active macro state.
 
 from __future__ import annotations
 
+from system_clock import now_utc
 from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
@@ -61,7 +62,7 @@ class StatefulRegimeController:
 
     @staticmethod
     def _now() -> datetime:
-        return datetime.now(timezone.utc)
+        return now_utc()
 
     @staticmethod
     def _dt(value: Any) -> Optional[datetime]:

@@ -29,13 +29,17 @@ from quant_processor import RobustQuantProcessor
 from macro_regime_engine import MacroRegimeEngine
 from dynamic_pair_model import DynamicPairModel, XAG_XAU_MODEL, NQ_SPX_MODEL, SPX_NQ_MODEL, ETH_BTC_MODEL
 from timeframe_confluence import evaluate_confluence, TimeframeReliabilityStore
-from leading_indicators import compute_vol_term_structure_lead, compute_relative_vol_premium_lead
+from leading_indicators import compute_vol_term_structure_lead, compute_relative_vol_premium_lead, build_vol_history_frame
 
 # Symbols that need a genuine 1D (HTF) series fetched for multi-timeframe
 # confluence and/or feed the relative-value pair models above.
 _DAILY_FETCH_SYMBOLS = {
     "SPX": "ES=F", "NQ": "NQ=F", "XAU": "GC=F", "XAG": "SI=F",
     "HG": "HG=F", "BTC-USD": "BTC-USD", "ETH-USD": "ETH-USD",
+    # Implied-vol / tail-risk indices: their "is this unusual?" baseline
+    # must come from months of DAILY history, not the few days of 1H bars
+    # (see leading_indicators.build_vol_history_frame).
+    "VIX": "^VIX", "VXN": "^VXN", "GVZ": "^GVZ", "VXSLV": "^VXSLV", "SKEW": "^SKEW",
 }
 
 # (anchor, follower) -> the DynamicPairModel that already measures follower's
@@ -109,14 +113,22 @@ class PreTradeGatekeeper:
         # prior forever.
         try:
             current_prices = {}
+            price_series = {}
             for asset_key in ASSET_MATRICES.keys():
+                # Resolve through the benchmark symbol too: BTC/ETH live in
+                # the grid as "BTC-USD"/"ETH-USD", so a plain grid[asset_key]
+                # lookup left their timeframe predictions pending forever.
+                _sym = str(ASSET_MATRICES[asset_key].get("benchmark_symbol", asset_key))
                 df = self.grid_1h.get(asset_key)
+                if not isinstance(df, pd.DataFrame) or df.empty:
+                    df = self.grid_1h.get(_sym.replace("^", "").replace("=X", "").replace("=F", ""), self.grid_1h.get(_sym))
                 if isinstance(df, pd.DataFrame) and not df.empty and "Close" in df.columns:
                     last_close = pd.to_numeric(df["Close"], errors="coerce").dropna()
                     if not last_close.empty:
                         current_prices[asset_key] = float(last_close.iloc[-1])
+                        price_series[asset_key] = last_close
             if current_prices:
-                self.tf_store.settle_due_predictions(current_prices)
+                self.tf_store.settle_due_predictions(current_prices, price_series=price_series)
         except Exception:
             # Settlement is best-effort bookkeeping; it must never block a
             # market refresh.
@@ -146,6 +158,14 @@ class PreTradeGatekeeper:
             self.consecutive_breaches=self.consecutive_breaches+1 if self.crisis_active else 0
         else:
             self.crisis_active=False; self.anomaly_score=None; self.consecutive_breaches=0
+
+    def _vol_history(self, key):
+        """Daily-history + latest-intraday frame for a vol index (see
+        leading_indicators.build_vol_history_frame)."""
+        return build_vol_history_frame(
+            self.grid_1h.get(key, pd.DataFrame()),
+            self.grid_daily.get(key),
+        )
 
     def _pair_state(self, model):
         """Fits a DynamicPairModel at most once per refresh_market() cycle
@@ -212,6 +232,7 @@ class PreTradeGatekeeper:
             last_close_series = pd.to_numeric(df_ast["Close"], errors="coerce").dropna() if "Close" in df_ast.columns else pd.Series(dtype=float)
             if not last_close_series.empty:
                 reference_price = float(last_close_series.iloc[-1])
+                reference_time = last_close_series.index[-1]
                 _horizon_hours_by_tf = {"HTF_1D": 24.0, "MTF_4H": 12.0, "LTF_1H": 4.0}
                 for tf_label, tf_info in confluence.get("timeframes", {}).items():
                     if not tf_info.get("available"):
@@ -226,6 +247,7 @@ class PreTradeGatekeeper:
                         direction_sign=1 if tf_score > 0 else -1,
                         reference_price=reference_price,
                         horizon_hours=_horizon_hours_by_tf.get(tf_label, 8.0),
+                        reference_time=reference_time,
                     )
         except Exception:
             pass
@@ -510,8 +532,8 @@ class PreTradeGatekeeper:
                     # spread? A widening premium is a tech-specific stress
                     # signal that can lead price.
                     val = compute_relative_vol_premium_lead(
-                        self.grid_1h.get("VXN", pd.DataFrame()),
-                        benchmark_vol_df=self.grid_1h.get("VIX", pd.DataFrame()),
+                        self._vol_history("VXN"),
+                        benchmark_vol_df=self._vol_history("VIX"),
                     )
                 elif f_id == "gold_vol_premium_lead":
                     # GVZ (CBOE Gold ETF Volatility Index): the gold options
@@ -520,11 +542,11 @@ class PreTradeGatekeeper:
                     # follow it. Also reused for XAG (silver often shares
                     # gold's implied-vol regime shifts before its own
                     # dedicated VXSLV index fully reflects it).
-                    val = compute_relative_vol_premium_lead(self.grid_1h.get("GVZ", pd.DataFrame()))
+                    val = compute_relative_vol_premium_lead(self._vol_history("GVZ"))
                 elif f_id == "silver_vol_premium_lead":
                     # VXSLV (CBOE Silver ETF Volatility Index): silver's own
                     # options-market fear gauge, distinct from gold's.
-                    val = compute_relative_vol_premium_lead(self.grid_1h.get("VXSLV", pd.DataFrame()))
+                    val = compute_relative_vol_premium_lead(self._vol_history("VXSLV"))
                 elif f_id == "tail_risk_skew_lead":
                     # CBOE SKEW Index: the S&P 500 options market's pricing
                     # of tail/crash risk specifically (distinct from VIX's
@@ -533,7 +555,7 @@ class PreTradeGatekeeper:
                     # ahead of major drawdowns (1987, 2010 Flash Crash, 2018,
                     # 2022) rather than merely following them. Shared by
                     # SPX and NQ (single US-equity tail-risk read).
-                    val = compute_relative_vol_premium_lead(self.grid_1h.get("SKEW", pd.DataFrame()))
+                    val = compute_relative_vol_premium_lead(self._vol_history("SKEW"))
                 elif f_id == "usd_strength":
                     val = self.dxy_velocity
                 elif f_id == "net_dollar_liquidity":
@@ -873,4 +895,112 @@ class PreTradeGatekeeper:
         # (hem Canlı Fiyat Yönü hem Model Sinyali için). Önceden burada ayrı
         # ve daha yumuşak bir "sempati" kuralı vardı; bu, yukarıdaki asıl
         # uzlaştırmayla çakışıp birbirini geçersiz kılabildiğinden kaldırıldı.
+        return verdicts
+
+    # ------------------------------------------------------------------
+    # FINAL, DIRECTION-AWARE ENTRY-TIMING GATE
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _verdict_direction_sign(verdict_text):
+        text = str(verdict_text or "").upper()
+        has_buy = "AL" in text.replace("SAT", "")
+        has_sell = "SAT" in text
+        if has_buy and not has_sell:
+            return 1
+        if has_sell and not has_buy:
+            return -1
+        return 0
+
+    def apply_final_entry_gate(self, verdicts):
+        """Must run LAST (after stateful finalize_cycle and
+        reconcile_pairs_post_adaptive), in BOTH app.py and the background
+        tracker, so the two always publish the same decision.
+
+        Fixes two production defects:
+
+        1. StatefulAdaptiveController.finalize_cycle() recomputes
+           ``entry_allowed`` from ATR/RVOL only, which silently discarded
+           the HTF/MTF/LTF confluence gate added to evaluate_asset_direction().
+        2. That confluence gate itself was direction-blind: it asked "do the
+           timeframes agree with EACH OTHER?", never "do they agree with the
+           SIGNAL?". Live example: BTC verdict SAT while 1D/4H/1H were all
+           bullish -> "Dinamik giriş uygun". For a future auto-trader that
+           is a short straight into a confirmed up-move.
+
+        Design (keeps the system LEADING, not reactive): the forecast
+        direction is never changed here -- only the TIMING permission.
+          Grade A : every available timeframe agrees with the signal
+                    direction and confluence is strong -> entry allowed.
+          Grade B : the fast (LTF) trigger has turned in the signal
+                    direction and higher timeframes are not strongly
+                    against it -> entry allowed (leading signal, price
+                    trigger present).
+          Grade C : the trigger has not turned yet, or the higher
+                    timeframes are strongly against the call -> the call
+                    stays visible as a leading signal; entry waits.
+        This gate can only REMOVE entry permission, never grant it, so no
+        other safety check (stale data, coverage, crisis lock, pair
+        conviction) can be bypassed through it.
+        """
+        try:
+            from config import ENTRY_TIMING_CONFIG as cfg
+        except Exception:
+            cfg = {}
+        trig_min = float(cfg.get("ltf_trigger_min", 0.05))
+        opp_max = float(cfg.get("max_opposing_confluence", 0.35))
+        grade_a_min = float(cfg.get("grade_a_min_confluence", 0.35))
+
+        for key, v in (verdicts or {}).items():
+            if not isinstance(v, dict):
+                continue
+            d = self._verdict_direction_sign(v.get("verdict"))
+            conf = v.get("timeframe_confluence") or {}
+            was_allowed = bool(v.get("entry_allowed", False))
+
+            if d == 0:
+                v["entry_grade"] = "-"
+                v["entry_timing"] = "Yön sinyali yok; giriş değerlendirilmez."
+                if was_allowed:
+                    v["entry_allowed"] = False
+                    v["entry_status"] = "⚪ YÖN SİNYALİ YOK (GİRİŞ YOK)"
+                continue
+
+            if not conf.get("available"):
+                v["entry_grade"] = "N/A"
+                v["entry_timing"] = "Zaman dilimi verisi yetersiz; zamanlama notu verilemedi."
+                continue
+
+            tfs = conf.get("timeframes", {}) or {}
+            ltf = tfs.get("LTF_1H", {}) or {}
+            ltf_dir = float(ltf.get("score", 0.0)) * d if ltf.get("available") else 0.0
+            directional_conf = float(conf.get("confluence_score", 0.0)) * d
+            avail_scores = [float(t.get("score", 0.0)) * d for t in tfs.values() if t.get("available")]
+            all_with_signal = len(avail_scores) >= 2 and all(x > trig_min for x in avail_scores)
+
+            if all_with_signal and directional_conf >= grade_a_min and ltf_dir > trig_min:
+                grade = "A"
+                timing = "Tüm zaman dilimleri sinyal yönünde onaylı."
+            elif ltf_dir > trig_min and directional_conf > -opp_max:
+                grade = "B"
+                timing = "Öncü sinyal + LTF tetik sinyal yönünde döndü; üst zaman dilimleri güçlü ters değil."
+            else:
+                grade = "C"
+                if ltf_dir <= trig_min:
+                    timing = "Öncü sinyal var ama LTF tetik henüz sinyal yönüne dönmedi (zamanlama bekleniyor)."
+                else:
+                    timing = "Üst zaman dilimleri sinyale güçlü ters; zamanlama bekleniyor."
+
+            v["entry_grade"] = grade
+            v["entry_timing"] = timing
+            v["directional_confluence"] = round(directional_conf, 4)
+
+            if grade == "C" and was_allowed:
+                v["entry_allowed"] = False
+                v["entry_status"] = "🟡 ÖNCÜ SİNYAL — ZAMANLAMA BEKLENİYOR (C)"
+                v["entry_reason"] = f"{v.get('entry_reason', '')} | {timing}".strip(" |")
+            elif was_allowed:
+                v["entry_status"] = (
+                    "🟢 İŞLEME GİRİŞ ÖNERİLİR (A: tüm zaman dilimleri onaylı)" if grade == "A"
+                    else "🟢 İŞLEME GİRİŞ UYGUN (B: öncü sinyal + LTF tetik)"
+                )
         return verdicts

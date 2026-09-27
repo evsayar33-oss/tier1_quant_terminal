@@ -9,6 +9,7 @@ Production rules:
   execution eligible.
 - Same-instrument aliases (GC=F -> XAU) are labels only and never alter data.
 """
+from system_clock import now_utc
 import os
 import time
 import requests
@@ -59,6 +60,35 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 
 from ohlcv_history import load_history, merge_and_persist, DEFAULT_MAX_BARS
+
+
+# Every instrument the 1H market grid requests, and the same-instrument
+# aliases it is published under. Module-level so the historical replay
+# (historical_replay.py) downloads exactly the same universe.
+GRID_TICKERS = [
+    "ES=F", "NQ=F", "SPY", "QQQ", "SMH", "RSP", "HYG", "LQD",
+    "^VIX", "^VIX3M", "^VXN", "^GVZ", "^VXSLV", "^SKEW", "XLU", "XLP", "XLY",
+    "ARKK", "TLT", "SHY", "KRE", "XLF", "USO", "CL=F", "IYT", "BDRY",
+    "DX-Y.NYB", "TIP", "IEF", "^TNX", "USDJPY=X", "GC=F", "SI=F",
+    "HG=F", "BTC-USD", "ETH-USD"
+]
+GRID_ALIAS_MAP = {
+    "ES=F": ["ES=F", "ES", "SPX"],
+    "NQ=F": ["NQ=F", "NQ"],
+    "GC=F": ["GC=F", "GC", "XAU"],
+    "SI=F": ["SI=F", "SI", "XAG"],
+    "HG=F": ["HG=F", "HG"],
+    "CL=F": ["CL=F", "CL"],
+    "DX-Y.NYB": ["DX-Y.NYB", "DXY"],
+    "USDJPY=X": ["USDJPY=X", "USDJPY"],
+    "^VIX": ["^VIX", "VIX"],
+    "^VIX3M": ["^VIX3M", "VIX3M"],
+    "^VXN": ["^VXN", "VXN"],
+    "^GVZ": ["^GVZ", "GVZ"],
+    "^VXSLV": ["^VXSLV", "VXSLV"],
+    "^SKEW": ["^SKEW", "SKEW"],
+    "^TNX": ["^TNX", "TNX"],
+}
 
 
 class ResilientDataEngine:
@@ -144,7 +174,7 @@ class ResilientDataEngine:
         persisted history is analysis-only when the live fetch fails.
         """
         source = str(symbol)
-        fetched_at = datetime.now(timezone.utc).isoformat()
+        fetched_at = now_utc().isoformat()
 
         def clean_frame(frame):
             if frame is None or not isinstance(frame, pd.DataFrame) or frame.empty:
@@ -177,7 +207,8 @@ class ResilientDataEngine:
                 return frame
             frame = frame.copy()
             last = pd.Timestamp(frame.index[-1])
-            now = pd.Timestamp.now(tz=last.tz) if last.tz is not None else pd.Timestamp.now()
+            _clock_now = pd.Timestamp(now_utc())
+            now = _clock_now.tz_convert(last.tz) if last.tz is not None else _clock_now.tz_convert(None)
             age = max(0.0, (now - last).total_seconds())
             _FRESHNESS_STORE.update(f"BAR_AGE_SECONDS::{source}", age)
             live_cutoff = _live_cutoff_seconds(source)
@@ -279,7 +310,7 @@ class ResilientDataEngine:
         """
         source = str(symbol)
         history_key = f"{source}_1D"
-        fetched_at = datetime.now(timezone.utc).isoformat()
+        fetched_at = now_utc().isoformat()
 
         def clean_frame(frame):
             if frame is None or not isinstance(frame, pd.DataFrame) or frame.empty:
@@ -333,30 +364,8 @@ class ResilientDataEngine:
 
     def fetch_global_market_grid(self):
         """Fetch every configured instrument directly; no proxy/synthetic branch exists."""
-        tickers = [
-            "ES=F", "NQ=F", "SPY", "QQQ", "SMH", "RSP", "HYG", "LQD",
-            "^VIX", "^VIX3M", "^VXN", "^GVZ", "^VXSLV", "^SKEW", "XLU", "XLP", "XLY",
-            "ARKK", "TLT", "SHY", "KRE", "XLF", "USO", "CL=F", "IYT", "BDRY",
-            "DX-Y.NYB", "TIP", "IEF", "^TNX", "USDJPY=X", "GC=F", "SI=F",
-            "HG=F", "BTC-USD", "ETH-USD"
-        ]
-        alias_map = {
-            "ES=F": ["ES=F", "ES", "SPX"],
-            "NQ=F": ["NQ=F", "NQ"],
-            "GC=F": ["GC=F", "GC", "XAU"],
-            "SI=F": ["SI=F", "SI", "XAG"],
-            "HG=F": ["HG=F", "HG"],
-            "CL=F": ["CL=F", "CL"],
-            "DX-Y.NYB": ["DX-Y.NYB", "DXY"],
-            "USDJPY=X": ["USDJPY=X", "USDJPY"],
-            "^VIX": ["^VIX", "VIX"],
-            "^VIX3M": ["^VIX3M", "VIX3M"],
-            "^VXN": ["^VXN", "VXN"],
-            "^GVZ": ["^GVZ", "GVZ"],
-            "^VXSLV": ["^VXSLV", "VXSLV"],
-            "^SKEW": ["^SKEW", "SKEW"],
-            "^TNX": ["^TNX", "TNX"],
-        }
+        tickers = list(GRID_TICKERS)
+        alias_map = GRID_ALIAS_MAP
         self.data_quality = {}
         self.data_sources = {}
         results = {}

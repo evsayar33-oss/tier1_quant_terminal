@@ -1,3 +1,117 @@
+# 2026-09-27 — v3.2 "Temel" paketi: doğrulama, veri sağlığı, durum güvenliği + canlı hatalar
+
+Bu paket AĞIRLIK/FAKTÖR mantığına dokunmaz (reaktif→öncü dönüşümü tamamlandı
+kabul edildi). Amaç: sistemin gerçekten işe yarayıp yaramadığını ÖLÇMEK ve
+yıllarca gözetimsiz çalışırken sessizce bozulmasını engellemek.
+
+## 📱 Telefondan yapman gerekenler
+1. Bu zip'teki dosyaları repoya yükle (canlı durum dosyaları — `terminal_state.json`,
+   `stateful_adaptive_memory.json`, `terminal_history*.csv`, `ohlcv_history/` —
+   bilerek pakete KONMADI; repodaki güncel halleri korunur).
+2. GitHub uygulaması → repo → **Actions** → **"Tier-1 Historical Walk-Forward
+   Validation"** → **Run workflow** (varsayılan: 365 gün, 4 saatte bir). ~20-40 dk sürer.
+   Sonuç: `validation_reports/historical_replay_report.md` (telefonda okunur).
+   Bu iş her Cumartesi kendiliğinden de yenilenir.
+3. Canlı karne: `performance_report.md` her arka plan döngüsünde güncellenir.
+   Streamlit uygulamasının en altında iki rapor da açılır kutu olarak görünür.
+
+## 🔴 Canlı üretim verisinde bulunan hatalar (düzeltildi)
+1. **Giriş izni sinyal yönüne bakmıyordu.** `terminal_state.json`'da BTC: karar
+   **SAT**, 1D/4H/1H zaman dilimlerinin hepsi **yukarı**, sonuç "Dinamik giriş
+   uygun". İki neden: (a) `StatefulAdaptiveController.finalize_cycle()` giriş
+   iznini sadece ATR/RVOL'dan yeniden hesaplayıp HTF/LTF kapısını siliyordu;
+   (b) kapı "zaman dilimleri birbiriyle uyumlu mu?" diye soruyordu, "SİNYALLE
+   uyumlu mu?" diye değil. → Yeni `gatekeeper.apply_final_entry_gate()`
+   (app + arka plan, en son adım). Yönü DEĞİŞTİRMEZ, sadece zamanlamayı notlar:
+   **A** tüm zaman dilimleri sinyal yönünde · **B** öncü sinyal + LTF tetik
+   döndü, üst zaman dilimi güçlü ters değil · **C** tetik yok / güçlü ters →
+   sinyal görünür kalır, giriş bekler. Sadece izin KALDIRABİLİR, asla vermez.
+   Eşikler `config.ENTRY_TIMING_CONFIG`'te; karne A/B/C isabetini ayrı ölçer.
+2. **Arka plan işi çift uzlaştırmasını hiç çalıştırmıyordu** (sadece app
+   çalıştırıyordu) → yayınlanan durum ile ekrandaki karar farklı olabiliyordu.
+   Artık aynı sıra: finalize → çift uzlaştırma → nihai giriş kapısı.
+3. **Eksik öncü veri "nötr" sayılıyordu.** `leading_indicators` veri yokken
+   `0.0` döndürüyordu; ağırlıklı ortalamada tam ağırlıkla sayılıp skoru NÖTR'e
+   çekiyordu. Canlıda SKEW (SPX 0.95 / NQ 0.85 — en büyük öncü ağırlıklar)
+   sürekli 0.0 idi (1H akışta günde ~1 bar → 20 bar için haftalar gerekir).
+   Artık `None` = skora katılmaz.
+4. **Volatilite endekslerinin "normali" 5-6 günlük veriden ölçülüyordu**
+   (VXN/GVZ/VXSLV ≈ 41 saatlik bar). Bu, endeksin kısa vadeli momentumu
+   (reaktif) demekti. Artık ~6 aylık GÜNLÜK geçmiş baz alınır, güncel değer
+   son 1H bardan gelir (`build_vol_history_frame`, aynı günün günlük barı
+   sızdırılmaz). `^VIX ^VXN ^GVZ ^VXSLV ^SKEW` günlük çekime eklendi.
+5. **Öğrenme dosyaları GitHub'a hiç kaydedilmiyordu.** Workflow sadece
+   `terminal_state.json`, hafıza ve OHLCV'yi commit ediyordu;
+   `adaptive_regime_thresholds_state.json`, `timeframe_confluence_state.json`,
+   `data_freshness_state.json` her çalışmada sıfırdan başlıyordu → "kendi
+   kendini geliştiren" döngüler üretimde fiilen hiç öğrenmiyordu. Düzeltildi.
+6. **Repodaki iki durum dosyası test verisiyle kirlenmişti** (önceki paketle
+   gelen, referans fiyatı 102.0 olan sahte tahminler). Temiz 1.1.0 dosyalarla
+   değiştirildi.
+7. **Adaptif eşikler aşırı örnekleniyordu.** Günlük FRED verisi her 30 dk'lık
+   çalışmada tekrar ekleniyordu → mağaza ~1-2 günde "60 bağımsız gözlem"
+   sanıp tam güvene geçiyor, eşikler son birkaç güne çöküyordu. Artık
+   gözlem kimliği (`obs_id`): makro için UTC gün, çift rezidüeli için bar
+   zamanı. Aynı gözlem tekrar sayılmaz, sadece güncellenir.
+8. **Zaman dilimi tahminleri yanlış anda notlanıyordu.** 4 saatlik tahmin,
+   iş bir sonraki çalıştığında (çoğu zaman saatler/günler sonra) fiyatla
+   notlanıyordu; fiyat hiç değişmezse "yanlış" sayılıyordu. Artık ufuktaki
+   fiyatla (as-of) notlanır; piyasa kapalıysa/fiyat oynamadıysa geçersiz sayılır.
+9. **BTC/ETH zaman dilimi tahminleri hiç notlanmıyordu** (grid'de "BTC-USD"
+   adıyla durduğu için bulunamıyordu). Düzeltildi.
+
+## 🧪 Yeni: doğrulama altyapısı
+- `historical_replay.py` + `.github/workflows/historical_validation.yml` —
+  **tarihsel walk-forward**. Mevcut `backtest_engine.py` /
+  `optimize_and_backtest_regimes.py` RASTGELE üretilmiş veriyle çalışıyor
+  (cevap veriye gömülü; artık dosya başında uyarı var). Yeni motor gerçek
+  geçmiş veriyi indirir, sistem saatini her geçmiş ana dondurur ve CANLI
+  döngünün birebir aynısını sadece o ana kadar var olan veriyle çalıştırır
+  (FRED 1 gün yayın gecikmesiyle; günlük barlar sadece bitmiş seanslar +
+  o güne kadarki 1H barlardan kısmi bar). Tüm adaptif hafızalar soğuk başlar.
+  Geçici klasörde çalışır; repodaki canlı durum dosyalarına dokunmaz.
+  Rapor: isabet/ortalama getiri/güven alt sınırı, **Hep AL** ve **Trend takibi**
+  ile aynı anlarda karşılaştırma, A/B/C notları, rejim kırılımı ve
+  **faktör IC tablosu** (her faktörün sonraki 24s/72s getiriyle sıra
+  korelasyonu + t-istatistiği) — gelecekteki her ağırlık kararı artık kanıta
+  dayanabilir.
+  Açıklanan sınırlar: OKX/Bybit akış & fonlama geçmişi yok (BTC/ETH replay'de
+  bu öncü faktörler eksik, tutucu yanlılık); FRED güncel vintage; 1H geçmiş ~730 gün.
+- `performance_ledger.py` — **canlı örneklem-dışı karne**. Her döngüde nihai
+  kararı kaydeder, 4s/24s/72s/120s sonra ufuktaki fiyatla notlar, aynı barı
+  iki kez kaydetmez. Çakışan ufuklar için güven sınırı bağımsız örnek sayısıyla
+  hesaplanır (aşırı güven yok). Model bu dosyadan ÖĞRENMEZ — sadece hakem.
+  Çıktı: `performance_report.md`, `terminal_state.json → performance`.
+- **Veri sağlığı**: faktör bazında erişilebilirlik (yarı ömürlü sayaç) rapora
+  yazılır; `terminal_state.json → data_health` her varlık için eksik faktörleri listeler.
+
+## 🛡️ Yeni: durum dosyası güvenliği
+- `state_schema.py` — her öğrenme dosyasına `schema_version`. Bozuk dosya asla
+  üzerine yazılmaz, önce `state_backups/`'a kopyalanır; tanınmayan sürüm
+  yanlış okunmaz (yedeklenip temiz başlanır); kayıtlı göç fonksiyonları
+  (1.0.0→1.1.0) otomatik uygulanır; her olay `state_backups/events.log`'a ve
+  rapora yazılır. `stateful_adaptive_memory.json` bozulursa artık yedeklenir
+  (önceden sessizce boş hafızayla üzerine yazılırdı).
+- `system_clock.py` — tek zaman kaynağı. Üretimde `datetime.now(UTC)` ile
+  birebir aynı; replay'de dondurulur (ileriye bakma yanlılığını yapısal olarak engeller).
+
+## Değişmeyenler (bilinçli)
+- `config.py` faktör ağırlıkları, rejim mantığı, stateful öğrenme ufukları
+  (1s/4s) aynen korundu. Sadece `ENTRY_TIMING_CONFIG` eklendi.
+
+## Test
+- 30 eski test + 13 yeni (`test_foundation_v32.py`) = **43/43 geçti**.
+- Uçtan uca: arka plan döngüsü repodaki gerçek OHLCV geçmişiyle iki kez
+  çalıştırıldı (çökme yok, aynı bar ikinci kez kaydedilmedi, eşik mağazası günde 1 gözlem).
+- Replay duman testi: repodaki 10 günlük veriyle 30 döngü, 0 hata, ~0.6 sn/döngü;
+  repodaki canlı durum dosyaları değişmedi.
+- ⚠️ Bu ortamda yfinance/FRED erişimi yok: 365 günlük gerçek replay ilk kez
+  GitHub Actions'ta çalışacak. `^SKEW`/`^VXN` vb. günlük verinin yfinance'ten
+  geldiği canlı `ohlcv_history`'de doğrulandı (1H), günlük seri ilk üretim
+  çalışmasında oluşacak.
+
+---
+
 # 2026-09-25 — Ayrışma tespiti, HTF/LTF confluence, adaptif rejim eşikleri
 
 ## Yeni dosyalar
