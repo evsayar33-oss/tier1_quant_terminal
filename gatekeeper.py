@@ -29,6 +29,7 @@ from quant_processor import RobustQuantProcessor
 from macro_regime_engine import MacroRegimeEngine
 from dynamic_pair_model import DynamicPairModel, XAG_XAU_MODEL, NQ_SPX_MODEL, SPX_NQ_MODEL, ETH_BTC_MODEL
 from timeframe_confluence import evaluate_confluence, TimeframeReliabilityStore
+from leading_indicators import compute_vol_term_structure_lead, compute_relative_vol_premium_lead
 
 # Symbols that need a genuine 1D (HTF) series fetched for multi-timeframe
 # confluence and/or feed the relative-value pair models above.
@@ -494,6 +495,34 @@ class PreTradeGatekeeper:
                     # way to give SPX its own view of the same pair).
                     spx_nq_state = self._pair_state(SPX_NQ_MODEL)
                     val = DynamicPairModel.factor_signal(spx_nq_state)
+                elif f_id == "vix_term_lead":
+                    # Genuinely forward-looking: the options market's OWN
+                    # pricing of near-term vs 3-month risk, not price action.
+                    # Shared by SPX and NQ (same broad-market vol regime).
+                    val = compute_vol_term_structure_lead(
+                        self.grid_1h.get("VIX", pd.DataFrame()),
+                        self.grid_1h.get("VIX3M", pd.DataFrame()),
+                    )
+                elif f_id == "tech_vol_premium_lead":
+                    # NQ-specific: is the Nasdaq-100 options market (VXN)
+                    # pricing meaningfully more future risk than the broad
+                    # market (VIX) right now, relative to their own normal
+                    # spread? A widening premium is a tech-specific stress
+                    # signal that can lead price.
+                    val = compute_relative_vol_premium_lead(
+                        self.grid_1h.get("VXN", pd.DataFrame()),
+                        benchmark_vol_df=self.grid_1h.get("VIX", pd.DataFrame()),
+                    )
+                elif f_id == "gold_vol_premium_lead":
+                    # GVZ (CBOE Gold ETF Volatility Index): the gold options
+                    # market's own forward-looking vol pricing. A z-scored
+                    # jump here can precede a large gold move rather than
+                    # follow it.
+                    val = compute_relative_vol_premium_lead(self.grid_1h.get("GVZ", pd.DataFrame()))
+                elif f_id == "silver_vol_premium_lead":
+                    # VXSLV (CBOE Silver ETF Volatility Index): silver's own
+                    # options-market fear gauge, distinct from gold's.
+                    val = compute_relative_vol_premium_lead(self.grid_1h.get("VXSLV", pd.DataFrame()))
                 elif f_id == "usd_strength":
                     val = self.dxy_velocity
                 elif f_id == "net_dollar_liquidity":
@@ -803,16 +832,30 @@ class PreTradeGatekeeper:
                 or ("SAT" in fol_verdict and "SAT" not in anc_verdict)
             )
             if opposite_one_sided:
-                vf.update({
-                    "verdict": "NÖTR (FİYAT TEYİDİ YOK)",
-                    "forecast_direction": "NÖTR (FİYAT TEYİDİ YOK)",
-                    "forecast_icon": "⚪",
-                    "forecast_color": "gray",
-                    "icon": "⚪",
-                    "color": "gray",
-                })
-                va["pair_model_reconciliation"] = "TEK TARAFLI MODEL SİNYALİ BASTIRILDI"
-                vf["pair_model_reconciliation"] = "TEK TARAFLI MODEL SİNYALİ BASTIRILDI"
+                # ÖNCEKİ DAVRANIŞ: follower'ın 24 saat-1 hafta model
+                # verdict'i (asıl AL/SAT/BEKLE kararı) tamamen NÖTR'e
+                # siliniyordu -- fiyat henüz teyit etmediği için, olası
+                # gerçekten ÖNCÜ bir sinyal bile görünmeden yok ediliyordu.
+                # Bu, sistemin "vizyoner/öncü" olması isteğiyle doğrudan
+                # çelişiyordu: bir sinyal tam olarak faydalı olabileceği
+                # anda (henüz fiyata yansımamışken) susturuluyordu.
+                #
+                # YENİ DAVRANIŞ: verdict/forecast_direction/skor OLDUĞU GİBİ
+                # görünür kalır (kullanıcı gerçek model çağrısını görür),
+                # sadece düşük-güven olarak etiketlenir. Görüntüleme ile
+                # otomatik giriş birbirinden ayrılır: gerçek pozisyon açma
+                # izni fiyat teyidi gelene kadar ayrıca kapatılır. Böylece
+                # sinyal ne körü körüne uygulanır ne de tamamen kaybolur.
+                vf["conviction"] = "DÜŞÜK (fiyat teyidi bekleniyor)"
+                va["pair_model_reconciliation"] = "TEK TARAFLI - ÖNCÜ SİNYAL (fiyat teyidi bekleniyor)"
+                vf["pair_model_reconciliation"] = "TEK TARAFLI - ÖNCÜ SİNYAL (fiyat teyidi bekleniyor)"
+                if vf.get("entry_allowed"):
+                    vf["entry_allowed"] = False
+                    vf["entry_status"] = "🟡 ÖNCÜ SİNYAL (FİYAT TEYİDİ BEKLENİYOR)"
+                    vf["entry_reason"] = (
+                        f"{vf.get('entry_reason', '')} | Çift-fiyat teyidi henüz gelmedi "
+                        f"(öncü sinyal olarak gösteriliyor, otomatik giriş bu yüzden engellendi)"
+                    ).strip(" |")
 
         # NOT: BTC/ETH artık yukarıdaki `pair_specs` döngüsünde SPX/NQ ve
         # XAU/XAG ile AYNI, tutarlı fiyat-teyit mekanizmasından geçiyor

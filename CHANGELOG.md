@@ -150,3 +150,106 @@ kaydet→sonuçlandır döngüsünün tam çalışması.
   genişlemediği yalnızca canlı dağıtımda gözlemlenebilir
   (`data_freshness_state.json`'daki `BAR_AGE_SECONDS::GC=F` serisine bakın).
 
+
+---
+
+# 2026-09-26 (devam) — Öncü (leading) opsiyon-piyasası göstergeleri
+
+## Sorun
+`asset_direction` (ham fiyat momentumu) her varlıkta Cluster E'nin en büyük
+tek faktörüydü ve SPX/NQ/XAG'da gerçek anlamda "öncü" (fiyattan bağımsız,
+geleceğe dair) hiçbir Cluster E faktörü yoktu — hepsi fiyat/oran türeviydi.
+
+## Çözüm: `leading_indicators.py` (yeni dosya)
+CBOE opsiyon-türevi volatilite endekslerinden iki jenerik, kendi kendini
+kalibre eden sinyal türü:
+- `compute_vol_term_structure_lead`: VIX/VIX3M vade yapısı eğimi.
+  Backwardation (yakın vade > 3 ay) güçlü, asimetrik bir stres sinyali;
+  contango sadece "stressiz" okunuyor, güçlü bir "boğa" sinyali sayılmıyor.
+- `compute_relative_vol_premium_lead`: bir varlığın kendi opsiyon-volatilite
+  endeksinin (VXN, GVZ, VXSLV), kendi geçmiş normundan (kayan pencere
+  z-score, sabit eşik değil) ne kadar saptığı — isteğe bağlı bir benchmark'a
+  (VXN-VIX gibi) göre de ölçülebiliyor.
+
+`data_engine.py`'nin çektiği sembol listesine `^VXN`, `^GVZ`, `^VXSLV`
+eklendi (VIX/VIX3M zaten çekiliyordu, hiç faktörde kullanılmıyordu).
+
+## Yeni faktörler
+- SPX: `vix_term_lead` (w=0.70)
+- NQ: `vix_term_lead` (w=0.60) + `tech_vol_premium_lead` (VXN vs VIX, w=0.55)
+- XAU: `gold_vol_premium_lead` (GVZ, w=0.65)
+- XAG: `silver_vol_premium_lead` (VXSLV, w=0.60)
+
+## Ölçülebilir etki
+"Reaktif (fiyat-tabanlı)" vs "öncü/pozisyon-akış" ağırlık payı:
+
+| Varlık | Önce (reaktif payı) | Şimdi (reaktif payı) |
+|---|---|---|
+| SPX | ~%54 | **%46** |
+| NQ  | ~%53 | **%47** |
+| XAG | ~%51 | **%42** |
+| XAU | ~%18 | **%15** (zaten iyiydi) |
+
+(BTC/ETH zaten funding/taker-flow gibi gerçek pozisyon verisiyle %73-83
+öncü ağırlıklıydı, dokunulmadı.)
+
+## Bilinçli olarak YAPILMAYAN
+Kullanıcı bu turda sadece "eksik öncü veri türlerini ekle" seçeneğini
+seçti; `asset_direction`'ın ağırlığını azaltmak veya fiyat-onay kapısını
+gevşetmek (diğer iki seçenek) bu turun kapsamı dışında bırakıldı — istenirse
+ayrı bir turda yapılabilir.
+
+## Test durumu
+Mevcut 30 test + 5 yeni faktörün senkron sentetik VIX/VIX3M/VXN/GVZ/VXSLV
+verisiyle gatekeeper üzerinden uçtan uca çalıştığı doğrulandı (backwardation,
+contango, ani implied-vol sıçraması ve "anormal yok" senaryoları dahil).
+
+## Bu ortamda DOĞRULANAMAYAN kısım
+`^VXN`, `^GVZ`, `^VXSLV` sembollerinin yfinance üzerinden gerçekten veri
+döndürdüğü CBOE/Google Finance kaynaklarıyla doğrulandı, ancak ağ erişimim
+olmadığı için canlı `yf.download()` çağrısını bu ortamda test edemedim. İlk
+canlı çalıştırmada bu üç sembol için `data_quality`'nin "UNAVAILABLE"
+dönmediğini kontrol edin; dönerse (nadir de olsa bir CBOE endeksi
+Yahoo'dan kaldırılmış/yeniden adlandırılmış olabilir) ilgili faktör
+otomatik olarak 0.0 ile nötr kalır, sistemi bozmaz.
+
+---
+
+# 2026-09-26 (devam 2) — asset_direction ağırlık kesintisi + fiyat-onay kapısının yumuşatılması
+
+## Sorun
+Önceki turda eklenen öncü faktörler, reaktif payını sadece "yeni ağırlık
+eklenerek seyreltme" yoluyla %5-10 düşürmüştü — kullanıcı haklı olarak bunun
+yetersiz olduğunu belirtti. Ayrıca `reconcile_pairs_post_adaptive` içinde
+daha önce fark edilmemiş, çift-uzlaştırmadan bile daha agresif bir mekanizma
+bulundu: "Model Sinyali (24s-1hafta) uzlaştırması" fiyat teyit etmediğinde
+takipçi varlığın TÜM AL/SAT verdict'ini NÖTR'e siliyordu.
+
+## Düzeltme 1: asset_direction ağırlığı doğrudan kesildi (6 varlığın hepsi)
+| Varlık | Önce | Şimdi |
+|---|---|---|
+| SPX | 2.50 | 1.10 |
+| NQ  | 2.50 | 1.10 |
+| XAU | 1.60 | 0.70 |
+| XAG | 1.20 | 0.55 |
+| BTC | 1.70 | 0.75 |
+| ETH | 1.70 | 0.75 |
+
+Sonuç (reaktif/fiyat-tabanlı pay):
+SPX %46→%39, NQ %47→%40, XAG %42→%38, XAU %15→%7, BTC %17→%9, ETH %28→%20.
+
+## Düzeltme 2: "opposite_one_sided" tam susturma → düşük-güven öncü sinyal
+`gatekeeper.py::reconcile_pairs_post_adaptive`: fiyat teyit etmeyen tek
+taraflı bir model verdict'i artık NÖTR'e silinmiyor. verdict/forecast_
+direction/skor OLDUĞU GİBİ kalıyor (`conviction: "DÜŞÜK (fiyat teyidi
+bekleniyor)"` etiketiyle); yalnızca otomatik giriş izni (`entry_allowed`)
+ayrıca kapatılıyor. Görüntüleme (öncü sinyal görünür) ile yürütme (teyitsiz
+otomatik giriş yok) birbirinden ayrıştırıldı.
+
+## Bilinçli olarak yapılmayan
+`app.py`'de yeni `conviction` alanını ayrıca vurgulayan bir UI elemanı
+eklenmedi (veri artık dönen sözlükte var, dilerseniz ayrı bir turda arayüze
+bağlarız).
+
+## Test durumu
+Mevcut 30 test geçti.
