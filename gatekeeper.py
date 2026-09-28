@@ -814,6 +814,30 @@ class PreTradeGatekeeper:
 
         return verdicts
 
+    @staticmethod
+    def _relabel_live(v, score):
+        """Label a live score with the asset's OWN adaptive thresholds, using the
+        same tier scheme as StatefulLiveDirectionEngine (keeps label == tier)."""
+        th = v.get("live_thresholds") or {}
+        p50 = float(th.get("p50", 0.45)); p70 = float(th.get("p70", 0.85)); p85 = float(th.get("p85", 1.35))
+        a = abs(float(score)); up = score > 0
+        roc = float(v.get("current_roc") or 0.0)
+        tail = " ⚠️REJİM GEÇİŞİ" if v.get("live_regime_event") else ""
+        if score == 0 or a < p50:
+            tier, core, icon, color = "YATAY", "YATAY / DENGELİ", "⚪", "gray"
+        elif a < p70:
+            tier, core = "HAFİF", ("HAFİF YUKARI" if up else "HAFİF AŞAĞI")
+            icon, color = ("🟢", "palegreen") if up else ("🔴", "lightcoral")
+        elif a < p85:
+            tier, core = "YÖNLÜ", ("YUKARI" if up else "AŞAĞI")
+            icon, color = ("🟢", "lightgreen") if up else ("🔴", "red")
+        else:
+            tier, core = "GÜÇLÜ", ("GÜÇLÜ YUKARI" if up else "GÜÇLÜ AŞAĞI")
+            icon, color = ("🟢🟢", "darkgreen") if up else ("🔴🔴", "darkred")
+        v["current_direction"] = f"{icon} {core} (%{roc:+.2f}){tail}"
+        v["current_icon"], v["current_color"], v["live_tier"] = icon, color, tier
+        v["live_score_pair_adjusted"] = round(float(score), 4)
+
     def reconcile_pairs_post_adaptive(self, verdicts):
         """
         Fiyatla teyit edilmemiş ayrışmalarda hem "Canlı Fiyat Yönü" hem de
@@ -839,27 +863,26 @@ class PreTradeGatekeeper:
             if price_supported:
                 continue
 
-            # --- Canlı Fiyat Yönü (1-4 saat) uzlaştırması: gerçek fiyat
-            # ayrışmayı doğrulamıyorsa, çift ortak bir skordan etiketlenir. ---
-            qa, sa = self.processor.compute_live_horizon_score(self.grid_1h.get(anchor, pd.DataFrame()))
-            qf, sf = self.processor.compute_live_horizon_score(self.grid_1h.get(follower, pd.DataFrame()))
-            if qa is not None and qf is not None and sa is not None and sf is not None:
-                qa_f, qf_f = float(qa), float(qf)
-                if qa_f == 0.0 or qf_f == 0.0:
-                    pair_score = 0.0
-                elif np.sign(qa_f) == np.sign(qf_f):
-                    pair_score = float(np.sign(qa_f) * min(abs(qa_f), abs(qf_f)))
-                else:
-                    pair_score = 0.50 * qa_f + 0.50 * qf_f
-
-                va["current_direction"], va["current_icon"], va["current_color"], _ = self.processor.format_direction_score(
-                    pair_score, sa["roc_1h"]
-                )
-                vf["current_direction"], vf["current_icon"], vf["current_color"], _ = self.processor.format_direction_score(
-                    pair_score, sf["roc_1h"]
-                )
-                va["pair_direction_score"] = round(pair_score, 3)
-                vf["pair_direction_score"] = round(pair_score, 3)
+            # --- Canlı Fiyat Yönü (1-4 saat) uzlaştırması (v3.3.4) ---
+            # Eski hali: iki varlığın etiketini de çiftin ZAYIF skoruyla
+            # (min |skor|), sabit 0.65/1.35 eşikleriyle ve HAFİF kademesi
+            # olmayan ayrı bir formatlayıcıyla YENİDEN yazıyordu -> adaptif
+            # motorun eşikleri/kademesi yok sayılıyor, NQ güçlü yükselirken
+            # SPX'in zayıf skoru yüzünden ikisi de "YATAY" oluyordu (etiket ile
+            # live_tier çelişiyordu). Yeni: ortak-faktör küçültmesi -- her
+            # varlığın kendi adaptif canlı skoru çiftin ortalamasına doğru
+            # yarı yarıya çekilir ve KENDİ dinamik eşikleriyle, canlı motorla
+            # aynı etiket şemasıyla sınıflandırılır.
+            if va.get("live_score") is not None and vf.get("live_score") is not None:
+                la, lf = float(va["live_score"]), float(vf["live_score"])
+                common = 0.5 * (la + lf)
+                # Only a genuine CONTRADICTION (opposite signs) is reconciled;
+                # same-direction moves keep each asset's own adaptive label.
+                k = 0.5 if (la > 0) != (lf > 0) and la != 0 and lf != 0 else 0.0
+                for v_, own in ((va, la), (vf, lf)):
+                    adj = (1.0 - k) * own + k * common
+                    self._relabel_live(v_, adj)
+                    v_["pair_direction_score"] = round(adj, 3)
 
             # --- Model Sinyali (24 saat-1 hafta) uzlaştırması: fiyatla
             # teyit edilmemiş tek taraflı AL/SAT bastırılır. ---

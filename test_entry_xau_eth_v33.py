@@ -92,3 +92,15 @@ def test_live_move_against_model_is_tagged():
     v = {"verdict": "SAT", "live_score": 1.3, "live_tier": "YÖNLÜ", "current_direction": "🟢 YUKARI (%+0.08)"}
     G._flag_live_vs_model(G.__new__(G), v)
     assert v["live_vs_model"] == "OPPOSED" and "MODELE TERS" in v["current_direction"]
+
+
+def test_pair_relabel_keeps_label_and_tier_consistent():
+    from gatekeeper import PreTradeGatekeeper as G
+    # 12:04 UTC live case: SPX 0.57 (p50 0.45) was forced to "YATAY" by the old min() rule
+    spx = {"live_score": 0.57, "current_roc": 0.07, "live_thresholds": {"p50": 0.45, "p70": 0.85, "p85": 1.35}}
+    nq = {"live_score": 1.08, "current_roc": 0.14, "live_thresholds": {"p50": 1.21, "p70": 1.70, "p85": 1.98}}
+    common = 0.5 * (0.57 + 1.08)
+    G._relabel_live(spx, 0.5 * 0.57 + 0.5 * common)
+    assert spx["live_tier"] == "HAFİF" and "HAFİF YUKARI" in spx["current_direction"]
+    G._relabel_live(nq, -0.1)
+    assert nq["live_tier"] == "YATAY" and "YATAY" in nq["current_direction"]

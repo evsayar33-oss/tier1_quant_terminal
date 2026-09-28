@@ -86,3 +86,11 @@ Değişen dosyalar: `dynamic_entry_engine.py`, `gatekeeper.py`, `quant_processor
   kalıyordu → gün-içi rejim "VOLATİLİTE BİLİNMİYOR". ATR artık stateful profilden alınıyor (BTC 1.22x).
 - **Tüm varlıklar:** canlı yön model sinyaline tersse "↔ MODELE TERS (kısa tepki)" etiketi
   (`live_vs_model`); yapıya tersse "↩ TERS-TREND TEPKİ" önceliklidir.
+
+## v3.3.4 — Çift uzlaştırması canlı yönü eziyordu (SPX/NQ, XAU/XAG, BTC/ETH)
+`reconcile_pairs_post_adaptive`, çift ayrışması fiyatla teyit edilmediğinde İKİ varlığın canlı yön etiketini de
+(1) çiftin ZAYIF skoruyla (min |skor|), (2) adaptif motorun dinamik eşikleri yerine sabit 0.65/1.35 ile,
+(3) HAFİF kademesi olmayan ayrı bir formatlayıcıyla yeniden yazıyordu. Sonuç: etiket ile `live_tier` çelişiyordu
+(12:04 UTC SPX: kademe HAFİF, etiket YATAY; 12:06 SPX: kademe HAFİF, etiket YUKARI). Aynı döngüde BTC/ETH ve
+XAU/XAG da etkilenmişti. Yeni: yalnız gerçek ÇELİŞKİDE (zıt işaret) ortak-faktör küçültmesi (%50); aynı yönde
+her varlık kendi adaptif etiketini korur; etiketleme canlı motorla aynı şema ve varlığın kendi eşikleriyle yapılır.
