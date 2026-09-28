@@ -53,7 +53,7 @@ class StatefulDynamicEntryEngine:
         x = x[~x.index.isna()]
         return x.sort_index()
 
-    def profile(self, df: pd.DataFrame) -> Tuple[Optional[Dict[str, float]], Optional[str]]:
+    def profile(self, df: pd.DataFrame, now=None) -> Tuple[Optional[Dict[str, float]], Optional[str]]:
         x = self._clean(df)
         if x is None:
             return None, "Gerçek OHLC verisi yok."
@@ -61,8 +61,12 @@ class StatefulDynamicEntryEngine:
         if len(x) < 2:
             return None, "Yetersiz OHLC geçmişi."
 
-        volume = x["Volume"]
-        if volume.dropna().empty or (volume.dropna() > 0).sum() < self.min_history:
+        # v3.3: Yahoo reports Volume=0 for many crypto/ETF hourly bars. A zero is
+        # "not reported", not "no trading": treat it as missing. Otherwise a
+        # 20-bar baseline of zeros made RVOL = vol / 1e-12 ~ 1e18 (live ETH/BTC
+        # rvol_climax 1.6e19 -> the climax filter was silently disabled).
+        volume = x["Volume"].astype(float).where(x["Volume"] > 0)
+        if int(volume.notna().sum()) < self.min_history:
             return None, "RVOL için yeterli gerçek hacim gözlemi yok."
 
         h = x["High"]
@@ -80,18 +84,26 @@ class StatefulDynamicEntryEngine:
         ).mean()
         atr_ratio = atr / (atr_baseline + 1e-12)
 
-        rvol_base = volume.shift(1).rolling(
-            self.rvol_baseline_period,
-            min_periods=self.rvol_baseline_period,
-        ).mean()
-        rvol = volume / (rvol_base + 1e-12)
+        # Partial (still-forming) last bar: project its volume to a full bar,
+        # otherwise every run early in the hour looks like "no liquidity".
+        rvol_base = self._seasonal_baseline(volume)   # uses shift(1): last bar never in its own base
+        volume, partial_frac = self._project_partial_bar(volume, now, rvol_base)
+        rvol = (volume / rvol_base.where(rvol_base > 0)).astype(float)
+
+        volume_known = bool(np.isfinite(rvol.iloc[-1]) and rvol.iloc[-1] > 0)
+        if not volume_known:
+            # Current bar volume not reported (crypto hourly gaps): fall back to
+            # the latest reported bar within 2 bars, else volume is "unknown".
+            recent = rvol.iloc[-3:-1].dropna()
+            recent = recent[recent > 0]
+            if not recent.empty:
+                rvol.iloc[-1] = float(recent.iloc[-1])
+                volume_known = True
 
         last_atr = float(atr_ratio.iloc[-1])
-        last_rvol = float(rvol.iloc[-1])
+        last_rvol = float(rvol.iloc[-1]) if volume_known else float("nan")
         if not np.isfinite(last_atr) or last_atr <= 0:
             return None, "ATR oranı hesaplanamadı."
-        if not np.isfinite(last_rvol) or last_rvol <= 0:
-            return None, "RVOL hesaplanamadı."
 
         # Current bar excluded from the threshold distribution.
         ah = atr_ratio.iloc[:-1].replace([np.inf, -np.inf], np.nan).dropna().tail(self.window)
@@ -109,7 +121,7 @@ class StatefulDynamicEntryEngine:
         rvol_strong = float(np.quantile(rh.to_numpy(float), 0.70))
         rvol_climax = float(np.quantile(rh.to_numpy(float), 0.99))
         atr_rank = float((ah <= last_atr).mean())
-        rvol_rank = float((rh <= last_rvol).mean())
+        rvol_rank = float((rh <= last_rvol).mean()) if volume_known else float("nan")
 
         return {
             "atr_ratio": last_atr,
@@ -122,7 +134,52 @@ class StatefulDynamicEntryEngine:
             "atr_rank": atr_rank,
             "rvol_rank": rvol_rank,
             "history_n": float(min(len(ah), len(rh))),
+            "volume_known": volume_known,
+            "partial_bar_fraction": partial_frac,
+            "rvol_method": "same-hour median (time-of-day seasonal), zero volume = missing",
         }, None
+
+    @staticmethod
+    def _bar_seconds(idx: pd.DatetimeIndex) -> float:
+        if len(idx) < 3:
+            return 3600.0
+        d = pd.Series(idx).diff().dropna().dt.total_seconds()
+        d = d[d > 0]
+        return float(d.median()) if not d.empty else 3600.0
+
+    def _project_partial_bar(self, volume: pd.Series, now, base: pd.Series) -> Tuple[pd.Series, Optional[float]]:
+        """Expected full-bar volume = observed so far + remaining fraction at the
+        baseline rate (shrinkage estimator; no naive x(1/frac) blow-up)."""
+        v = volume.copy()
+        bar = self._bar_seconds(v.index)
+        if bar > 4 * 3600 or now is None:
+            return v, None
+        now_ts = pd.Timestamp(now)
+        now_ts = now_ts.tz_localize("UTC") if now_ts.tzinfo is None else now_ts.tz_convert("UTC")
+        elapsed = (now_ts - v.index[-1]).total_seconds()
+        if not (0 < elapsed < bar):
+            return v, None
+        frac = float(elapsed / bar)
+        b = float(base.iloc[-1]) if np.isfinite(base.iloc[-1]) else float("nan")
+        if np.isfinite(v.iloc[-1]) and np.isfinite(b):
+            v.iloc[-1] = float(v.iloc[-1]) + (1.0 - frac) * b
+        return v, round(frac, 3)
+
+    def _seasonal_baseline(self, volume: pd.Series) -> pd.Series:
+        """Median volume of the SAME hour-of-day over the previous ~10 sessions
+        (futures volume is 5-20x higher in the US session than in Asia; a plain
+        20-bar mean flags every Asian bar as 'illiquid' and every US open as a
+        'climax'). Falls back to a robust positive-only rolling median."""
+        prev = volume.shift(1)
+        fallback = prev.rolling(self.rvol_baseline_period, min_periods=max(5, self.rvol_baseline_period // 2)).median()
+        bar = self._bar_seconds(volume.index)
+        if bar > 2 * 3600:
+            return fallback
+        hours = volume.index.hour
+        seasonal = volume.groupby(hours).transform(
+            lambda s: s.shift(1).rolling(10, min_periods=3).median()
+        )
+        return seasonal.where(seasonal.notna(), fallback)
 
     def evaluate(self, df: pd.DataFrame, require_live: bool = True) -> Dict[str, Any]:
         attrs = getattr(df, "attrs", {}) or {}
@@ -144,7 +201,14 @@ class StatefulDynamicEntryEngine:
                     "volatility_supports": False,
                 }
 
-        profile, error = self.profile(df)
+        now = attrs.get("as_of_utc") or attrs.get("fetched_at_utc")
+        if now is None:
+            try:
+                from system_clock import now_utc
+                now = now_utc()
+            except Exception:
+                now = None
+        profile, error = self.profile(df, now=now)
         if profile is None:
             return {
                 "allowed": False,
@@ -168,6 +232,12 @@ class StatefulDynamicEntryEngine:
                 f"P{profile['atr_rank']*100:.0f}; alt sınır {profile['atr_low']:.2f}x."
             )
             allowed = False
+        elif not profile.get("volume_known", True):
+            reason = (
+                f"Dinamik giriş uygun (hacim raporlanmadı; yalnız ATR): ATR {atr:.2f}x "
+                f"(P{profile['atr_rank']*100:.0f}), n={int(profile['history_n'])}."
+            )
+            allowed = True
         elif rvol < profile["rvol_low"]:
             reason = (
                 f"Dinamik düşük likidite: RVOL {rvol:.2f}x, "
@@ -191,7 +261,7 @@ class StatefulDynamicEntryEngine:
         return {
             "allowed": bool(allowed),
             "reason": reason,
-            "profile": profile,
-            "volume_supports": bool(rvol >= profile["rvol_strong"]),
+            "profile": {k: (None if isinstance(v, float) and not np.isfinite(v) else v) for k, v in profile.items()},
+            "volume_supports": bool(np.isfinite(rvol) and rvol >= profile["rvol_strong"]),
             "volatility_supports": bool(profile["atr_low"] <= atr <= profile["atr_high"]),
         }

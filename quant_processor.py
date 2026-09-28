@@ -394,16 +394,30 @@ class RobustQuantProcessor:
         if not np.isfinite(last_atr_ratio) or last_atr_ratio <= 0:
             return None, "ATR dinamik referansı hesaplanamadı."
 
-        # Gerçek RVOL: current volume / önceki 20 barın ortalaması.
-        rvol_baseline = v.shift(1).rolling(
-            rvol_base_period,
-            min_periods=rvol_base_period,
-        ).mean()
-        rvol_series = v / (rvol_baseline + 1e-12)
+        # v3.3: RVOL, dynamic_entry_engine ile AYNI yöntemle hesaplanır:
+        # 0 hacim = raporlanmamış (eksik), taban = aynı saatin medyanı
+        # (seans mevsimselliği), oluşmakta olan son bar tam bara tahmin edilir.
+        # Eski "hacim / önceki 20 bar ortalaması + 1e-12" kripto barlarında
+        # 1e18'lik RVOL, vadelilerde Asya seansında sahte "likidite yok" üretiyordu.
+        from dynamic_entry_engine import StatefulDynamicEntryEngine
+        _eng = StatefulDynamicEntryEngine(rvol_baseline_period=rvol_base_period)
+        v = v.astype(float).where(v > 0)
+        _vi = v.copy()
+        try:
+            _vi.index = pd.to_datetime(_vi.index, utc=True)
+            rvol_baseline = _eng._seasonal_baseline(_vi)
+            _vi, _ = _eng._project_partial_bar(_vi, now_utc(), rvol_baseline)
+        except Exception:
+            rvol_baseline = _vi.shift(1).rolling(rvol_base_period, min_periods=max(5, rvol_base_period // 2)).median()
+        rvol_series = pd.Series((_vi / rvol_baseline.where(rvol_baseline > 0)).to_numpy(float), index=v.index)
         last_rvol = rvol_series.iloc[-1]
+        if not np.isfinite(last_rvol) or last_rvol <= 0:
+            recent = rvol_series.iloc[-3:-1].dropna()
+            recent = recent[recent > 0]
+            last_rvol = float(recent.iloc[-1]) if not recent.empty else float("nan")
 
         if not np.isfinite(last_rvol) or last_rvol <= 0:
-            return None, "Gerçek RVOL hesaplanamadı."
+            return None, "Gerçek RVOL hesaplanamadı (son barlarda hacim raporlanmadı)."
 
         # Threshold dağılımında current bar kesinlikle yok.
         atr_history = atr_ratio_series.iloc[:-1].replace([np.inf, -np.inf], np.nan).dropna()
@@ -806,19 +820,41 @@ class RobustQuantProcessor:
 
     @staticmethod
     def compute_gold_sovereign_decoupling(gold_df, real_yield_z, dxy_df, window=24):
-        if gold_df.empty or len(gold_df) < 2:
-            return 0.0
-        close = gold_df["Close"]
-        w = min(window, len(close) - 1)
-        gold_roc = ((close.iloc[-1] - close.iloc[-w - 1]) / (close.iloc[-w - 1] + 1e-9)) * 100.0
+        """v3.3 — decoupling RESIDUAL, not raw momentum.
 
-        if real_yield_z > 0.40 and gold_roc > 0.0:
-            sovereign_bonus = (gold_roc * 1.5) + (real_yield_z * 0.8)
-            return float(np.clip(sovereign_bonus, 0.2, 2.0))
-        elif real_yield_z < -0.40 and gold_roc > 0.0:
-            return float(np.clip(gold_roc * 1.2, -2.0, 2.0))
-        else:
-            return float(np.clip(gold_roc * 1.1 - (real_yield_z * 0.5), -2.0, 2.0))
+        Central-bank / reserve demand shows up as gold doing BETTER than real
+        yields and the dollar imply. The old version returned
+        ``gold_roc*1.1 - 0.5*real_yield_z`` whenever gold fell, i.e. the same
+        gold momentum (already factor ``asset_direction``) plus the same real
+        yield (already factor ``real_yield``): one piece of information counted
+        three times, pinned at the -1.8 clip in the live XAU run.
+        Now: vol-normalised gold move minus the move implied by real yields and
+        DXY; only the unexplained part is scored."""
+        if gold_df is None or gold_df.empty or len(gold_df) < 30:
+            return 0.0
+        close = pd.to_numeric(gold_df["Close"], errors="coerce").dropna()
+        if len(close) < 30:
+            return 0.0
+        w = int(min(window, len(close) - 2))
+        lr = np.log(close).diff().dropna()
+        sigma = float(lr.tail(240).std() * np.sqrt(w))
+        if not np.isfinite(sigma) or sigma <= 0:
+            return 0.0
+        gold_z = float(np.log(close.iloc[-1] / close.iloc[-w - 1]) / sigma)
+        ry = float(real_yield_z) if real_yield_z is not None and np.isfinite(real_yield_z) else 0.0
+        dxy_z = 0.0
+        try:
+            if dxy_df is not None and not dxy_df.empty and len(dxy_df) > w + 30:
+                dc = pd.to_numeric(dxy_df["Close"], errors="coerce").dropna()
+                dl = np.log(dc).diff().dropna()
+                ds = float(dl.tail(240).std() * np.sqrt(w))
+                if ds > 0:
+                    dxy_z = float(np.log(dc.iloc[-1] / dc.iloc[-w - 1]) / ds)
+        except Exception:
+            dxy_z = 0.0
+        implied = -0.45 * np.clip(ry, -2.5, 2.5) - 0.35 * np.clip(dxy_z, -3.0, 3.0)
+        residual = gold_z - implied
+        return float(np.clip(0.8 * residual, -2.0, 2.0))
 
     @staticmethod
     def compute_silver_monetary_catchup(silver_df, gold_df, copper_df, window=24):

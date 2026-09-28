@@ -455,7 +455,10 @@ class PreTradeGatekeeper:
                 elif f_id == "gold_oil_ratio":
                     val = self.processor.compute_gold_oil_ratio(
                         self.grid_1h.get("GC", self.grid_1h.get("GC=F", pd.DataFrame())),
-                        self.grid_1h.get("USO", self.grid_1h.get("CL", pd.DataFrame()))
+                        # v3.3: CL=F trades the same ~23h session as GC=F; USO (US
+                        # hours only) was always used because key "CL" never exists.
+                        self.grid_1h.get("CL=F") if not self.grid_1h.get("CL=F", pd.DataFrame()).empty
+                        else self.grid_1h.get("USO", pd.DataFrame())
                     )
                 elif f_id == "silver_copper":
                     val = self.processor.compute_silver_copper_ratio(
@@ -913,6 +916,33 @@ class PreTradeGatekeeper:
             return -1
         return 0
 
+    @staticmethod
+    def _flag_counter_trend_live_direction(v, conf):
+        """The live (1-4h) direction is a deliberately fast momentum read. When it
+        points AGAINST both the 4H and 1D structure it is a counter-trend
+        bounce, not a 'strong' move: cap the tier at HAFİF and tag it, so the
+        UI never shows 'GÜÇLÜ YUKARI' inside a confirmed downtrend (live ETH)."""
+        try:
+            ls = float(v.get("live_score") or 0.0)
+            tfs = (conf or {}).get("timeframes", {}) or {}
+            htf = [float(tfs[k].get("score", 0.0)) for k in ("MTF_4H", "HTF_1D")
+                   if isinstance(tfs.get(k), dict) and tfs[k].get("available")]
+            if ls == 0 or len(htf) < 2:
+                return
+            sgn = 1.0 if ls > 0 else -1.0
+            if all(x * sgn < -0.20 for x in htf):
+                roc = float(v.get("current_roc") or 0.0)
+                core = "HAFİF YUKARI" if sgn > 0 else "HAFİF AŞAĞI"
+                v["current_direction"] = f"{'🟢' if sgn > 0 else '🔴'} {core} (%{roc:+.2f}) ↩ TERS-TREND TEPKİ"
+                v["current_icon"] = "🟢" if sgn > 0 else "🔴"
+                v["current_color"] = "palegreen" if sgn > 0 else "lightcoral"
+                v["live_tier"] = "HAFİF"
+                v["live_counter_trend"] = True
+            else:
+                v["live_counter_trend"] = False
+        except Exception:
+            pass
+
     def apply_final_entry_gate(self, verdicts):
         """Must run LAST (after stateful finalize_cycle and
         reconcile_pairs_post_adaptive), in BOTH app.py and the background
@@ -959,12 +989,18 @@ class PreTradeGatekeeper:
             conf = v.get("timeframe_confluence") or {}
             was_allowed = bool(v.get("entry_allowed", False))
 
+            self._flag_counter_trend_live_direction(v, conf)
+
             if d == 0:
                 v["entry_grade"] = "-"
                 v["entry_timing"] = "Yön sinyali yok; giriş değerlendirilmez."
-                if was_allowed:
-                    v["entry_allowed"] = False
-                    v["entry_status"] = "⚪ YÖN SİNYALİ YOK (GİRİŞ YOK)"
+                v["entry_allowed"] = False
+                v["entry_status"] = "⚪ YÖN SİNYALİ YOK (GİRİŞ YOK)"
+                # v3.3: the ATR/RVOL text ("Dinamik giriş uygun ...") only says the
+                # market is tradable; with no direction it must not read like an
+                # entry recommendation (live ETH showed both at once).
+                tech = str(v.get("entry_reason", "")).replace("Dinamik giriş uygun", "Piyasa koşulu işlem yapılabilir")
+                v["entry_reason"] = f"Model yönü NÖTR → giriş yok. ({tech})" if tech else "Model yönü NÖTR → giriş yok."
                 continue
 
             if not conf.get("available"):
@@ -995,6 +1031,17 @@ class PreTradeGatekeeper:
             v["entry_grade"] = grade
             v["entry_timing"] = timing
             v["directional_confluence"] = round(directional_conf, 4)
+
+            # v3.3: grade A requires participation. A move on bottom-quintile
+            # relative volume (same-hour comparison) is not "fully confirmed".
+            prof = v.get("stateful_entry_profile") or {}
+            rr = prof.get("rvol_rank")
+            if grade == "A" and rr is not None and float(rr) < 0.20:
+                grade = "B"
+                timing = (f"Zaman dilimleri onaylı fakat hacim katılımı zayıf (RVOL P{float(rr)*100:.0f}); "
+                          "A yerine B — pozisyon boyutu küçük tutulmalı.")
+                v["entry_grade"] = grade
+                v["entry_timing"] = timing
 
             if grade == "C" and was_allowed:
                 v["entry_allowed"] = False
