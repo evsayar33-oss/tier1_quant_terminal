@@ -1,6 +1,6 @@
 # 📊 Canlı Performans Karnesi (örneklem dışı, ileriye dönük)
 
-_Son güncelleme: 2026-09-28T03:44:52.605499+00:00 · döngü: 3 · kayıt: 14 (notlanan: 8)_
+_Son güncelleme: 2026-09-28T06:03:13.911231+00:00 · döngü: 4 · kayıt: 20 (notlanan: 8)_
 
 Bu sayfa sistemin **yayınladığı nihai sinyalleri** gerçekleşen fiyatla notlar. Model bu sayfadan öğrenmez; sadece hakemdir. Bir satırın güvenilir olması için en az **30** bağımsız (çakışmayan) örnek gerekir.
 
@@ -100,7 +100,17 @@ Bu sayfa sistemin **yayınladığı nihai sinyalleri** gerçekleşen fiyatla not
 - Rejim 3: 24s — (veri yok) · 72s — (veri yok)
 
 ## Veri sağlığı (faktör bazında erişilebilirlik)
-- Tüm faktörler son döngülerde %80+ oranında veri aldı. ✅
+Aşağıdaki faktörler son döngülerin önemli kısmında **veri alamadı** ve skora katılmadı:
+- BTC|Fed Net Dolar Likiditesi (NDL): %75 erişilebilir
+- BTC|💵 Kripto-Yerel USD Likiditesi & Taker İştahı: %75 erişilebilir
+- ETH|Fed Net Dolar Likiditesi (NDL): %75 erişilebilir
+- ETH|💵 Kripto-Yerel USD Likiditesi & Stabilcoin Akışı: %75 erişilebilir
+- NQ|Fed Net Dolar Likiditesi (NDL): %75 erişilebilir
+- SPX|Fed Net Dolar Likiditesi (NDL): %75 erişilebilir
+- XAG|Enflasyon Beklenti Kalkanı: %75 erişilebilir
+- XAG|Fed Net Dolar Likiditesi (NDL): %75 erişilebilir
+- XAU|Dolar Rezerv / Net Likidite İvmesi: %75 erişilebilir
+- XAU|Enflasyon Beklenti Kalkanı: %75 erişilebilir
 
 ## Durum dosyası olayları (yedekleme / göç)
 - Kayıt yok ✅
