@@ -56,7 +56,7 @@ def test_neutral_verdict_entry_reason_is_not_an_entry_recommendation():
 def test_counter_trend_live_bounce_is_capped():
     from gatekeeper import PreTradeGatekeeper as Gatekeeper
     tfs = {k: {"available": True, "score": s} for k, s in (("HTF_1D", -0.5), ("MTF_4H", -0.6), ("LTF_1H", -0.3))}
-    v = {"verdict": "NÖTR (BEKLE)", "live_score": 1.9, "current_roc": 0.45,
+    v = {"verdict": "NÖTR (BEKLE)", "live_score": 1.9, "live_tier": "GÜÇLÜ", "current_roc": 0.45,
          "current_direction": "🟢🟢 GÜÇLÜ YUKARI (%+0.45)"}
     Gatekeeper._flag_counter_trend_live_direction(v, {"timeframes": tfs})
     assert v["live_counter_trend"] and "GÜÇLÜ" not in v["current_direction"]
@@ -70,3 +70,12 @@ def test_gold_sovereign_is_a_residual_not_momentum():
     explained = Q.compute_gold_sovereign_decoupling(df, 2.5, pd.DataFrame())
     unexplained = Q.compute_gold_sovereign_decoupling(df, -1.0, pd.DataFrame())
     assert abs(explained) < abs(unexplained)
+
+
+def test_strong_live_label_needs_4h_support():
+    from gatekeeper import PreTradeGatekeeper as G
+    tfs = {"HTF_1D": {"available": True, "score": -0.11}, "MTF_4H": {"available": True, "score": -0.25},
+           "LTF_1H": {"available": True, "score": 0.22}}
+    v = {"live_score": 2.3, "live_tier": "GÜÇLÜ", "current_roc": 0.44, "current_direction": "🟢🟢 GÜÇLÜ YUKARI (%+0.44)"}
+    G._flag_counter_trend_live_direction(v, {"timeframes": tfs})
+    assert "GÜÇLÜ" not in v["current_direction"] and "4S teyitsiz" in v["current_direction"]

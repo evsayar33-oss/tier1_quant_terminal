@@ -918,28 +918,40 @@ class PreTradeGatekeeper:
 
     @staticmethod
     def _flag_counter_trend_live_direction(v, conf):
-        """The live (1-4h) direction is a deliberately fast momentum read. When it
-        points AGAINST both the 4H and 1D structure it is a counter-trend
-        bounce, not a 'strong' move: cap the tier at HAFİF and tag it, so the
-        UI never shows 'GÜÇLÜ YUKARI' inside a confirmed downtrend (live ETH)."""
+        """Live (1-4h) direction is a fast momentum read; its STRENGTH label must
+        respect the structure above it (v3.3.2, graded):
+          * 4H AND 1D against  -> max HAFİF + "↩ TERS-TREND TEPKİ"
+          * only 4H against    -> max YÖNLÜ (no 'GÜÇLÜ') + "(4S teyitsiz)"
+          * otherwise unchanged.
+        Direction and % are never changed, only the confidence tier."""
         try:
             ls = float(v.get("live_score") or 0.0)
             tfs = (conf or {}).get("timeframes", {}) or {}
-            htf = [float(tfs[k].get("score", 0.0)) for k in ("MTF_4H", "HTF_1D")
-                   if isinstance(tfs.get(k), dict) and tfs[k].get("available")]
-            if ls == 0 or len(htf) < 2:
+            def sc(k):
+                t = tfs.get(k)
+                return float(t.get("score", 0.0)) if isinstance(t, dict) and t.get("available") else None
+            h4, d1 = sc("MTF_4H"), sc("HTF_1D")
+            v["live_counter_trend"] = False
+            if ls == 0 or h4 is None:
                 return
             sgn = 1.0 if ls > 0 else -1.0
-            if all(x * sgn < -0.20 for x in htf):
-                roc = float(v.get("current_roc") or 0.0)
-                core = "HAFİF YUKARI" if sgn > 0 else "HAFİF AŞAĞI"
-                v["current_direction"] = f"{'🟢' if sgn > 0 else '🔴'} {core} (%{roc:+.2f}) ↩ TERS-TREND TEPKİ"
-                v["current_icon"] = "🟢" if sgn > 0 else "🔴"
-                v["current_color"] = "palegreen" if sgn > 0 else "lightcoral"
-                v["live_tier"] = "HAFİF"
-                v["live_counter_trend"] = True
-            else:
-                v["live_counter_trend"] = False
+            up = sgn > 0
+            roc = float(v.get("current_roc") or 0.0)
+            tier = str(v.get("live_tier", ""))
+            if h4 * sgn < -0.20 and d1 is not None and d1 * sgn < -0.20:
+                if tier in ("GÜÇLÜ", "YÖNLÜ", "HAFİF"):
+                    core = "HAFİF YUKARI" if up else "HAFİF AŞAĞI"
+                    v["current_direction"] = f"{'🟢' if up else '🔴'} {core} (%{roc:+.2f}) ↩ TERS-TREND TEPKİ"
+                    v["current_icon"] = "🟢" if up else "🔴"
+                    v["current_color"] = "palegreen" if up else "lightcoral"
+                    v["live_tier"] = "HAFİF"
+                    v["live_counter_trend"] = True
+            elif h4 * sgn < -0.20 and tier == "GÜÇLÜ":
+                core = "YUKARI" if up else "AŞAĞI"
+                v["current_direction"] = f"{'🟢' if up else '🔴'} {core} (%{roc:+.2f}) · 4S teyitsiz"
+                v["current_icon"] = "🟢" if up else "🔴"
+                v["current_color"] = "lightgreen" if up else "red"
+                v["live_tier"] = "YÖNLÜ"
         except Exception:
             pass
 
@@ -990,6 +1002,9 @@ class PreTradeGatekeeper:
             was_allowed = bool(v.get("entry_allowed", False))
 
             self._flag_counter_trend_live_direction(v, conf)
+            _prof = v.get("stateful_entry_profile") or {}
+            if _prof.get("rvol") is not None:
+                v["rvol"] = round(float(_prof["rvol"]), 2)   # v3.3.2: one RVOL on screen
 
             if d == 0:
                 v["entry_grade"] = "-"

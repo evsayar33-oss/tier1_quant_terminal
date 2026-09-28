@@ -65,3 +65,11 @@ sahte sayı yerine "tarihçe yetersiz" gösterir. Hacim kullanan başka faktör/
 Zip'teki dosyaları repoya yükle (üzerine yaz). Canlı durum dosyaları pakette YOK; repodakiler korunur.
 Değişen dosyalar: `dynamic_entry_engine.py`, `gatekeeper.py`, `quant_processor.py`,
 `test_entry_xau_eth_v33.py`, `README_TIER1_FIX_V33.md`.
+
+## v3.3.2 — ETH canlı yön kademesi + tek RVOL
+- Canlı yön gücü artık kademeli: 4S **ve** 1G ters → en fazla HAFİF + "↩ TERS-TREND TEPKİ";
+  yalnız 4S ters → "GÜÇLÜ" yazılmaz, "YUKARI/AŞAĞI · 4S teyitsiz". (11:40 UTC ETH: 1S +0.22, 4S −0.25,
+  1G −0.11 → eski kural devreye girmiyordu, "GÜÇLÜ YUKARI" kalıyordu.)
+- Ekrandaki "Hacim (RVOL)" sütunu artık giriş kararında kullanılan RVOL ile aynı (BTC'de 0.0x görünmesi giderildi).
+- ⚠️ Streamlit: kod yüklendikten sonra **Manage app → ⋮ → Reboot app** yap; aksi halde uygulama eski
+  modülleri bellekte tutar (14:44'teki ekran eski koddu; arka plan döngüsü ise yeni kodla çalışıyordu).
