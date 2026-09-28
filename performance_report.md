@@ -1,6 +1,6 @@
 # 📊 Canlı Performans Karnesi (örneklem dışı, ileriye dönük)
 
-_Son güncelleme: 2026-09-28T06:03:13.911231+00:00 · döngü: 4 · kayıt: 20 (notlanan: 8)_
+_Son güncelleme: 2026-09-28T07:42:12.904191+00:00 · döngü: 5 · kayıt: 26 (notlanan: 14)_
 
 Bu sayfa sistemin **yayınladığı nihai sinyalleri** gerçekleşen fiyatla notlar. Model bu sayfadan öğrenmez; sadece hakemdir. Bir satırın güvenilir olması için en az **30** bağımsız (çakışmayan) örnek gerekir.
 
@@ -8,13 +8,13 @@ Bu sayfa sistemin **yayınladığı nihai sinyalleri** gerçekleşen fiyatla not
 
 ## Genel
 ### 4 saat sonrası
-- **Model:** %100.0 isabet · ort +40 bps · n=4 (bağımsız 4, alt sınır %60) ⚠️az bağımsız örnek
-- Hep AL: %0.0 isabet · ort -40 bps · n=4 (bağımsız 4, alt sınır %0) ⚠️az bağımsız örnek
-- Trend takibi: %0.0 isabet · ort -40 bps · n=4 (bağımsız 4, alt sınır %0) ⚠️az bağımsız örnek
-- Sadece giriş izni verilenler: — (veri yok)
-- Zamanlama notu A: — (veri yok)
-- Zamanlama notu B: — (veri yok)
-- Zamanlama notu C: %100.0 isabet · ort +40 bps · n=4 (bağımsız 4, alt sınır %60) ⚠️az bağımsız örnek
+- **Model:** %100.0 isabet · ort +53 bps · n=10 (bağımsız 10, alt sınır %79) ⚠️az bağımsız örnek
+- Hep AL: %0.0 isabet · ort -53 bps · n=10 (bağımsız 10, alt sınır %0) ⚠️az bağımsız örnek
+- Trend takibi: %40.0 isabet · ort +15 bps · n=10 (bağımsız 10, alt sınır %19) ⚠️az bağımsız örnek
+- Sadece giriş izni verilenler: %100.0 isabet · ort +84 bps · n=3 (bağımsız 3, alt sınır %53) ⚠️az bağımsız örnek
+- Zamanlama notu A: %100.0 isabet · ort +91 bps · n=3 (bağımsız 3, alt sınır %53) ⚠️az bağımsız örnek
+- Zamanlama notu B: %100.0 isabet · ort +43 bps · n=2 (bağımsız 2, alt sınır %43) ⚠️az bağımsız örnek
+- Zamanlama notu C: %100.0 isabet · ort +34 bps · n=5 (bağımsız 5, alt sınır %65) ⚠️az bağımsız örnek
 - Sonuç: Karar için henüz yeterli bağımsız örnek yok (gereken: 30).
 
 ### 24 saat sonrası
@@ -101,16 +101,16 @@ Bu sayfa sistemin **yayınladığı nihai sinyalleri** gerçekleşen fiyatla not
 
 ## Veri sağlığı (faktör bazında erişilebilirlik)
 Aşağıdaki faktörler son döngülerin önemli kısmında **veri alamadı** ve skora katılmadı:
-- BTC|Fed Net Dolar Likiditesi (NDL): %75 erişilebilir
-- BTC|💵 Kripto-Yerel USD Likiditesi & Taker İştahı: %75 erişilebilir
-- ETH|Fed Net Dolar Likiditesi (NDL): %75 erişilebilir
-- ETH|💵 Kripto-Yerel USD Likiditesi & Stabilcoin Akışı: %75 erişilebilir
-- NQ|Fed Net Dolar Likiditesi (NDL): %75 erişilebilir
-- SPX|Fed Net Dolar Likiditesi (NDL): %75 erişilebilir
-- XAG|Enflasyon Beklenti Kalkanı: %75 erişilebilir
-- XAG|Fed Net Dolar Likiditesi (NDL): %75 erişilebilir
-- XAU|Dolar Rezerv / Net Likidite İvmesi: %75 erişilebilir
-- XAU|Enflasyon Beklenti Kalkanı: %75 erişilebilir
+- BTC|Fed Net Dolar Likiditesi (NDL): %80 erişilebilir
+- BTC|💵 Kripto-Yerel USD Likiditesi & Taker İştahı: %80 erişilebilir
+- ETH|Fed Net Dolar Likiditesi (NDL): %80 erişilebilir
+- ETH|💵 Kripto-Yerel USD Likiditesi & Stabilcoin Akışı: %80 erişilebilir
+- NQ|Fed Net Dolar Likiditesi (NDL): %80 erişilebilir
+- SPX|Fed Net Dolar Likiditesi (NDL): %80 erişilebilir
+- XAG|Enflasyon Beklenti Kalkanı: %80 erişilebilir
+- XAG|Fed Net Dolar Likiditesi (NDL): %80 erişilebilir
+- XAU|Dolar Rezerv / Net Likidite İvmesi: %80 erişilebilir
+- XAU|Enflasyon Beklenti Kalkanı: %80 erişilebilir
 
 ## Durum dosyası olayları (yedekleme / göç)
 - Kayıt yok ✅
