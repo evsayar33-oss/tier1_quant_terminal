@@ -1,6 +1,6 @@
 # 📊 Canlı Performans Karnesi (örneklem dışı, ileriye dönük)
 
-_Son güncelleme: 2026-09-28T07:44:30.554330+00:00 · döngü: 6 · kayıt: 26 (notlanan: 14)_
+_Son güncelleme: 2026-09-28T10:35:29.339659+00:00 · döngü: 7 · kayıt: 32 (notlanan: 20)_
 
 Bu sayfa sistemin **yayınladığı nihai sinyalleri** gerçekleşen fiyatla notlar. Model bu sayfadan öğrenmez; sadece hakemdir. Bir satırın güvenilir olması için en az **30** bağımsız (çakışmayan) örnek gerekir.
 
@@ -8,12 +8,12 @@ Bu sayfa sistemin **yayınladığı nihai sinyalleri** gerçekleşen fiyatla not
 
 ## Genel
 ### 4 saat sonrası
-- **Model:** %100.0 isabet · ort +53 bps · n=10 (bağımsız 10, alt sınır %79) ⚠️az bağımsız örnek
-- Hep AL: %0.0 isabet · ort -53 bps · n=10 (bağımsız 10, alt sınır %0) ⚠️az bağımsız örnek
-- Trend takibi: %40.0 isabet · ort +15 bps · n=10 (bağımsız 10, alt sınır %19) ⚠️az bağımsız örnek
-- Sadece giriş izni verilenler: %100.0 isabet · ort +84 bps · n=3 (bağımsız 3, alt sınır %53) ⚠️az bağımsız örnek
-- Zamanlama notu A: %100.0 isabet · ort +91 bps · n=3 (bağımsız 3, alt sınır %53) ⚠️az bağımsız örnek
-- Zamanlama notu B: %100.0 isabet · ort +43 bps · n=2 (bağımsız 2, alt sınır %43) ⚠️az bağımsız örnek
+- **Model:** %100.0 isabet · ort +50 bps · n=14 (bağımsız 10, alt sınır %79) ⚠️az bağımsız örnek
+- Hep AL: %0.0 isabet · ort -50 bps · n=14 (bağımsız 10, alt sınır %0) ⚠️az bağımsız örnek
+- Trend takibi: %50.0 isabet · ort +20 bps · n=14 (bağımsız 10, alt sınır %27) ⚠️az bağımsız örnek
+- Sadece giriş izni verilenler: %100.0 isabet · ort +68 bps · n=6 (bağımsız 4, alt sınır %60) ⚠️az bağımsız örnek
+- Zamanlama notu A: %100.0 isabet · ort +71 bps · n=6 (bağımsız 4, alt sınır %60) ⚠️az bağımsız örnek
+- Zamanlama notu B: %100.0 isabet · ort +34 bps · n=3 (bağımsız 2, alt sınır %43) ⚠️az bağımsız örnek
 - Zamanlama notu C: %100.0 isabet · ort +34 bps · n=5 (bağımsız 5, alt sınır %65) ⚠️az bağımsız örnek
 - Sonuç: Karar için henüz yeterli bağımsız örnek yok (gereken: 30).
 
