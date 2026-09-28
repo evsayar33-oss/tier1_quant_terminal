@@ -44,6 +44,7 @@ from config import (
 )
 
 from gatekeeper import PreTradeGatekeeper
+from data_engine import FRED_ONLY_METRIC_KEYS
 from quant_processor import RobustQuantProcessor
 from stateful_adaptive_controller import StatefulAdaptiveController
 
@@ -234,8 +235,11 @@ if fred_key_input:
 else:
 
     st.sidebar.info(
-        "ℹ️ FRED anahtarı girilmedi. "
-        "Gerçek piyasa verileri ayrı veri motorundan alınır."
+        "ℹ️ Bu uygulamada FRED anahtarı yok. FRED faktörleri (reel faiz, "
+        "NDL, enflasyon beklentisi, kredi spreadleri) GitHub Actions arka "
+        "plan işinin son 72 saat içinde yayınladığı değerlerden alınır. "
+        "Tam canlı FRED için Streamlit Cloud → App settings → Secrets "
+        "bölümüne FRED_API_KEY ekleyin."
     )
 
 
@@ -696,6 +700,15 @@ if (
 
                 "stateful_adaptive":
                     adaptive_diag,
+
+                # FRED değerleri (canlı ya da arka plan yayınından) orijinal
+                # çekilme zamanıyla birlikte taşınır; böylece manuel yenileme
+                # sonrası kaydedilen durum dosyası FRED yedeğini silmez.
+                "fred_metrics": {
+                    k: v
+                    for k, v in (getattr(gk, "fred_metrics", {}) or {}).items()
+                    if k in FRED_ONLY_METRIC_KEYS or k in ("fred_fetched_at", "source")
+                },
             }
 
 

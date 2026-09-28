@@ -91,6 +91,55 @@ GRID_ALIAS_MAP = {
 }
 
 
+# FRED-derived metric keys (everything fetch_fred_macro_metrics computes
+# from the FRED API itself; market-grid-derived metrics are NOT included --
+# those are always recomputed locally from live prices).
+FRED_ONLY_METRIC_KEYS = (
+    "dfii10_z", "t10yie_z", "hy_oas_z", "hy_oas_slope", "ig_oas_z",
+    "dtwexbgs_5d_z", "dtwexbgs_level_z", "vix_level_z", "vix_252d_percentile",
+    "dgs2_change", "dgs10_change", "curve_label", "ndl_z",
+)
+PUBLISHED_STATE_FILE = "terminal_state.json"
+PUBLISHED_FRED_MAX_AGE_HOURS = 72.0   # FRED is daily; covers weekends
+
+
+def load_published_fred_metrics(path: str = PUBLISHED_STATE_FILE,
+                                max_age_hours: float = PUBLISHED_FRED_MAX_AGE_HOURS) -> Dict[str, Any]:
+    """FRED metrics published by the GitHub Actions background job.
+
+    Why: the FRED key lives in GitHub *Actions* secrets, which only the
+    workflow can see. The Streamlit app runs on a different host (Streamlit
+    Cloud) with its own, separate secrets -- so on a manual refresh the app
+    had no key and every FRED factor (real yield, NDL, breakevens, OAS...)
+    showed ``None``. The background job already fetched those exact numbers
+    and commits them into terminal_state.json; the app can use them.
+
+    Safety: only FRED-sourced keys are taken, only if they were LIVE-fetched
+    within ``max_age_hours`` (the original fetch time travels with them, so
+    a stale copy can never be re-published as fresh)."""
+    try:
+        import json as _json
+        with open(path, "r", encoding="utf-8") as fh:
+            state = _json.load(fh)
+        block = state.get("fred_metrics") or {}
+        fetched_at = block.get("fred_fetched_at")
+        if not fetched_at:
+            return {}
+        ts = pd.Timestamp(fetched_at)
+        if ts.tzinfo is None:
+            ts = ts.tz_localize("UTC")
+        age_h = (pd.Timestamp(now_utc()) - ts).total_seconds() / 3600.0
+        if age_h < 0 or age_h > float(max_age_hours):
+            return {}
+        out = {k: block[k] for k in FRED_ONLY_METRIC_KEYS if block.get(k) is not None}
+        if out:
+            out["fred_fetched_at"] = fetched_at
+            out["fred_age_hours"] = round(age_h, 1)
+        return out
+    except Exception:
+        return {}
+
+
 class ResilientDataEngine:
     def __init__(self, fred_api_key=None, *args, **kwargs):
         self.session = requests.Session()
@@ -470,6 +519,17 @@ class ResilientDataEngine:
                 spr=d10[0]-d2[0]; metrics["curve_label"]="DİKLEŞEN EĞRİ" if spr>0.15 else ("YATIK EĞRİ" if spr<-0.05 else "DÜZ EĞRİ")
             if all(len(raw.get(k,[]))>=5 for k in ("WALCL","WTREGEN","RRPONTSYD")):
                 n=min(len(raw["WALCL"]),len(raw["WTREGEN"]),len(raw["RRPONTSYD"])); series=[raw["WALCL"][i]-raw["WTREGEN"][i]-raw["RRPONTSYD"][i] for i in range(n)]; zz=z(series); metrics["ndl_z"]=None if zz is None else round(zz,2)
+            if raw:
+                metrics["fred_fetched_at"] = now_utc().isoformat()
+
+        if not any(metrics.get(k) is not None for k in FRED_ONLY_METRIC_KEYS):
+            # No key here (e.g. Streamlit Cloud) or the FRED API failed:
+            # use the background job's recently published FRED values.
+            published = load_published_fred_metrics()
+            if published:
+                metrics.update(published)
+                metrics["source"] = "FRED (arka plan yayını)"
+                metrics["is_real"] = True
 
         if market_grid:
             def close(key):
@@ -504,6 +564,6 @@ class ResilientDataEngine:
             if gold is not None and len(gold)>=5:
                 metrics["gold_trend"]="RISING" if gold.iloc[-1]>gold.iloc[-5] else "FLAT_OR_FALLING"
 
-        measured = [v for k,v in metrics.items() if k not in ("source","is_real","data_status","curve_label","gold_trend") and v is not None]
+        measured = [v for k,v in metrics.items() if k not in ("source","is_real","data_status","curve_label","gold_trend","fred_fetched_at","fred_age_hours") and v is not None]
         metrics["data_status"] = "OK" if len(measured) >= 8 else ("PARTIAL" if measured else "UNAVAILABLE")
         return metrics

@@ -212,3 +212,44 @@ def test_performance_ledger_end_to_end():
 def test_wilson_bound_sane():
     assert 0.0 < wilson_lower_bound(60, 100) < 0.6
     assert wilson_lower_bound(0, 0) == 0.0
+
+
+# ------------------------------------------------ v3.2.1 additions
+def test_common_factor_reconcile_shrinks_only_unconfirmed_gap():
+    from dynamic_pair_model import DynamicPairModel as D
+    ps = {"available": True, "corr_primary_anchor": 0.91, "residual_z": 0.3,
+          "divergence_z_used": 1.75, "divergence_supported": False}
+    e, b, diag = D.common_factor_reconcile(-0.57, -0.35, ps)
+    assert abs((e + b) - (-0.57 - 0.35)) < 1e-9          # shared call preserved
+    assert abs(e - b) < abs(-0.57 + 0.35)                # gap shrunk
+    e2, b2, _ = D.common_factor_reconcile(0.5, -0.3, dict(ps, divergence_supported=True))
+    assert abs(e2 - 0.5) < 1e-9 and abs(b2 + 0.3) < 1e-9  # confirmed divergence untouched
+    e3, b3, d3 = D.common_factor_reconcile(0.5, -0.3, {"available": False})
+    assert (e3, b3) == (0.5, -0.3) and not d3["applied"]
+
+
+def test_published_fred_fallback_and_age_limit():
+    from data_engine import ResilientDataEngine
+    with _in_tmpdir():
+        eng = ResilientDataEngine(fred_api_key="")
+        assert eng.fetch_fred_macro_metrics({}).get("ndl_z") is None
+        fresh = {"fred_metrics": {"ndl_z": -1.2, "dfii10_z": 1.1,
+                                  "fred_fetched_at": system_clock.now_utc().isoformat()}}
+        with open("terminal_state.json", "w") as fh:
+            json.dump(fresh, fh)
+        m = eng.fetch_fred_macro_metrics({})
+        assert m["ndl_z"] == -1.2 and m["source"].startswith("FRED")
+        stale = {"fred_metrics": {"ndl_z": -1.2, "fred_fetched_at": "2020-01-01T00:00:00+00:00"}}
+        with open("terminal_state.json", "w") as fh:
+            json.dump(stale, fh)
+        assert eng.fetch_fred_macro_metrics({}).get("ndl_z") is None
+
+
+def test_ledger_unlimited_mode_keeps_everything():
+    with _in_tmpdir():
+        df = _hourly("2026-04-01", 400)
+        lookup = lambda g, a: g.get("ES=F", pd.DataFrame())
+        led = PerformanceLedger(path="x.json", max_records=None)
+        for i in range(0, 400):
+            led.record_cycle({"SPX": {"verdict": "AL"}}, {"ES=F": df.iloc[: i + 1]}, lookup, 1)
+        assert len(led.data["records"]) == 400

@@ -327,6 +327,33 @@ class StatefulAdaptiveController:
                 adaptive["XAU"]["pair_state"] = deepcopy(pair_state)
                 adaptive["XAG"]["pair_state"] = deepcopy(pair_state)
 
+            # 2b) BTC/ETH common-factor reconciliation (score only).
+            # Live history showed BTC/ETH SCORE correlation of ~0.34 while
+            # their PRICES correlate ~0.85-0.90 (SPX/NQ scores: 0.86,
+            # XAU/XAG: 0.71). The gap came from asymmetric factor sets and
+            # ETH-only relative/network factors, not from real
+            # divergence. Only the idiosyncratic gap is shrunk, in
+            # proportion to how co-moving the pair currently is, and it is
+            # released automatically when price confirms a divergence.
+            if "BTC" in adaptive and "ETH" in adaptive and hasattr(gatekeeper, "_pair_state"):
+                try:
+                    from dynamic_pair_model import DynamicPairModel, ETH_BTC_MODEL
+                    eth_btc_state = gatekeeper._pair_state(ETH_BTC_MODEL)
+                    eth_score = float(adaptive["ETH"].get("score", 0.0))
+                    btc_score = float(adaptive["BTC"].get("score", 0.0))
+                    eth_adj, btc_adj, cf_diag = DynamicPairModel.common_factor_reconcile(
+                        eth_score, btc_score, eth_btc_state
+                    )
+                    if cf_diag.get("applied"):
+                        adaptive["ETH"]["score_before_pair"] = eth_score
+                        adaptive["BTC"]["score_before_pair"] = btc_score
+                        adaptive["ETH"]["score"] = round(eth_adj, 4)
+                        adaptive["BTC"]["score"] = round(btc_adj, 4)
+                        adaptive["ETH"]["pair_common_factor"] = cf_diag
+                        adaptive["BTC"]["pair_common_factor"] = cf_diag
+                except Exception:
+                    pass  # reconciliation is a refinement; never block the cycle
+
             # 3) Direction is resolved WITHOUT entry_allowed.
             direction_diag: Dict[str, Any] = {}
             for asset_key, out in adaptive.items():

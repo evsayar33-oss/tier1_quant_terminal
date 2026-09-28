@@ -174,7 +174,7 @@ def _run_replay_inner(cache_dir, out_dir, days, step_hours, max_cycles, end):
     from data_engine import GRID_TICKERS, ResilientDataEngine, _FRESHNESS_STORE, _live_cutoff_seconds
     from gatekeeper import PreTradeGatekeeper, _DAILY_FETCH_SYMBOLS
     from ohlcv_history import load_history, DEFAULT_MAX_BARS
-    from performance_ledger import PerformanceLedger, build_series_map, run_ledger_cycle, _close_series
+    from performance_ledger import PerformanceLedger, build_series_map, _close_series
     from stateful_adaptive_controller import StatefulAdaptiveController
 
     # ---------------- load cache ----------------
@@ -285,6 +285,7 @@ def _run_replay_inner(cache_dir, out_dir, days, step_hours, max_cycles, end):
             base_sign[(ak, f.get("name"))] = (f.get("id"), float(f.get("base_sign", 1.0)), f.get("cluster"))
 
     factor_rows: List[tuple] = []
+    replay_ledger = PerformanceLedger(path="replay_ledger.json", max_records=None)
     prev_map = {k: "NÖTR (BEKLE)" for k in ASSET_MATRICES}
     crisis, breaches = False, 0
     errors = 0
@@ -302,7 +303,15 @@ def _run_replay_inner(cache_dir, out_dir, days, step_hours, max_cycles, end):
             verdicts, _ = controller.finalize_cycle(gk, raw, previous_signals=prev_map, cycle_id=t.isoformat())
             verdicts = gk.reconcile_pairs_post_adaptive(verdicts)
             verdicts = gk.apply_final_entry_gate(verdicts)
-            run_ledger_cycle(gk, verdicts, StatefulAdaptiveController._asset_df)
+            # One in-memory ledger for the whole replay (no per-cycle file
+            # round-trip, NO record cap): every cycle of the period is
+            # graded at the end. (v3.2 capped this at the live 3000-record
+            # window, so a 700-day run was judged on its last ~3 weeks.)
+            replay_ledger.record_cycle(
+                verdicts, gk.grid_1h, StatefulAdaptiveController._asset_df,
+                gk.active_macro_regime_id,
+            )
+            replay_ledger.update_health(verdicts)
             crisis, breaches = gk.crisis_active, gk.consecutive_breaches
             prev_map = {k: v.get("verdict", "NÖTR (BEKLE)") for k, v in verdicts.items()}
             for ak, v in verdicts.items():
@@ -324,7 +333,7 @@ def _run_replay_inner(cache_dir, out_dir, days, step_hours, max_cycles, end):
 
     # final settlement with the clock at the end of the data
     system_clock.set_frozen_now(t_end + pd.Timedelta(days=6))
-    ledger = PerformanceLedger()
+    ledger = replay_ledger
 
     class _G:  # minimal holder for build_series_map
         pass
@@ -340,7 +349,7 @@ def _run_replay_inner(cache_dir, out_dir, days, step_hours, max_cycles, end):
         if sym in full_1d:
             g.grid_daily[ak] = full_1d[sym]
     ledger.settle(build_series_map(g, ASSET_MATRICES.keys(), StatefulAdaptiveController._asset_df))
-    ledger.save()
+    ledger.data.setdefault("meta", {})["cycles"] = len(times)
     system_clock.clear_frozen_now()
 
     # ---------------- factor information coefficients ----------------

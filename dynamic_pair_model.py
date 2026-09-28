@@ -258,6 +258,63 @@ class DynamicPairModel:
         return float(np.clip(dep_adj, -3.5, 3.5)), float(np.clip(anc_adj, -3.5, 3.5))
 
     @staticmethod
+    def common_factor_reconcile(
+        dependent_score: float,
+        anchor_score: float,
+        pair_state: Dict[str, Any],
+        min_idiosyncratic_share: float = 0.30,
+    ) -> Tuple[float, float, Dict[str, Any]]:
+        """Common-factor / idiosyncratic decomposition of two FORECAST
+        scores, the way multi-asset risk models treat highly co-moving
+        assets.
+
+        Each score = common part (the pair's shared call) + idiosyncratic
+        part (why THIS asset should do something different from its twin).
+        When two assets' returns correlate at rho, only about
+        sqrt(1 - rho^2) of either one's move is idiosyncratic. A forecast
+        that makes them differ by more than that is claiming a relative move
+        the market rarely delivers -- unless the pair model currently sees a
+        genuine divergence in price.
+
+        So the idiosyncratic part is scaled by
+            lam = lam0 + (1 - lam0) * evidence
+            lam0     = max(sqrt(1 - rho^2), min_idiosyncratic_share)
+            evidence = |residual_z| / adaptive divergence bar   (0..1),
+                       = 1 when divergence is confirmed by price.
+        Everything is continuous and data-driven: if the pair decouples
+        (rho falls) or a real asset-specific event appears (residual_z
+        rises), the gap is released automatically -- no fixed cutoff.
+        The common part (the shared forward-looking call) is untouched.
+        """
+        d = float(dependent_score)
+        a = float(anchor_score)
+        diag: Dict[str, Any] = {"applied": False}
+        if not pair_state or not pair_state.get("available"):
+            return d, a, diag
+        rho_raw = pair_state.get("corr_primary_anchor", pair_state.get("corr", 0.0))
+        rho = float(np.clip(rho_raw or 0.0, 0.0, 0.97))
+        lam0 = max(float(np.sqrt(1.0 - rho * rho)), float(min_idiosyncratic_share))
+        if bool(pair_state.get("divergence_supported")):
+            evidence = 1.0
+        else:
+            bar = float(pair_state.get("divergence_z_used", 1.75) or 1.75)
+            evidence = float(np.clip(abs(float(pair_state.get("residual_z", 0.0) or 0.0)) / max(bar, 1e-6), 0.0, 1.0))
+        lam = lam0 + (1.0 - lam0) * evidence
+        common = 0.5 * (d + a)
+        d_adj = common + lam * (d - common)
+        a_adj = common + lam * (a - common)
+        diag = {
+            "applied": True,
+            "rho": round(rho, 3),
+            "idiosyncratic_keep": round(lam, 3),
+            "divergence_evidence": round(evidence, 3),
+            "common_score": round(common, 4),
+            "gap_before": round(d - a, 4),
+            "gap_after": round(d_adj - a_adj, 4),
+        }
+        return float(np.clip(d_adj, -3.5, 3.5)), float(np.clip(a_adj, -3.5, 3.5)), diag
+
+    @staticmethod
     def blended_anchor_signal(
         pair_state: Dict[str, Any],
         dependent_momentum: float,

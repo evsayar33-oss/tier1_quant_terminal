@@ -20,6 +20,7 @@ from config import ASSET_MATRICES
 from gatekeeper import PreTradeGatekeeper
 from stateful_adaptive_controller import StatefulAdaptiveController
 from performance_ledger import run_ledger_cycle
+from data_engine import FRED_ONLY_METRIC_KEYS
 from state_schema import recent_events
 
 
@@ -169,6 +170,12 @@ def run_background_cycle() -> Dict[str, Any]:
         "data_sources": gk.data_engine.data_sources,
         "asset_verdicts": verdicts,
         "performance": performance,
+        # Published so the Streamlit app (which cannot see GitHub Actions
+        # secrets) can use the same FRED numbers; fetch time travels along.
+        "fred_metrics": {
+            k: v for k, v in (getattr(gk, "fred_metrics", {}) or {}).items()
+            if k in FRED_ONLY_METRIC_KEYS or k in ("fred_fetched_at", "source")
+        },
         "data_health": data_health,
     }
     _save_json(STATE_FILE, payload)

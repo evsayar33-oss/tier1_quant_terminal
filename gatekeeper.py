@@ -76,6 +76,7 @@ class PreTradeGatekeeper:
         self.macro_engine = MacroRegimeEngine(fred_api_key=self.fred_api_key)
         self.grid_1h = {}
         self.grid_daily = {}
+        self.fred_metrics = {}
         self.tf_store = TimeframeReliabilityStore()
         self._pair_state_cache = {}
         self.active_macro_regime_id = "REJIMSIZ_GECIS"
@@ -143,6 +144,7 @@ class PreTradeGatekeeper:
         oil,transport=self.grid_1h.get("CL=F",pd.DataFrame()),self.grid_1h.get("IYT",pd.DataFrame()); self.stagflation_z=self.processor.compute_stagflation_shock(oil,transport) if has("CL=F",5) and has("IYT",5) else None
         uj=self.grid_1h.get("USDJPY=X",pd.DataFrame()); self.yen_carry_z=self.processor.compute_yen_carry_shock(uj) if has("USDJPY=X",5) else None
         fred=self.data_engine.fetch_fred_macro_metrics(self.grid_1h)
+        self.fred_metrics = dict(fred)
         self.real_yield_z=fred.get("dfii10_z"); self.breakeven_z=fred.get("t10yie_z"); self.dfii10_z=self.real_yield_z; self.curve_label=fred.get("curve_label","VERİ YETERSİZ"); self.ndl_z=fred.get("ndl_z")
         if all(x is not None for x in (self.dxy_velocity,self.ndl_z,self.yen_carry_z)):
             self.composite_usd_risk,self.usd_risk_label,self.usd_risk_status=self.processor.compute_composite_usd_risk(self.dxy_velocity,self.ndl_z,self.yen_carry_z)

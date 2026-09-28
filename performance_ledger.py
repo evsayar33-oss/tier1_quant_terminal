@@ -84,6 +84,9 @@ def _close_series(df: Any) -> Optional[pd.Series]:
     return s if not s.empty else None
 
 
+_TS_CACHE: Dict[str, pd.Timestamp] = {}
+
+
 def wilson_lower_bound(wins: float, n: float, z: float = 1.6448536) -> float:
     """One-sided 95% lower bound of a hit-rate."""
     if n <= 0:
@@ -96,8 +99,9 @@ def wilson_lower_bound(wins: float, n: float, z: float = 1.6448536) -> float:
 
 
 class PerformanceLedger:
-    def __init__(self, path: str = LEDGER_FILE) -> None:
+    def __init__(self, path: str = LEDGER_FILE, max_records: Optional[int] = MAX_RECORDS) -> None:
         self.path = path
+        self.max_records = max_records  # None = unlimited (historical replay)
         self.data: Dict[str, Any] = {
             "schema_version": SCHEMA_VERSION,
             "records": [],
@@ -167,8 +171,8 @@ class PerformanceLedger:
             })
             added += 1
 
-        if len(records) > MAX_RECORDS:
-            del records[: len(records) - MAX_RECORDS]
+        if self.max_records is not None and len(records) > self.max_records:
+            del records[: len(records) - self.max_records]
         self.data.setdefault("meta", {})["cycles"] = int(self.data.get("meta", {}).get("cycles", 0)) + 1
         self.data["meta"]["last_cycle"] = now_utc().isoformat()
         return added
@@ -267,7 +271,10 @@ class PerformanceLedger:
             d = sign_fn(r)
             if ret is None or d == 0:
                 continue
-            xs.append((r["a"], pd.Timestamp(r["t"]), d * float(ret)))
+            ts = _TS_CACHE.get(r["t"])
+            if ts is None:
+                ts = _TS_CACHE[r["t"]] = pd.Timestamp(r["t"])
+            xs.append((r["a"], ts, d * float(ret)))
         n = len(xs)
         if n == 0:
             return {"n": 0}

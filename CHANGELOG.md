@@ -1,3 +1,55 @@
+# 2026-09-28 — v3.2.1: FRED uygulamada, BTC/ETH ortak-faktör uzlaştırması, replay düzeltmesi
+
+## 1) Streamlit uygulamasında FRED faktörleri "None" çıkıyordu
+- Kök neden: FRED anahtarı GitHub **Actions** secrets'ta. Bunu sadece
+  workflow görebilir; Streamlit uygulaması başka bir sunucuda (Streamlit
+  Cloud) çalışıyor ve kendi ayrı Secrets bölümüne bakıyor. Arka plan işi
+  FRED'i sorunsuz kullanıyordu (tüm varlıklarda faktör kapsamı %100).
+- Kod çözümü: arka plan işi FRED değerlerini, **orijinal çekilme zamanıyla**
+  birlikte `terminal_state.json → fred_metrics` içine yayınlıyor. Uygulamada
+  anahtar yoksa (ya da FRED API hata verirse) son 72 saat içindeki bu değerler
+  kullanılıyor (`data_engine.load_published_fred_metrics`). Kaynak etiketi:
+  "FRED (arka plan yayını)". Zaman damgası taşındığı için eski veri asla taze
+  gibi yeniden yayınlanamaz. Uygulamanın manuel yenilemede kaydettiği durum
+  dosyası da bu bloğu koruyor.
+- Tam canlı FRED istenirse (isteğe bağlı): Streamlit Cloud → uygulama →
+  Settings → Secrets → `FRED_API_KEY = "anahtar"`.
+
+## 2) BTC/ETH model sinyali gereğinden fazla ayrışıyordu — doğrulandı
+- Repo geçmişindeki 42 canlı döngüde BTC-ETH **skor** korelasyonu **0.34**;
+  aynı dönemde SPX/NQ 0.86, XAU/XAG 0.71. BTC-ETH **fiyat** getirisi
+  korelasyonu ise 1s 0.84 / 1g 0.90 ve çift modeli çoğu zaman "ayrışma
+  fiyatla teyit edilmedi" diyordu → ayrışma piyasadan değil modelden geliyordu.
+- Kaynak (skor farkı varyans ayrıştırması): BTC'de olup ETH'de karşılığı
+  olmayan "Reel Getiri (TIP)" faktörü ve ETH'ye özel "L1 Ağ Aktivitesi",
+  "ETH/BTC Göreceli Güç". Tarihsel IC tablosu bu iki ETH faktörünün 2 yılda
+  NEGATİF bilgi katsayısına sahip olduğunu gösteriyor (-0.068, -0.074):
+  ayrışma yaratıyor ama öngörü katmıyordu.
+- Çözüm (`DynamicPairModel.common_factor_reconcile`, controller adım 2b):
+  iki skor = ortak kısım + varlığa özel kısım. Ortak çağrıya dokunulmaz;
+  varlığa özel fark, çiftin anlık fiyat korelasyonunun izin verdiği
+  oranda (√(1-ρ²), taban 0.30) tutulur ve çift modelinin rezidüel kanıtı
+  büyüdükçe kademeli olarak serbest bırakılır; fiyat gerçek ayrışmayı
+  teyit ederse fark %100 korunur. Sabit eşik yok.
+- Etki (42 canlı döngüye uygulandığında): skor korelasyonu 0.34 → ~0.75,
+  ortalama |fark| 0.32 → 0.17. Faktör ağırlıkları değişmedi.
+
+## 3) Tarihsel doğrulama raporu sadece son ~3 haftayı notluyordu
+- 700 gün / 1 saat adımlı çalıştırmada (16.777 döngü, 0 hata) canlı karnenin
+  3000 kayıtlık penceresi replay'de de uygulanmıştı → isabet tabloları sadece
+  son ~500 döngüden geliyordu. (Faktör IC tabloları etkilenmedi; tüm dönemi kapsıyor.)
+- Replay artık tek bir bellek-içi, sınırsız defter kullanıyor; tüm dönem
+  notlanıyor. ~0.9 sn/döngü: 700 gün için 2 saatlik adım güvenli (≈2 saat);
+  1 saatlik adım 330 dk sınırına yaklaşabilir.
+
+## Test
+- 46/46 test geçti (3 yeni: ortak-faktör uzlaştırması, FRED yayın yedeği ve
+  yaş sınırı, sınırsız defter).
+- Uçtan uca arka plan döngüsü + 128 döngülük replay: 0 hata; canlı durum
+  dosyalarına dokunulmadı.
+
+---
+
 # 2026-09-27 — v3.2 "Temel" paketi: doğrulama, veri sağlığı, durum güvenliği + canlı hatalar
 
 Bu paket AĞIRLIK/FAKTÖR mantığına dokunmaz (reaktif→öncü dönüşümü tamamlandı
