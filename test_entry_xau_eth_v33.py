@@ -79,3 +79,16 @@ def test_strong_live_label_needs_4h_support():
     v = {"live_score": 2.3, "live_tier": "GÜÇLÜ", "current_roc": 0.44, "current_direction": "🟢🟢 GÜÇLÜ YUKARI (%+0.44)"}
     G._flag_counter_trend_live_direction(v, {"timeframes": tfs})
     assert "GÜÇLÜ" not in v["current_direction"] and "4S teyitsiz" in v["current_direction"]
+
+
+def test_eth_factor_set_matches_btc_macro_and_has_no_duplicate():
+    from config import ASSET_MATRICES as C
+    ids = [f["id"] for f in C["ETH"]["factors"]]
+    assert "eth_staking_utility_drift" not in ids and "real_yield" in ids
+
+
+def test_live_move_against_model_is_tagged():
+    from gatekeeper import PreTradeGatekeeper as G
+    v = {"verdict": "SAT", "live_score": 1.3, "live_tier": "YÖNLÜ", "current_direction": "🟢 YUKARI (%+0.08)"}
+    G._flag_live_vs_model(G.__new__(G), v)
+    assert v["live_vs_model"] == "OPPOSED" and "MODELE TERS" in v["current_direction"]

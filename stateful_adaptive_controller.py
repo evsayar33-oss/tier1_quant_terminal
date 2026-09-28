@@ -418,6 +418,14 @@ class StatefulAdaptiveController:
                 else:
                     adx_val = out.get("adx_val", live_meta.get("adx_1h", 25.0))
                     atr_ratio = out.get("atr_ratio", 1.0)
+                    try:
+                        if float(atr_ratio or 0.0) <= 0.05:   # v3.3.3: legacy gate failed (e.g. RVOL warm-up)
+                            _p = out.get("stateful_entry_profile") or {}
+                            if _p.get("atr_ratio"):
+                                atr_ratio = float(_p["atr_ratio"])
+                                out["atr_ratio"] = round(atr_ratio, 2)
+                    except (TypeError, ValueError):
+                        pass
                     regime_info = RobustQuantProcessor.classify_intraday_regime(adx_val, atr_ratio)
                     leading_bias = self._leading_bias_for_asset(asset_key, gatekeeper)
                     live_state = self.live_direction.evaluate(

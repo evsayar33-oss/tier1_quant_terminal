@@ -171,8 +171,15 @@ ASSET_MATRICES = {
             {"id": "liquidation_squeeze_risk", "name": "⚠️ ETH Türev Kaldıraç & Sıkışma Riski", "cluster": "E", "base_weight": 0.65, "base_sign": -1.0},
             {"id": "btc_sympathy", "name": "⚡ Bitcoin İtici Gücü (BTC Beta)", "cluster": "E", "base_weight": 0.30, "base_sign": 1.0},
             {"id": "eth_btc_beta", "name": "ETH/BTC Göreceli Güç (Risk İştahı)", "cluster": "E", "base_weight": 0.25, "base_sign": 1.0},
-            {"id": "eth_staking_utility_drift", "name": "⛓️ L1 Ağ Aktivitesi & DeFi Likidite İvmesi", "cluster": "E", "base_weight": 0.65, "base_sign": 1.0},
+            # v3.3.3: "eth_staking_utility_drift" REMOVED. Despite its "L1 activity /
+            # DeFi" label it used no on-chain data: it was the 24h ETH/BTC price-ratio
+            # MAD z-score, i.e. a cruder duplicate of eth_btc_beta (regression
+            # residual), saturated at +1.8 and the single largest ETH contribution
+            # (+1.21) -- the main reason ETH read NÖTR while BTC read SAT. Re-add
+            # only with a real on-chain feed (gas/active addresses/staking flows).
             {"id": "duration_risk", "name": "TLT Likidite Baskısı", "cluster": "B", "base_weight": 0.45, "base_sign": 1.0},
+            # v3.3.3: same macro exposure as BTC (rho ~0.9); was missing for ETH only.
+            {"id": "real_yield", "name": "Reel Getiri Baskısı (TIP)", "cluster": "B", "base_weight": 0.50, "base_sign": -1.0},
             {"id": "credit_spread", "name": "Kurumsal Kredi & Likidite", "cluster": "C", "base_weight": 0.60, "base_sign": 1.0},
             {"id": "vix_strain", "name": "Sistemik Volatilite Baskısı", "cluster": "C", "base_weight": 0.50, "base_sign": -1.0},
             {"id": "usd_strength", "name": "DXY Dolar Likidite Baskısı", "cluster": "A", "base_weight": 0.65, "base_sign": -1.0},

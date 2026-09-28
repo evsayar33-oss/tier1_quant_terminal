@@ -955,6 +955,26 @@ class PreTradeGatekeeper:
         except Exception:
             pass
 
+    def _flag_live_vs_model(self, v):
+        """v3.3.3: every asset — when the 1-4h live move runs AGAINST the model
+        signal (24h-1w), say so explicitly instead of letting two columns look
+        contradictory. Counter-trend tag (structure) has priority."""
+        try:
+            d = self._verdict_direction_sign(v.get("verdict"))
+            ls = float(v.get("live_score") or 0.0)
+            tier = str(v.get("live_tier", ""))
+            txt = str(v.get("current_direction", ""))
+            v["live_vs_model"] = "ALIGNED"
+            if d == 0 or ls == 0 or tier == "YATAY":
+                v["live_vs_model"] = "N/A"
+                return
+            if (ls > 0) != (d > 0):
+                v["live_vs_model"] = "OPPOSED"
+                if "TERS-TREND" not in txt and "MODELE TERS" not in txt:
+                    v["current_direction"] = f"{txt} ↔ MODELE TERS (kısa tepki)"
+        except Exception:
+            pass
+
     def apply_final_entry_gate(self, verdicts):
         """Must run LAST (after stateful finalize_cycle and
         reconcile_pairs_post_adaptive), in BOTH app.py and the background
@@ -1005,6 +1025,9 @@ class PreTradeGatekeeper:
             _prof = v.get("stateful_entry_profile") or {}
             if _prof.get("rvol") is not None:
                 v["rvol"] = round(float(_prof["rvol"]), 2)   # v3.3.2: one RVOL on screen
+            if _prof.get("atr_ratio") is not None and float(v.get("atr_ratio") or 0.0) <= 0.05:
+                v["atr_ratio"] = round(float(_prof["atr_ratio"]), 2)   # v3.3.3: BTC showed 0.00x
+            self._flag_live_vs_model(v)
 
             if d == 0:
                 v["entry_grade"] = "-"

@@ -73,3 +73,16 @@ Değişen dosyalar: `dynamic_entry_engine.py`, `gatekeeper.py`, `quant_processor
 - Ekrandaki "Hacim (RVOL)" sütunu artık giriş kararında kullanılan RVOL ile aynı (BTC'de 0.0x görünmesi giderildi).
 - ⚠️ Streamlit: kod yüklendikten sonra **Manage app → ⋮ → Reboot app** yap; aksi halde uygulama eski
   modülleri bellekte tutar (14:44'teki ekran eski koddu; arka plan döngüsü ise yeni kodla çalışıyordu).
+
+## v3.3.3 — ETH/BTC ayrışması, BTC ATR 0.00, "modele ters" etiketi
+- **ETH faktör hatası:** `eth_staking_utility_drift` ("⛓️ L1 Ağ Aktivitesi & DeFi") hiçbir zincir-üstü veri
+  kullanmıyordu; 24 saatlik ETH/BTC fiyat oranının z-skoruydu. `eth_btc_beta` (regresyon artığı) aynı bilgiyi
+  zaten doğru ölçüyor → aynı göreli momentum 2 kez sayılıyor, +1.8 sınırında saplı, ETH'nin en büyük katkısı
+  (+1.21) oluyordu. Kaldırıldı. Gerçek zincir-üstü veri (gas, aktif adres, staking akışı) eklenirse geri gelir.
+- **ETH'de reel faiz faktörü yoktu** (BTC'de var, ρ≈0.91). Aynı makro maruziyet eklendi.
+- Aynı veri ve ortamda A/B: BTC–ETH skor farkı **+0.72 → +0.37**; ETH E-kümesi +1.56 → +0.34. Kalan fark
+  meşru (ETH'nin BTC'ye göre gerçek göreli gücü + düşen BTC dominansının yalnız BTC'yi etkilemesi).
+- **BTC ATR 0.00x:** eski giriş kapısı RVOL ısınması (54/60) yüzünden tüm profili boş döndürüyor, ATR de 0
+  kalıyordu → gün-içi rejim "VOLATİLİTE BİLİNMİYOR". ATR artık stateful profilden alınıyor (BTC 1.22x).
+- **Tüm varlıklar:** canlı yön model sinyaline tersse "↔ MODELE TERS (kısa tepki)" etiketi
+  (`live_vs_model`); yapıya tersse "↩ TERS-TREND TEPKİ" önceliklidir.
