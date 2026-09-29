@@ -1,6 +1,6 @@
 # 📊 Canlı Performans Karnesi (örneklem dışı, ileriye dönük)
 
-_Son güncelleme: 2026-09-28T23:27:22.546590+00:00 · döngü: 14 · kayıt: 56 (notlanan: 50)_
+_Son güncelleme: 2026-09-29T02:40:46.849064+00:00 · döngü: 15 · kayıt: 62 (notlanan: 50)_
 
 Bu sayfa sistemin **yayınladığı nihai sinyalleri** gerçekleşen fiyatla notlar. Model bu sayfadan öğrenmez; sadece hakemdir. Bir satırın güvenilir olması için en az **30** bağımsız (çakışmayan) örnek gerekir.
 
