@@ -356,3 +356,14 @@ ENTRY_TIMING_CONFIG = {
     "max_opposing_confluence": 0.35,  # aggregate multi-TF score against the signal beyond this blocks timing
     "grade_a_min_confluence": 0.35,   # aggregate multi-TF score with the signal needed for grade A
 }
+
+
+# ---------------------------------------------------------------------------
+# v3.4 — Self-optimising walk-forward model (walkforward_optimizer.py)
+# ---------------------------------------------------------------------------
+# The weekly historical replay learns factor weights + drift + regime
+# deviations per asset out-of-sample and writes validation_reports/learned_model.json.
+#   "abstain": deployed asset -> learned score; not-proven asset -> NO signal (NÖTR).
+#   "legacy" : deployed asset -> learned score; not-proven asset -> old hand-weighted score.
+LEARNED_MODEL_POLICY = "abstain"
+LEARNED_MODEL_PATH = "validation_reports/learned_model.json"

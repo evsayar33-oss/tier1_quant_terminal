@@ -21,6 +21,18 @@ V2.2 ENTEGRASYONU
 """
 
 import streamlit as st
+
+
+def _evidence_label(d):
+    """v3.4: is this asset's signal backed by out-of-sample (walk-forward) evidence?"""
+    st_ = str(d.get("learned_model_status", "NO_MODEL"))
+    o = d.get("learned_model_oos") or {}
+    if st_ == "ACTIVE":
+        h = o.get("hit")
+        return f"✅ Öğrenilmiş model (örneklem dışı %{h*100:.0f})" if h else "✅ Öğrenilmiş model"
+    if "NOT_PROVEN" in st_:
+        return "⛔ Kanıt yok → sinyal yok" if "ABSTAIN" in st_ else "⚠️ Kanıt yok (eski model)"
+    return "— Eski model (öğrenilmiş model henüz yok)"
 import json
 import os
 import pandas as pd
@@ -1059,6 +1071,9 @@ for k in ASSET_MATRICES.keys():
 
             "Model Skoru":
                 ("VERİ YETERSİZ" if str(data.get("factor_data_status", "")).upper() == "INSUFFICIENT_DATA" else f"{score_val:+.2f}"),
+
+            "🧪 Model Kanıtı":
+                _evidence_label(data),
         }
     )
 
@@ -1368,6 +1383,23 @@ if details:
             f"📐 Model veri kapsamı: {data_cov * 100:.0f}% | "
             f"durum: {res.get('factor_data_status', '—')}"
         )
+
+    _lo = res.get("learned_model_oos") or {}
+    if res.get("learned_model_status") == "ACTIVE":
+        st.caption(
+            f"🤖 Öğrenilmiş model AKTİF · örneklem dışı IC {_lo.get('ic')} (t={_lo.get('t_ic')}) · isabet "
+            f"%{(_lo.get('hit') or 0) * 100:.1f} (Hep AL %{(_lo.get('always_long_hit') or 0) * 100:.1f}, eski model "
+            f"%{(_lo.get('legacy_hit') or 0) * 100:.1f}) · eğitim sonu {_lo.get('trained_until')} · "
+            f"eski el-ağırlıklı skor {safe_float(res.get('legacy_score'), default=0.0):+.2f}"
+        )
+    elif "NOT_PROVEN" in str(res.get("learned_model_status", "")):
+        st.caption(
+            f"⛔ Walk-forward testinde bu varlık için avantaj kanıtlanamadı (IC {_lo.get('ic')}, t={_lo.get('t_ic')}); "
+            f"eski el-ağırlıklı skor {safe_float(res.get('legacy_score'), default=0.0):+.2f} yalnız bilgi amaçlıdır."
+        )
+    else:
+        st.caption("🤖 Öğrenilmiş model henüz yok: GitHub → Actions → 'Tier-1 Historical Walk-Forward Validation' "
+                   "çalışınca sistem ağırlıklarını kendi geçmişinden öğrenir.")
 
 
 # =============================================================================

@@ -77,6 +77,7 @@ def download_market_data(cache_dir: str, daily_years: int = 4) -> Dict[str, Any]
     import yfinance as yf
     sys.path.insert(0, REPO_DIR)
     os.environ["OHLCV_HISTORY_DIR"] = cache_dir
+    os.environ["TIER1_DISABLE_LEARNED"] = "1"      # v3.4: judge/learn from the hand-weighted model only
     from data_engine import GRID_TICKERS
     from gatekeeper import _DAILY_FETCH_SYMBOLS
     from ohlcv_history import _atomic_write
@@ -157,6 +158,7 @@ def run_replay(cache_dir: str, out_dir: str, days: float, step_hours: float,
     prev_cwd = os.getcwd()
     os.chdir(workdir)                 # every relative state file lands here
     os.environ["OHLCV_HISTORY_DIR"] = cache_dir
+    os.environ["TIER1_DISABLE_LEARNED"] = "1"      # v3.4: judge/learn from the hand-weighted model only
     sys.path.insert(0, REPO_DIR)
     try:
         return _run_replay_inner(cache_dir, out_dir, days, step_hours, max_cycles, end)
@@ -285,6 +287,7 @@ def _run_replay_inner(cache_dir, out_dir, days, step_hours, max_cycles, end):
             base_sign[(ak, f.get("name"))] = (f.get("id"), float(f.get("base_sign", 1.0)), f.get("cluster"))
 
     factor_rows: List[tuple] = []
+    meta_rows: List[tuple] = []          # v3.4: (asset, t, regime, legacy score) for the optimizer
     replay_ledger = PerformanceLedger(path="replay_ledger.json", max_records=None)
     prev_map = {k: "NÖTR (BEKLE)" for k in ASSET_MATRICES}
     crisis, breaches = False, 0
@@ -314,6 +317,10 @@ def _run_replay_inner(cache_dir, out_dir, days, step_hours, max_cycles, end):
             replay_ledger.update_health(verdicts)
             crisis, breaches = gk.crisis_active, gk.consecutive_breaches
             prev_map = {k: v.get("verdict", "NÖTR (BEKLE)") for k, v in verdicts.items()}
+            for ak, v in verdicts.items():
+                _ls = v.get("legacy_score", v.get("score"))
+                meta_rows.append((ak, t, str(gk.active_macro_regime_id),
+                                  float(_ls) if _ls is not None else 0.0))
             for ak, v in verdicts.items():
                 for row in v.get("details", []) or []:
                     val = row.get("ham_deger")
@@ -355,6 +362,22 @@ def _run_replay_inner(cache_dir, out_dir, days, step_hours, max_cycles, end):
     # ---------------- factor information coefficients ----------------
     ic_lines = _factor_ic_section(factor_rows, g, ASSET_MATRICES, StatefulAdaptiveController._asset_df)
 
+    # ---------------- v3.4: self-optimisation (walk-forward, out-of-sample) ----------------
+    opt_lines: List[str] = []
+    try:
+        import walkforward_optimizer as WFO
+        closes = {a: _close_series(StatefulAdaptiveController._asset_df(g.grid_1h, a)) for a in ASSET_MATRICES}
+        panel = WFO.build_panel(factor_rows, meta_rows, closes)
+        if not panel.empty:
+            panel.to_csv(os.path.join(out_dir, "factor_panel.csv.gz"), index=False, compression="gzip")
+        learned = WFO.optimize(panel)
+        learned["replay_window"] = {"start": str(times[0]) if times else None, "end": str(times[-1]) if times else None,
+                                    "step_hours": step_hours, "cycles": len(times)}
+        WFO.save(learned, os.path.join(out_dir, "learned_model.json"))
+        opt_lines = WFO.report_lines(learned)
+    except Exception as exc:
+        opt_lines = ["## 🤖 Kendini optimize eden model", f"- Optimizasyon çalışmadı: {exc}", ""]
+
     header = [
         "## Tarihsel tekrar oynatma (walk-forward) — kapsam ve sınırlar",
         f"- Dönem: {times[0] if times else '-'} → {times[-1] if times else '-'} · adım: {step_hours} saat · döngü: {len(times)} · hata: {errors}",
@@ -365,7 +388,7 @@ def _run_replay_inner(cache_dir, out_dir, days, step_hours, max_cycles, end):
         "",
     ]
     report_path = os.path.join(out_dir, "historical_replay_report.md")
-    summary = ledger.write_report(report_path, extra_lines=header + ic_lines)
+    summary = ledger.write_report(report_path, extra_lines=header + opt_lines + ic_lines)
     # retitle
     with open(report_path, "r", encoding="utf-8") as fh:
         text = fh.read()

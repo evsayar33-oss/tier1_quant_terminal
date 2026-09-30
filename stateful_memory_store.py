@@ -452,6 +452,29 @@ class StatefulMemoryStore:
         stats["sum_y2"] += y * y
         stats["sum_xy"] += x * y
 
+    def migrate_factor_signs_v34(self) -> int:
+        """Stats recorded before v3.4 used RAW readings; flip them once for
+        base_sign = -1 factors so the stored IC is on the signed reading."""
+        meta = self.memory.setdefault("meta", {})
+        if meta.get("factor_sign_migrated_v34"):
+            return 0
+        try:
+            from config import ASSET_MATRICES
+        except Exception:
+            return 0
+        flipped = 0
+        fm = self.memory.get("factor_memory", {}) or {}
+        for asset, m in ASSET_MATRICES.items():
+            for f in m.get("factors", []):
+                if float(f.get("base_sign", 1.0)) < 0:
+                    st = (fm.get(str(asset)) or {}).get(str(f["id"]))
+                    if isinstance(st, dict):
+                        st["sum_x"] = -float(st.get("sum_x", 0.0))
+                        st["sum_xy"] = -float(st.get("sum_xy", 0.0))
+                        flipped += 1
+        meta["factor_sign_migrated_v34"] = True
+        return flipped
+
     def factor_ic(self, asset: str, factor_id: str, prior_n: float = 60.0) -> Tuple[float, float]:
         stats = self.memory.get("factor_memory", {}).get(str(asset), {}).get(str(factor_id))
         if not stats:
@@ -479,8 +502,8 @@ class StatefulMemoryStore:
         self,
         asset: str,
         factor_id: str,
-        min_mult: float = 0.65,
-        max_mult: float = 1.35,
+        min_mult: float = 0.0,     # v3.4: a proven-useless factor can be switched off
+        max_mult: float = 1.60,
     ) -> Dict[str, float]:
         ic, n = self.factor_ic(asset, factor_id)
         multiplier = float(np.clip(1.0 + 1.75 * ic, min_mult, max_mult))

@@ -112,7 +112,10 @@ class StatefulAdaptiveController:
                 continue
             value = StatefulAdaptiveController._safe_float(row.get("ham_deger"))
             if value is not None:
-                values[fid] = float(np.clip(value, -1.8, 1.8))
+                # v3.4 FIX: record the SIGNED reading. The IC learned from it
+                # scales the SIGNED contribution; with raw values the learning
+                # was inverted for every base_sign = -1 factor.
+                values[fid] = float(np.clip(value, -1.8, 1.8)) * float(factor.get("base_sign", 1.0))
         return values
 
     @staticmethod
@@ -179,6 +182,14 @@ class StatefulAdaptiveController:
         self._bootstrap_from_existing_state()
         now = self._now()
         self.store.apply_decay(now)
+        if not self.store.memory.get("meta", {}).get("factor_sign_migrated_v34"):
+            for obs in self.store.memory.get("pending_observations", []) or []:
+                fac = obs.get("factors")
+                a = str(obs.get("asset", ""))
+                if isinstance(fac, dict):
+                    signs = {str(f["id"]): float(f.get("base_sign", 1.0)) for f in ASSET_MATRICES.get(a, {}).get("factors", [])}
+                    obs["factors"] = {k: float(v) * signs.get(k, 1.0) for k, v in fac.items()}
+            self.store.migrate_factor_signs_v34()
 
         grid = getattr(gatekeeper, "grid_1h", {}) or {}
         settle = self.store.settle_pending(
@@ -243,6 +254,7 @@ class StatefulAdaptiveController:
             else:
                 contrib = node.get("final_contribution")
                 row["puan"] = round(float(contrib), 6) if contrib is not None else None
+        learned_info = self._apply_learned_model(asset_key, regime_id, details, score_model)
         direction_thresholds = self.model.dynamic_thresholds(asset_key, regime_id)
 
         df = self._asset_df(getattr(gatekeeper, "grid_1h", {}) or {}, asset_key)
@@ -285,8 +297,114 @@ class StatefulAdaptiveController:
             "factor_data_coverage": coverage,
             "factor_data_status": score_model.get("data_confidence", data_diag.get("status", "UNKNOWN")),
             "factor_data_diagnostics": data_diag,
+            **learned_info,
         })
+        if learned_info.get("learned_model_status") == "NOT_PROVEN_ABSTAIN":
+            out["entry_allowed"] = False
+            out["entry_reason"] = (
+                "Model bu varlıkta örneklem dışı avantaj kanıtlayamadı (walk-forward) → sinyal üretilmiyor. "
+                + str(out.get("entry_reason", ""))
+            ).strip()
         return out, score_model
+
+    # ------------------------------------------------------------------
+    # v3.4: learned (walk-forward) model
+    # ------------------------------------------------------------------
+    _LEARNED_CACHE: Dict[str, Any] = {"mtime": None, "data": None, "path": None}
+
+    @classmethod
+    def _load_learned(cls) -> Optional[Dict[str, Any]]:
+        if os.environ.get("TIER1_DISABLE_LEARNED") == "1":      # historical replay: no look-ahead
+            return None
+        try:
+            from config import LEARNED_MODEL_PATH
+        except Exception:
+            LEARNED_MODEL_PATH = "validation_reports/learned_model.json"
+        path = LEARNED_MODEL_PATH
+        if not os.path.isabs(path):
+            here = os.path.dirname(os.path.abspath(__file__))
+            path = path if os.path.exists(path) else os.path.join(here, path)
+        try:
+            mt = os.path.getmtime(path)
+        except OSError:
+            return None
+        c = cls._LEARNED_CACHE
+        if c["path"] != path or c["mtime"] != mt:
+            try:
+                with open(path, "r", encoding="utf-8") as fh:
+                    c.update({"data": json.load(fh), "mtime": mt, "path": path})
+            except Exception:
+                return None
+        return c["data"]
+
+    def _apply_learned_model(self, asset_key, regime_id, details, score_model) -> Dict[str, Any]:
+        """Replace the hand-weighted score with the walk-forward-learned one
+        when (and only when) that model has proven itself out-of-sample."""
+        info: Dict[str, Any] = {"legacy_score": float(score_model.get("score", 0.0))}
+        data = self._load_learned()
+        node = (data or {}).get("assets", {}).get(asset_key) if data else None
+        if not node or node.get("status") != "OK":
+            info["learned_model_status"] = "NO_MODEL"
+            return info
+        oos = node.get("oos", {}) or {}
+        info["learned_model_oos"] = {
+            "ic": oos.get("ic"), "t_ic": oos.get("t_ic"),
+            "hit": (oos.get("learned") or {}).get("hit"),
+            "always_long_hit": (oos.get("always_long") or {}).get("hit"),
+            "legacy_hit": (oos.get("legacy_model") or {}).get("hit"),
+            "trained_until": node.get("trained_until"),
+        }
+        try:
+            from config import LEARNED_MODEL_POLICY
+        except Exception:
+            LEARNED_MODEL_POLICY = "abstain"
+        if not node.get("deploy"):
+            if LEARNED_MODEL_POLICY == "abstain":
+                score_model["score"] = 0.0
+                score_model["bull_clusters"] = 0
+                score_model["bear_clusters"] = 0
+                info["learned_model_status"] = "NOT_PROVEN_ABSTAIN"
+            else:
+                info["learned_model_status"] = "NOT_PROVEN_LEGACY"
+            return info
+
+        import walkforward_optimizer as WFO
+        signed: Dict[str, float] = {}
+        matrix = ASSET_MATRICES.get(asset_key, {})
+        by_name = {str(r.get("faktör")): r for r in details if isinstance(r, dict)}
+        cluster_of: Dict[str, str] = {}
+        for f in matrix.get("factors", []):
+            cluster_of[str(f["id"])] = str(f.get("cluster", "E"))
+            row = by_name.get(str(f["name"]))
+            if not row or str(row.get("veri_durumu", "")).upper().startswith("VERİ YETERSİZ"):
+                continue
+            v = self._safe_float(row.get("ham_deger"))
+            if v is not None:
+                signed[str(f["id"])] = float(v) * float(f.get("base_sign", 1.0))
+        res = WFO.score_live(node, signed, regime_id)
+        if res is None:
+            info["learned_model_status"] = "NO_MODEL"
+            return info
+        z = float(res["z"])
+        clusters: Dict[str, float] = {"DRIFT": float(res["drift_component"])}
+        for fid, c in res["contributions"].items():
+            clusters[cluster_of.get(fid, "E")] = clusters.get(cluster_of.get(fid, "E"), 0.0) + c
+        agree = [c for c in clusters.values() if abs(c) >= 0.10 * max(abs(z), 1e-9)]
+        score_model["score"] = round(z, 4)
+        score_model["cluster_scores"] = {k: round(v, 6) for k, v in clusters.items()}
+        score_model["bull_clusters"] = int(sum(1 for c in agree if c > 0))
+        score_model["bear_clusters"] = int(sum(1 for c in agree if c < 0))
+        for row in details:
+            fid = str(row.get("faktor_id", ""))
+            if fid in res["contributions"]:
+                row["puan"] = round(res["contributions"][fid], 6)
+        info.update({
+            "learned_model_status": "ACTIVE",
+            "learned_score": round(z, 4),
+            "learned_drift_component": round(float(res["drift_component"]), 4),
+            "learned_missing_factors": res["missing"],
+        })
+        return info
 
     def finalize_cycle(
         self,
@@ -316,7 +434,17 @@ class StatefulAdaptiveController:
             # 2) XAU/XAG relative-state reconciliation modifies score only.
             pair_state = self.pair.fit(getattr(gatekeeper, "grid_1h", {}) or {})
             self.last_pair_state = pair_state
-            if "XAU" in adaptive and "XAG" in adaptive:
+            def _same_scale(a: str, b: str) -> bool:
+                # v3.4: only reconcile scores that live on the same scale and
+                # are both being published (learned z vs legacy score vs an
+                # abstaining 0 must never be blended).
+                sa = adaptive[a].get("learned_model_status", "NO_MODEL")
+                sb = adaptive[b].get("learned_model_status", "NO_MODEL")
+                if "ABSTAIN" in sa or "ABSTAIN" in sb:
+                    return False
+                return (sa == "ACTIVE") == (sb == "ACTIVE")
+
+            if "XAU" in adaptive and "XAG" in adaptive and _same_scale("XAU", "XAG"):
                 xau_score = float(adaptive["XAU"].get("score", 0.0))
                 xag_score = float(adaptive["XAG"].get("score", 0.0))
                 xau_adj, xag_adj = self.pair.reconcile_scores(xau_score, xag_score, pair_state)
@@ -335,7 +463,7 @@ class StatefulAdaptiveController:
             # divergence. Only the idiosyncratic gap is shrunk, in
             # proportion to how co-moving the pair currently is, and it is
             # released automatically when price confirms a divergence.
-            if "BTC" in adaptive and "ETH" in adaptive and hasattr(gatekeeper, "_pair_state"):
+            if "BTC" in adaptive and "ETH" in adaptive and hasattr(gatekeeper, "_pair_state") and _same_scale("BTC", "ETH"):
                 try:
                     from dynamic_pair_model import DynamicPairModel, ETH_BTC_MODEL
                     eth_btc_state = gatekeeper._pair_state(ETH_BTC_MODEL)
