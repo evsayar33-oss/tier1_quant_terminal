@@ -1,4 +1,5 @@
 from __future__ import annotations
+import datetime as _dt
 
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -24,8 +25,10 @@ def test_direction_ignores_execution_gate(tmp_path: Path):
         "strong_sell_enter": -1.70,
         "min_clusters": 2,
     }
-    first = engine.evaluate("XAU", 5, 0.82, 3, 0, thresholds, "NÖTR (BEKLE)")
-    second = engine.evaluate("XAU", 5, 0.84, 3, 0, thresholds, first["verdict"])
+    t0 = _dt.datetime(2026, 9, 30, 12, tzinfo=_dt.timezone.utc)
+    first = engine.evaluate("XAU", 5, 0.82, 3, 0, thresholds, "NÖTR (BEKLE)", now=t0)
+    # v3.3.6: persistence needs time between samples (hourly inputs)
+    second = engine.evaluate("XAU", 5, 0.84, 3, 0, thresholds, first["verdict"], now=t0 + _dt.timedelta(hours=1))
     assert second["direction"] == "LONG"
     assert second["stage"] in {"EARLY", "CONFIRMED"}
 
@@ -44,8 +47,9 @@ def test_persistence_is_required_for_moderate_early_signal(tmp_path: Path):
         "strong_sell_enter": -1.70,
         "min_clusters": 2,
     }
-    a = engine.evaluate("NQ", 5, 0.60, 2, 0, thresholds)
-    b = engine.evaluate("NQ", 5, 0.61, 2, 0, thresholds, a["verdict"])
+    t0 = _dt.datetime(2026, 9, 30, 12, tzinfo=_dt.timezone.utc)
+    a = engine.evaluate("NQ", 5, 0.60, 2, 0, thresholds, now=t0)
+    b = engine.evaluate("NQ", 5, 0.61, 2, 0, thresholds, a["verdict"], now=t0 + _dt.timedelta(hours=1))
     assert a["stage"] == "NEUTRAL"
     assert b["stage"] in {"EARLY", "CONFIRMED"}
 

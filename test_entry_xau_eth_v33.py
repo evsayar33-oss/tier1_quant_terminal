@@ -21,10 +21,15 @@ def _ohlcv(n=220, zero_every=None, seed=0, session=False):
 
 
 def test_rvol_never_explodes_with_zero_volume_bars():
-    df = _ohlcv(zero_every=3)
+    df = _ohlcv()
+    vol = df["Volume"].to_numpy().copy(); vol[::5] = 0.0          # 20% missing: still measurable
+    df["Volume"] = vol
     p, err = StatefulDynamicEntryEngine().profile(df, now=df.index[-1] + pd.Timedelta(hours=1))
     assert err is None
     assert p["rvol_climax"] < 100 and p["rvol_low"] > 0
+    # 67% missing (BTC-like Yahoo feed): RVOL is unknown, not a number
+    p2, _ = StatefulDynamicEntryEngine().profile(_ohlcv(zero_every=3), now=df.index[-1] + pd.Timedelta(hours=1))
+    assert p2["volume_known"] is False
 
 
 def test_asian_session_bar_is_not_flagged_illiquid():

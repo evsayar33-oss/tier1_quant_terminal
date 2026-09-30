@@ -991,7 +991,8 @@ for k in ASSET_MATRICES.keys():
         "Veri yeterliliği kontrol edilemedi.",
     )
     if data.get("entry_grade") not in (None, "-", ""):
-        entry_rs = f"{entry_rs} | Zamanlama notu {data.get('entry_grade')}: {data.get('entry_timing', '')}"
+        _lbl = "Zamanlama notu" if data.get("entry_allowed") else "Zamanlama (bilgi, giriş kapalı)"
+        entry_rs = f"{entry_rs} | {_lbl} {data.get('entry_grade')}: {data.get('entry_timing', '')}"
 
     rvol_val = safe_float(data.get("rvol"), default=None)
     atr_val = safe_float(data.get("atr_ratio"), default=None)
@@ -1156,7 +1157,8 @@ entry_rs = res.get(
     "",
 )
 if res.get("entry_grade") not in (None, "-", ""):
-    entry_rs = f"{entry_rs} | Zamanlama notu {res.get('entry_grade')}: {res.get('entry_timing', '')}"
+    _lbl = "Zamanlama notu" if res.get("entry_allowed") else "Zamanlama (bilgi, giriş kapalı)"
+    entry_rs = f"{entry_rs} | {_lbl} {res.get('entry_grade')}: {res.get('entry_timing', '')}"
 
 info_cols = st.columns(5)
 with info_cols[0]:
@@ -1170,8 +1172,16 @@ with info_cols[3]:
 with info_cols[4]:
     st.metric("Persistence", str(direction_persistence))
 
+_REASON_TR = {
+    "confirm_threshold + cluster_agreement + persistence_or_impulse":
+        "Teyit eşiği aşıldı + kümeler hemfikir + kalıcılık/itki var (CONFIRMED)",
+    "early_threshold + live_velocity_or_dispersion_or_persistence":
+        "Erken eşik aşıldı + skor hızı/dağılım/kalıcılık destekliyor (EARLY)",
+    "hysteresis_hold": "Önceki yön korunuyor (histerezis: çıkış eşiği henüz kırılmadı)",
+    "direction_conditions_not_met": "Yön koşulları sağlanmadı: skor eşiklerin altında veya kümeler bölünmüş",
+}
 if direction_reason:
-    st.caption(f"🧭 Yön gerekçesi (Model Sinyali, 24s-1h ufuk): {direction_reason}")
+    st.caption(f"🧭 Yön gerekçesi (Model Sinyali, 24s-1h ufuk): {_REASON_TR.get(direction_reason, direction_reason)}")
 
 intraday_regime = res.get("intraday_regime", {}) or {}
 if intraday_regime.get("label"):
@@ -1202,6 +1212,17 @@ with col_card1:
 
 
     if (
+        "GÜÇLÜ"
+        in verdict
+        and "SAT" in verdict
+    ):
+
+        st.error(
+            f"### 🔮 Nihai Teyitli Sinyal: "
+            f"**{icon} {verdict}**"
+        )
+
+    elif (
         "GÜÇLÜ"
         in verdict
     ):
@@ -1239,10 +1260,7 @@ with col_card1:
         )
 
 
-    if (
-        "ÖNERİLMEZ"
-        in entry_st
-    ):
+    if not bool(res.get("entry_allowed", False)):
 
         st.warning(
             f"⚠️ **Giriş Filtresi:** "

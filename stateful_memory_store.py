@@ -789,6 +789,12 @@ class StatefulMemoryStore:
             var = max((1.0 - alpha) * (old_var + alpha * delta * delta), 0.0)
             n = min(old_n + 1.0, 5000.0)
         abs_scores = list(state.get("abs_scores", []))
+        # v3.3.6: re-evaluations < 45 min apart (page refreshes on the same
+        # hourly bar) replace the last point instead of adding a duplicate.
+        if last is not None and elapsed_h < 0.75 and abs_scores:
+            abs_scores[-1] = float(abs(value))
+            state.update({"abs_scores": abs_scores})
+            return
         abs_scores.append(float(abs(value)))
         abs_scores = abs_scores[-256:]
         state.update({

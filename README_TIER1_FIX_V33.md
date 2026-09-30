@@ -114,3 +114,17 @@ volatilitesi 6/22 döngüde "BİLİNMİYOR" idi.
    tanımı için ATR, veri bayat olsa da gerçek 1H barlardan hesaplanır (işlem izni vermez).
 Gerçek veri + gerçek hafızayla 3 ardışık döngü (11:57/12:10/15:23): sahte rejim olayı 6/6 → 0, bayat veride
 ATR 0.00 + "BİLİNMİYOR" (eski) → korunuyor.
+
+## v3.3.6 — Uygulamanın kendisi (sahte Streamlit ile birebir sayfa dökümü) üzerinden denetim
+1. **Yenileme pompası (en ciddi):** yön motoru her değerlendirmede yeni örnek ekliyordu; zaman paydası alt sınırı 30 sn.
+   Arka plan döngüsünden 4 dk sonra çalışan bir değerlendirme ETH yön hızını −4.47/saat, BTC'yi −1.30/saat yaptı;
+   sayfa yenilemek "kalıcılık" sayacını şişirip CONFIRMED'e taşıyabiliyordu. Artık 45 dk'dan yakın değerlendirmeler
+   son örneği günceller (yeni örnek eklemez); hız/ivme paydası en az 1 saat. Skor dağılımları için de aynı kural.
+2. **Rejim olayı yalnız gerçek kırılmada:** YATAY ↔ GÜÇLÜ (iki kademe) veya volatilite durumu değişimi. ADX'in 20/22'yi
+   geçmesi (GELİŞEN ↔ komşu) artık "⚠️ REJİM GEÇİŞİ" + eşik genişletmesi üretmez (15:34'te SPX ve XAG böyleydi).
+3. **Güvenilmez hacim = "—":** hacimsiz bar oranı >%35 ise RVOL ölçüm sayılmaz (BTC'de sahte 10.85x). Aynı-saat
+   tabanı en az 5 gözlem ister.
+4. **Arayüz:** "GÜÇLÜ SAT" yeşil kutuda gösteriliyordu → kırmızı. Giriş filtresi yalnız "ÖNERİLMEZ" metnine bakıyordu;
+   "YÖN SİNYALİ YOK / ZAMANLAMA / FİYAT TEYİDİ BEKLENİYOR" yeşil ✅ çıkıyordu → artık `entry_allowed`'a bakar.
+   Giriş kapalıyken gerekçe "Dinamik giriş uygun" / "Zamanlama notu A" diye başlamaz ("Piyasa koşulu uygun (giriş yok)",
+   "Zamanlama (bilgi, giriş kapalı)"). Ham kod `direction_conditions_not_met` yerine Türkçe açıklama.

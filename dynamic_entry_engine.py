@@ -15,6 +15,9 @@ import numpy as np
 import pandas as pd
 
 
+MAX_MISSING_VOLUME_SHARE = 0.35   # v3.3.6
+
+
 class StatefulDynamicEntryEngine:
     def __init__(
         self,
@@ -90,12 +93,20 @@ class StatefulDynamicEntryEngine:
         rvol = (volume / rvol_base.where(rvol_base > 0)).astype(float)
 
         volume_known = bool(np.isfinite(rvol.iloc[-1]) and rvol.iloc[-1] > 0)
+        # v3.3.6: if the feed leaves most bars without volume (Yahoo crypto
+        # hourly: BTC ~60% zeros, values jumping 10M <-> 5B) RVOL is not a
+        # measurement -- live BTC showed a fake 10.85x. Treat as unknown.
+        _recent = x["Volume"].tail(self.window)
+        self_missing_share = float((~(_recent > 0)).mean()) if len(_recent) else 1.0
+        if self_missing_share > MAX_MISSING_VOLUME_SHARE:
+            volume_known = False
+            rvol.iloc[-1] = np.nan
         if not volume_known:
             # Current bar volume not reported (crypto hourly gaps): fall back to
             # the latest reported bar within 2 bars, else volume is "unknown".
             recent = rvol.iloc[-3:-1].dropna()
             recent = recent[recent > 0]
-            if not recent.empty:
+            if not recent.empty and self_missing_share <= MAX_MISSING_VOLUME_SHARE:
                 rvol.iloc[-1] = float(recent.iloc[-1])
                 volume_known = True
 
@@ -140,6 +151,7 @@ class StatefulDynamicEntryEngine:
             "history_n": float(len(ah)) if not volume_known else float(min(len(ah), len(rh))),
             "volume_known": volume_known,
             "partial_bar_fraction": partial_frac,
+            "volume_missing_share": round(self_missing_share, 3),
             "rvol_method": "same-hour median (time-of-day seasonal), zero volume = missing",
         }, None
 
@@ -181,7 +193,7 @@ class StatefulDynamicEntryEngine:
             return fallback
         hours = volume.index.hour
         seasonal = volume.groupby(hours).transform(
-            lambda s: s.shift(1).rolling(10, min_periods=3).median()
+            lambda s: s.shift(1).rolling(10, min_periods=5).median()
         )
         return seasonal.where(seasonal.notna(), fallback)
 

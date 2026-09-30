@@ -1048,6 +1048,8 @@ class PreTradeGatekeeper:
             _prof = v.get("stateful_entry_profile") or {}
             if _prof.get("rvol") is not None:
                 v["rvol"] = round(float(_prof["rvol"]), 2)   # v3.3.2: one RVOL on screen
+            elif _prof and _prof.get("volume_known") is False:
+                v["rvol"] = None                              # v3.3.6: unreliable feed -> "—", not a fake number
             if _prof.get("atr_ratio") is not None and float(v.get("atr_ratio") or 0.0) <= 0.05:
                 v["atr_ratio"] = round(float(_prof["atr_ratio"]), 2)   # v3.3.3: BTC showed 0.00x
             self._flag_live_vs_model(v)
@@ -1113,4 +1115,9 @@ class PreTradeGatekeeper:
                     "🟢 İŞLEME GİRİŞ ÖNERİLİR (A: tüm zaman dilimleri onaylı)" if grade == "A"
                     else "🟢 İŞLEME GİRİŞ UYGUN (B: öncü sinyal + LTF tetik)"
                 )
+        # v3.3.6: a blocked entry must never read like a recommendation
+        for v in (verdicts or {}).values():
+            if isinstance(v, dict) and not v.get("entry_allowed"):
+                r = str(v.get("entry_reason", ""))
+                v["entry_reason"] = r.replace("Dinamik giriş uygun", "Piyasa koşulu uygun (giriş yok)")
         return verdicts

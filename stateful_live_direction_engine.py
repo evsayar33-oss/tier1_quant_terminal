@@ -64,6 +64,22 @@ class StatefulLiveDirectionEngine:
         except (TypeError, ValueError):
             return default
 
+    @staticmethod
+    def _significant_change(old: str, new: str) -> bool:
+        """v3.3.6: a regime EVENT (warning + threshold widening) needs a real
+        break: trend jumps two steps (YATAY <-> GÜÇLÜ) or the volatility state
+        changes. Adjacent trend steps (ADX crossing 20 or 22) are routine and
+        were flagging a 'regime transition' on ordinary drifts."""
+        order = {"YATAY / TESTERE": 0, "GELİŞEN TREND": 1, "GÜÇLÜ TREND": 2}
+        try:
+            ot, ov = old.split(" · ", 1)
+            nt, nv = new.split(" · ", 1)
+        except ValueError:
+            return True
+        if ov != nv:
+            return True
+        return abs(order.get(ot, 1) - order.get(nt, 1)) >= 2
+
     def _abs_scores(self, asset: str, key: Optional[str]):
         node = (self.store.memory.get("score_distribution", {}) or {}).get(str(asset), {}) or {}
         out = []
@@ -120,7 +136,9 @@ class StatefulLiveDirectionEngine:
         # carry a meaningless 'since' = last write time).
         _from = str(node.get("changed_from") or "")
         # A switch from/to "VOLATİLİTE BİLİNMİYOR" is a DATA change, not a market one.
-        regime_event = bool(_from) and fresh > 0.0 and "BİLİNMİYOR" not in _from and "BİLİNMİYOR" not in regime_label
+        regime_event = (bool(_from) and fresh > 0.0 and "BİLİNMİYOR" not in _from
+                        and "BİLİNMİYOR" not in regime_label
+                        and self._significant_change(_from, regime_label))
         if not regime_event:
             fresh = 0.0
         widen = 1.0 + (EVENT_WIDEN_FACTOR - 1.0) * fresh

@@ -34,6 +34,9 @@ EARLY_PERSISTENCE_REQUIRED = 2
 CONFIRM_PERSISTENCE_REQUIRED = 2
 
 
+MIN_SAMPLE_SPACING_H = 0.75   # v3.3.6: hourly inputs -> at most ~1 runtime sample per hour
+
+
 class StatefulDirectionEngine:
     """Direction state machine with bounded live threshold modulation."""
 
@@ -97,16 +100,30 @@ class StatefulDirectionEngine:
             except (TypeError, ValueError):
                 elapsed_h = 0.5
 
-        velocity = 0.0 if previous_score is None else (score - previous_score) / elapsed_h
+        # v3.3.6: the inputs are HOURLY bars. (a) velocity/acceleration use at
+        # least a 1h denominator (the 30-second floor let an app refresh 2 min
+        # after the background run inflate velocity 30x and acceleration 900x);
+        # (b) evaluations closer than MIN_SAMPLE_SPACING_H REPLACE the last
+        # sample instead of appending, so refreshing the page cannot pump
+        # 'persistence' up to the CONFIRMED requirement.
+        replace_last = bool(samples) and previous_update is not None and elapsed_h < MIN_SAMPLE_SPACING_H
         previous_velocity = self._finite(state.get("last_velocity"), 0.0)
-        acceleration = 0.0 if previous_score is None else (velocity - previous_velocity) / elapsed_h
+        if replace_last:
+            velocity = previous_velocity
+            acceleration = self._finite(state.get("last_acceleration"), 0.0)
+        else:
+            dt_h = max(elapsed_h, 1.0)
+            velocity = 0.0 if previous_score is None else (score - previous_score) / dt_h
+            acceleration = 0.0 if previous_score is None else (velocity - previous_velocity) / dt_h
 
         old_n = self._finite(state.get("n"), 0.0)
         old_mean = self._finite(state.get("mean_score"), 0.0)
         old_var = max(self._finite(state.get("variance_score"), 0.0), 0.0)
         alpha = float(np.clip(1.0 - math.exp(-math.log(2.0) * elapsed_h / self.store.half_life_hours), 0.005, 0.50))
 
-        if old_n <= 0.0:
+        if replace_last:
+            new_mean, new_var, new_n = old_mean, old_var, max(old_n, 1.0)
+        elif old_n <= 0.0:
             new_mean, new_var, new_n = score, 0.0, 1.0
         else:
             delta = score - old_mean
@@ -114,11 +131,15 @@ class StatefulDirectionEngine:
             new_var = max((1.0 - alpha) * (old_var + alpha * delta * delta), 0.0)
             new_n = min(old_n + 1.0, 500.0)
 
-        samples.append({
+        _sample = {
             "ts": now.astimezone(timezone.utc).isoformat(),
             "score": float(score),
             "side": candidate_side,
-        })
+        }
+        if replace_last:
+            samples[-1] = _sample
+        else:
+            samples.append(_sample)
         samples = samples[-MAX_RUNTIME_SAMPLES:]
         persistence = 0
         if candidate_side != "NEUTRAL":
@@ -135,7 +156,7 @@ class StatefulDirectionEngine:
             "last_score": float(score),
             "last_velocity": float(velocity),
             "last_acceleration": float(acceleration),
-            "last_update_at": now.astimezone(timezone.utc).isoformat(),
+            "last_update_at": previous_update if replace_last else now.astimezone(timezone.utc).isoformat(),
             "same_side_persistence": int(persistence),
             "recent_scores": samples,
         }
