@@ -426,7 +426,21 @@ class StatefulAdaptiveController:
                                 out["atr_ratio"] = round(atr_ratio, 2)
                     except (TypeError, ValueError):
                         pass
-                    regime_info = RobustQuantProcessor.classify_intraday_regime(adx_val, atr_ratio)
+                    if float(atr_ratio or 0.0) <= 0.05:
+                        # v3.3.5: ATR only DESCRIBES the regime here (no execution
+                        # permission), so stale-but-real bars are fine: compute it
+                        # straight from the 1H frame instead of "VOLATİLİTE BİLİNMİYOR".
+                        try:
+                            _pp, _ = self.entry.profile(df_live)
+                            if _pp and _pp.get("atr_ratio"):
+                                atr_ratio = float(_pp["atr_ratio"])
+                                out["atr_ratio"] = round(atr_ratio, 2)
+                        except Exception:
+                            pass
+                    _prev = self.live_direction.store.get_intraday_regime(asset_key) or {}
+                    regime_info = RobustQuantProcessor.classify_intraday_regime(
+                        adx_val, atr_ratio, prev_label=_prev.get("label")
+                    )
                     leading_bias = self._leading_bias_for_asset(asset_key, gatekeeper)
                     live_state = self.live_direction.evaluate(
                         asset=asset_key,

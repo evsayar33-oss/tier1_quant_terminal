@@ -94,3 +94,23 @@ Değişen dosyalar: `dynamic_entry_engine.py`, `gatekeeper.py`, `quant_processor
 (12:04 UTC SPX: kademe HAFİF, etiket YATAY; 12:06 SPX: kademe HAFİF, etiket YUKARI). Aynı döngüde BTC/ETH ve
 XAU/XAG da etkilenmişti. Yeni: yalnız gerçek ÇELİŞKİDE (zıt işaret) ortak-faktör küçültmesi (%50); aynı yönde
 her varlık kendi adaptif etiketini korur; etiketleme canlı motorla aynı şema ve varlığın kendi eşikleriyle yapılır.
+
+## v3.3.5 — Canlı Yön tablosunun dinamikleri (2026-09-30)
+Son 22 canlı döngü ölçüldü: "rejim geçişi" SPX/BTC'de döngülerin %40'ında (9/22) tetikleniyordu; SPX eşikleri
+22 döngünün yalnız 2'sinde adaptifti (NQ'da 12) → aynı çift iki farklı eşik sistemiyle etiketleniyordu; BTC
+volatilitesi 6/22 döngüde "BİLİNMİYOR" idi.
+
+1. **Rejim etiketi histerezisli** (`classify_intraday_regime`): GÜÇLÜ TREND'e ADX≥25 ile girilir, <22 ile çıkılır;
+   GELİŞEN 20/17.5; YÜKSEK VOL 1.35/1.25; DÜŞÜK VOL 0.70/0.78. Eşik sınırında her döngü etiket değişmez.
+2. **"since" düzeltmesi** (`stateful_memory_store`): etiketin başlama zamanı her yazımda sıfırlanıyordu.
+   Artık yalnız etiket değişince yazılır ve hangi etiketten gelindiği (`changed_from`) kaydedilir.
+3. **Rejim olayı yaşlanır:** eşik genişletmesi ×1.25'ten başlayıp 2 saatte doğrusal olarak sıfırlanır; yalnız kayıtlı
+   gerçek değişim sayılır; "VOLATİLİTE BİLİNMİYOR" ↔ bilinen geçişi (veri kalitesi) olay değildir.
+4. **Eşikler ampirik-Bayes küçültmeli:** rejim kovası (çoğunda n<10) varlığın tüm canlı skor havuzuna
+   w = n/(n+12) ile çekilir; havuz da azsa bootstrap'a. Kademeler arası asgari oran 1.15 (p70≈p85 çökmesi yok).
+   SPX ve NQ artık aynı yöntemle, benzer eşiklerle etiketlenir.
+5. **ATR hacimden bağımsız:** BTC'de Yahoo saatlik barların yalnız ~%40'ında hacim veriyor; RVOL ısınmasında tüm
+   profil boş dönüyor, ATR de kayboluyordu. Artık hacim "bilinmiyor" olur, ATR korunur (BTC 0.00x → 0.88x). Rejim
+   tanımı için ATR, veri bayat olsa da gerçek 1H barlardan hesaplanır (işlem izni vermez).
+Gerçek veri + gerçek hafızayla 3 ardışık döngü (11:57/12:10/15:23): sahte rejim olayı 6/6 → 0, bayat veride
+ATR 0.00 + "BİLİNMİYOR" (eski) → korunuyor.

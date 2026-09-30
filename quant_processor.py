@@ -284,7 +284,7 @@ class RobustQuantProcessor:
         return score, meta
 
     @staticmethod
-    def classify_intraday_regime(adx_val, atr_ratio):
+    def classify_intraday_regime(adx_val, atr_ratio, prev_label=None):
         """
         Günün (gün-içi) rejimini trend gücü (ADX) ve volatilite (ATR oranı)
         eksenlerinde sınıflandırır. Bu etiket, "Canlı Fiyat Yönü" için hangi
@@ -311,18 +311,27 @@ class RobustQuantProcessor:
         # kabul edilir; sahte bir vol_state üretilmez.
         atr_known = atr_ratio > 0.05
 
-        if adx_val >= 25.0:
+        # v3.3.5 — HYSTERESIS. Without it ADX 24.9 <-> 25.1 or ATR 1.34 <-> 1.36
+        # flipped the label every cycle; each flip was a "regime event" that
+        # widened the thresholds x1.25 (SPX/BTC: 9 of 22 cycles) and pushed the
+        # live direction to YATAY. Enter at the classic level, exit ~10% lower.
+        prev_trend, prev_vol = "", ""
+        if prev_label and " · " in str(prev_label):
+            prev_trend, prev_vol = str(prev_label).split(" · ", 1)
+        strong_th = 22.0 if prev_trend == "GÜÇLÜ TREND" else 25.0
+        dev_th = 17.5 if prev_trend in ("GÜÇLÜ TREND", "GELİŞEN TREND") else 20.0
+        if adx_val >= strong_th:
             trend_state = "GÜÇLÜ TREND"
-        elif adx_val >= 20.0:
+        elif adx_val >= dev_th:
             trend_state = "GELİŞEN TREND"
         else:
             trend_state = "YATAY / TESTERE"
 
         if not atr_known:
             vol_state = "VOLATİLİTE BİLİNMİYOR (VERİ YETERSİZ)"
-        elif atr_ratio >= 1.35:
+        elif atr_ratio >= (1.25 if prev_vol.startswith("YÜKSEK") else 1.35):
             vol_state = "YÜKSEK VOLATİLİTE"
-        elif atr_ratio <= 0.70:
+        elif atr_ratio <= (0.78 if prev_vol.startswith("DÜŞÜK") else 0.70):
             vol_state = "DÜŞÜK VOLATİLİTE / SIKIŞMA"
         else:
             vol_state = "NORMAL VOLATİLİTE"

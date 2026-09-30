@@ -40,7 +40,10 @@ BOOTSTRAP_P50 = 0.45
 BOOTSTRAP_P70 = 0.85
 BOOTSTRAP_P85 = 1.35
 MIN_HISTORY_FOR_ADAPTIVE = 8.0
-EVENT_WIDEN_FACTOR = 1.25  # rejim yeni değiştiyse eşikleri %25 genişlet
+EVENT_WIDEN_FACTOR = 1.25  # rejim yeni değiştiyse eşikleri %25 genişlet (yaşla söner)
+EVENT_DECAY_HOURS = 2.0    # v3.3.5: genişletme 2 saatte doğrusal olarak sıfıra iner
+SHRINK_K = 12.0            # v3.3.5: rejim kovası güveni w = n/(n+K)
+MIN_TIER_RATIO = 1.15      # v3.3.5: kademeler arası asgari oran (p70>=1.15*p50 ...)
 
 
 class StatefulLiveDirectionEngine:
@@ -61,6 +64,24 @@ class StatefulLiveDirectionEngine:
         except (TypeError, ValueError):
             return default
 
+    def _abs_scores(self, asset: str, key: Optional[str]):
+        node = (self.store.memory.get("score_distribution", {}) or {}).get(str(asset), {}) or {}
+        out = []
+        for k, st in node.items():
+            if not str(k).startswith(LIVE_REGIME_PREFIX):
+                continue
+            if key is not None and k != key:
+                continue
+            out.extend(float(x) for x in (st.get("abs_scores") or []) if np.isfinite(float(x)))
+        return out
+
+    @staticmethod
+    def _quantiles(vals):
+        if not vals:
+            return (0.0, 0.0, 0.0), 0
+        arr = np.asarray(vals[-512:], dtype=float)
+        return tuple(float(np.quantile(arr, q)) for q in (0.50, 0.70, 0.85)), int(len(arr))
+
     def evaluate(
         self,
         asset: str,
@@ -76,33 +97,55 @@ class StatefulLiveDirectionEngine:
         leading_bias = float(np.clip(self._finite(leading_bias), -0.35, 0.35))
         adjusted_score = float(np.clip(score + leading_bias, -4.0, 4.0))
 
-        # --- Rejim olayı (gün-içi rejim değişimi) tespiti ---
+        # --- Rejim olayı (v3.3.5) ---
+        # Eskisi: etiket son YAZIMDAN beri değiştiyse "olay" -> 3-6 saatlik
+        # arka plan aralığında ve histerezissiz etiketlerde döngülerin %40'ında
+        # tetikleniyor, eşikleri sabit x1.25 genişletip yönü YATAY'a itiyordu.
+        # Yeni: olay = etiketin YENİ başlaması; etkisi yaşla doğrusal söner
+        # (EVENT_DECAY_HOURS sonra sıfır). Etiket histerezisli (quant_processor).
         prev = self.store.get_intraday_regime(asset)
         prev_label = str(prev.get("label")) if prev else None
-        regime_event = bool(prev_label) and prev_label != regime_label
         self.store.set_intraday_regime(asset, regime_label, now=current)
+        node = self.store.get_intraday_regime(asset) or {}
+        since = node.get("since")
+        try:
+            since_dt = datetime.fromisoformat(str(since).replace("Z", "+00:00"))
+            if since_dt.tzinfo is None:
+                since_dt = since_dt.replace(tzinfo=timezone.utc)
+            age_h = max((current - since_dt).total_seconds() / 3600.0, 0.0)
+        except Exception:
+            age_h = 0.0 if (prev_label and prev_label != regime_label) else EVENT_DECAY_HOURS
+        fresh = max(0.0, 1.0 - age_h / EVENT_DECAY_HOURS)
+        # Only a RECORDED change counts (legacy entries without 'changed_from'
+        # carry a meaningless 'since' = last write time).
+        _from = str(node.get("changed_from") or "")
+        # A switch from/to "VOLATİLİTE BİLİNMİYOR" is a DATA change, not a market one.
+        regime_event = bool(_from) and fresh > 0.0 and "BİLİNMİYOR" not in _from and "BİLİNMİYOR" not in regime_label
+        if not regime_event:
+            fresh = 0.0
+        widen = 1.0 + (EVENT_WIDEN_FACTOR - 1.0) * fresh
 
-        # --- Bu varlık + bu gün-içi rejim için dinamik (kendi kendini
-        # güncelleyen) yüzdelik eşikler. Yeterli tarihçe yoksa güvenli bir
-        # başlangıç (bootstrap) eşiği kullanılır. ---
+        # --- Eşikler (v3.3.5): ampirik-Bayes küçültmesi ---
+        # Eskisi: 12 (trend x volatilite) kovasının HER BİRİ ayrı; çoğunda n<8
+        # -> sabit bootstrap. Aynı çiftte SPX bootstrap, NQ adaptif eşikle
+        # etiketleniyordu; kova değişince eşik sıçrıyordu; n~10'da p70~p85.
+        # Yeni: rejim kovası, varlığın TÜM canlı skor havuzuna doğru
+        # w = n_r / (n_r + SHRINK_K) ile çekilir; havuz da azsa bootstrap'a.
         dist_key = f"{LIVE_REGIME_PREFIX}{regime_label}"
-        snapshot = self.store.score_distribution_snapshot(asset, dist_key)
-        n = float(snapshot.get("n", 0.0))
-        if n >= MIN_HISTORY_FOR_ADAPTIVE:
-            p50 = max(float(snapshot.get("abs_score_p50", BOOTSTRAP_P50)), 0.10)
-            p70 = max(float(snapshot.get("abs_score_p70", BOOTSTRAP_P70)), p50 + 0.05)
-            p85 = max(float(snapshot.get("abs_score_p85", BOOTSTRAP_P85)), p70 + 0.05)
-            adaptive = True
-        else:
-            p50, p70, p85 = BOOTSTRAP_P50, BOOTSTRAP_P70, BOOTSTRAP_P85
-            adaptive = False
-
-        # Rejim yeni değiştiyse: geçiş anındaki gürültü/yanlış sinyal
-        # riskini azaltmak için eşikleri geçici olarak genişlet.
-        if regime_event:
-            p50 *= EVENT_WIDEN_FACTOR
-            p70 *= EVENT_WIDEN_FACTOR
-            p85 *= EVENT_WIDEN_FACTOR
+        reg_q, n_r = self._quantiles(self._abs_scores(asset, dist_key))
+        pool_q, n_p = self._quantiles(self._abs_scores(asset, None))
+        boot = (BOOTSTRAP_P50, BOOTSTRAP_P70, BOOTSTRAP_P85)
+        wp = min(n_p / MIN_HISTORY_FOR_ADAPTIVE, 1.0)
+        base = tuple(wp * pool_q[i] + (1.0 - wp) * boot[i] for i in range(3)) if n_p else boot
+        known_vol = "BİLİNMİYOR" not in regime_label
+        wr = (n_r / (n_r + SHRINK_K)) if (n_r and known_vol) else 0.0
+        q = [wr * reg_q[i] + (1.0 - wr) * base[i] for i in range(3)] if n_r else list(base)
+        p50 = max(q[0], 0.10)
+        p70 = max(q[1], p50 * MIN_TIER_RATIO)
+        p85 = max(q[2], p70 * MIN_TIER_RATIO)
+        p50, p70, p85 = p50 * widen, p70 * widen, p85 * widen
+        adaptive = n_p >= MIN_HISTORY_FOR_ADAPTIVE
+        n = float(n_r)
 
         abs_score = abs(adjusted_score)
         sign = 1 if adjusted_score > 0 else (-1 if adjusted_score < 0 else 0)
@@ -157,6 +200,8 @@ class StatefulLiveDirectionEngine:
             "live_thresholds": {"p50": round(p50, 4), "p70": round(p70, 4), "p85": round(p85, 4)},
             "live_thresholds_adaptive": adaptive,
             "live_history_n": round(n, 2),
+            "live_regime_age_h": round(age_h, 2),
+            "live_pool_n": int(n_p),
             "ret_pct_1h": round(self._finite(ret_pct_1h), 4),
             "ret_pct_2h": round(self._finite(ret_pct_2h), 4),
         }

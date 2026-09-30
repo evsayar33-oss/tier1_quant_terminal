@@ -66,8 +66,7 @@ class StatefulDynamicEntryEngine:
         # 20-bar baseline of zeros made RVOL = vol / 1e-12 ~ 1e18 (live ETH/BTC
         # rvol_climax 1.6e19 -> the climax filter was silently disabled).
         volume = x["Volume"].astype(float).where(x["Volume"] > 0)
-        if int(volume.notna().sum()) < self.min_history:
-            return None, "RVOL için yeterli gerçek hacim gözlemi yok."
+        # (v3.3.5) few reported volumes -> volume "unknown" below, ATR still valid
 
         h = x["High"]
         l = x["Low"]
@@ -109,17 +108,22 @@ class StatefulDynamicEntryEngine:
         ah = atr_ratio.iloc[:-1].replace([np.inf, -np.inf], np.nan).dropna().tail(self.window)
         rh = rvol.iloc[:-1].replace([np.inf, -np.inf], np.nan).dropna()
         rh = rh[rh > 0].tail(self.window)
-        if len(ah) < self.min_history or len(rh) < self.min_history:
-            return None, (
-                f"Dinamik eşik warm-up eksik: ATR {len(ah)}/{self.min_history}, "
-                f"RVOL {len(rh)}/{self.min_history}."
-            )
+        if len(ah) < self.min_history:
+            return None, f"Dinamik eşik warm-up eksik: ATR {len(ah)}/{self.min_history}."
+        # v3.3.5: Yahoo reports volume on only ~40% of BTC hourly bars. Too few
+        # RVOL observations must NOT discard the (fully valid) ATR profile --
+        # that made BTC's volatility "0.00x / BİLİNMİYOR". Volume becomes
+        # "unknown" instead and the gate runs on ATR alone.
+        if len(rh) < self.min_history:
+            volume_known = False
+            rh = pd.Series([1.0] * self.min_history, dtype=float)   # neutral placeholder, never compared
 
         atr_low = float(np.quantile(ah.to_numpy(float), 0.05))
         atr_high = float(np.quantile(ah.to_numpy(float), 0.95))
-        rvol_low = float(np.quantile(rh.to_numpy(float), 0.05))
-        rvol_strong = float(np.quantile(rh.to_numpy(float), 0.70))
-        rvol_climax = float(np.quantile(rh.to_numpy(float), 0.99))
+        nanv = float("nan")
+        rvol_low = float(np.quantile(rh.to_numpy(float), 0.05)) if volume_known else nanv
+        rvol_strong = float(np.quantile(rh.to_numpy(float), 0.70)) if volume_known else nanv
+        rvol_climax = float(np.quantile(rh.to_numpy(float), 0.99)) if volume_known else nanv
         atr_rank = float((ah <= last_atr).mean())
         rvol_rank = float((rh <= last_rvol).mean()) if volume_known else float("nan")
 
@@ -133,7 +137,7 @@ class StatefulDynamicEntryEngine:
             "rvol_climax": rvol_climax,
             "atr_rank": atr_rank,
             "rvol_rank": rvol_rank,
-            "history_n": float(min(len(ah), len(rh))),
+            "history_n": float(len(ah)) if not volume_known else float(min(len(ah), len(rh))),
             "volume_known": volume_known,
             "partial_bar_fraction": partial_frac,
             "rvol_method": "same-hour median (time-of-day seasonal), zero volume = missing",

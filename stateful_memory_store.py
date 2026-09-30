@@ -824,10 +824,15 @@ class StatefulMemoryStore:
 
     def set_intraday_regime(self, asset: str, label: str, now: Optional[datetime] = None) -> None:
         with _LOCK:
-            self.memory.setdefault("intraday_regime_state", {})[str(asset)] = {
-                "label": str(label),
-                "since": _iso(now or _utc_now()),
-            }
+            node = self.memory.setdefault("intraday_regime_state", {})
+            prev = node.get(str(asset)) or {}
+            # v3.3.5: 'since' = when THIS label started, not the last write
+            # (it was overwritten every cycle, so regime age was always 0).
+            if prev.get("label") == str(label) and prev.get("since"):
+                node[str(asset)] = dict(prev)          # unchanged: keep start time + origin
+            else:
+                node[str(asset)] = {"label": str(label), "since": _iso(now or _utc_now()),
+                                    "changed_from": prev.get("label")}
 
     # ------------------------------------------------------------------
     # Memory diagnostics
