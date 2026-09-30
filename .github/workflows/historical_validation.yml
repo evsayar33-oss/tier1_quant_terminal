@@ -14,11 +14,11 @@ on:
       days:
         description: "Kaç günlük geçmiş test edilsin (en fazla ~700)"
         required: false
-        default: "365"
+        default: "700"
       step_hours:
         description: "Kaç saatte bir karar üretilsin (küçük = daha çok örnek, daha uzun süre)"
         required: false
-        default: "4"
+        default: "2"
   schedule:
     - cron: '17 6 * * 6'
 
@@ -53,8 +53,8 @@ jobs:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
         run: |
           python historical_replay.py \
-            --days "${{ github.event.inputs.days || '365' }}" \
-            --step-hours "${{ github.event.inputs.step_hours || '4' }}" \
+            --days "${{ github.event.inputs.days || '700' }}" \
+            --step-hours "${{ github.event.inputs.step_hours || '2' }}" \
             --out validation_reports
 
       - name: Commit report
