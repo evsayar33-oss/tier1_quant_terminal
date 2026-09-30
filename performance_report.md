@@ -1,6 +1,6 @@
 # 📊 Canlı Performans Karnesi (örneklem dışı, ileriye dönük)
 
-_Son güncelleme: 2026-09-30T05:49:40.292805+00:00 · döngü: 20 · kayıt: 92 (notlanan: 86)_
+_Son güncelleme: 2026-09-30T11:57:15.188944+00:00 · döngü: 21 · kayıt: 98 (notlanan: 92)_
 
 Bu sayfa sistemin **yayınladığı nihai sinyalleri** gerçekleşen fiyatla notlar. Model bu sayfadan öğrenmez; sadece hakemdir. Bir satırın güvenilir olması için en az **30** bağımsız (çakışmayan) örnek gerekir.
 
@@ -8,14 +8,14 @@ Bu sayfa sistemin **yayınladığı nihai sinyalleri** gerçekleşen fiyatla not
 
 ## Genel
 ### 4 saat sonrası
-- **Model:** %69.8 isabet · ort +17 bps · n=53 (bağımsız 37, alt sınır %56)
-- Hep AL: %30.2 isabet · ort -17 bps · n=53 (bağımsız 37, alt sınır %19)
+- **Model:** %69.1 isabet · ort +16 bps · n=55 (bağımsız 39, alt sınır %56)
+- Hep AL: %30.9 isabet · ort -16 bps · n=55 (bağımsız 39, alt sınır %20)
 - Trend takibi: %41.7 isabet · ort -1 bps · n=48 (bağımsız 35, alt sınır %29)
 - Sadece giriş izni verilenler: %65.5 isabet · ort +26 bps · n=29 (bağımsız 19, alt sınır %47) ⚠️az bağımsız örnek
 - Zamanlama notu A: %70.8 isabet · ort +22 bps · n=24 (bağımsız 16, alt sınır %50) ⚠️az bağımsız örnek
 - Zamanlama notu B: %53.8 isabet · ort +6 bps · n=13 (bağımsız 10, alt sınır %30) ⚠️az bağımsız örnek
-- Zamanlama notu C: %81.2 isabet · ort +19 bps · n=16 (bağımsız 14, alt sınır %60) ⚠️az bağımsız örnek
-- Sonuç: ✅ Kanıtlanmış avantaj: en iyi basit yöntemden +28.1 puan iyi ve alt güven sınırı %50'nin üzerinde.
+- Zamanlama notu C: %77.8 isabet · ort +15 bps · n=18 (bağımsız 16, alt sınır %57) ⚠️az bağımsız örnek
+- Sonuç: ✅ Kanıtlanmış avantaj: en iyi basit yöntemden +27.4 puan iyi ve alt güven sınırı %50'nin üzerinde.
 
 ### 24 saat sonrası
 - **Model:** %61.7 isabet · ort +6 bps · n=47 (bağımsız 8, alt sınır %34) ⚠️az bağımsız örnek
