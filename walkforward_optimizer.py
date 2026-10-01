@@ -65,6 +65,7 @@ import pandas as pd
 
 PRIMARY_HORIZON_H = 24
 HORIZONS_H = (24, 72)
+PANEL_HORIZONS_H = (1, 4, 24, 72)   # v3.6: 1h/4h labels for the short-term forecast
 MIN_TRAIN_DAYS = 90
 FOLD_DAYS = 30
 VOL_LOOKBACK_BARS = 240
@@ -85,7 +86,7 @@ def build_panel(
     factor_rows: Iterable[Tuple],
     meta_rows: Iterable[Tuple],
     closes: Dict[str, pd.Series],
-    horizons: Tuple[int, ...] = HORIZONS_H,
+    horizons: Tuple[int, ...] = PANEL_HORIZONS_H,
 ) -> pd.DataFrame:
     """factor_rows: (asset, t, fid, name, cluster, signed_x)
     meta_rows:   (asset, t, regime_id, legacy_score)
@@ -93,7 +94,8 @@ def build_panel(
     Returns one row per (asset, t) with factor columns 'f::<fid>', regime,
     legacy score, trailing vol, past 24h return and forward returns."""
     fr = pd.DataFrame(list(factor_rows), columns=["asset", "t", "fid", "name", "cluster", "x"])
-    mr = pd.DataFrame(list(meta_rows), columns=["asset", "t", "regime", "legacy_score"])
+    _mr = [tuple(r) + (float("nan"),) * (5 - len(r)) for r in meta_rows]
+    mr = pd.DataFrame(_mr, columns=["asset", "t", "regime", "legacy_score", "price_score"])
     if fr.empty or mr.empty:
         return pd.DataFrame()
     fr["t"] = pd.to_datetime(fr["t"], utc=True)
@@ -409,6 +411,85 @@ def optimize(panel: pd.DataFrame, horizons: Tuple[int, ...] = HORIZONS_H,
         ]
         res["assets"][str(asset)] = best
     return res
+
+
+# ----------------------------------------------------------------------
+# v3.6: short-term (next 4h candle) forecast weights
+# ----------------------------------------------------------------------
+def optimize_short_term(panel: pd.DataFrame, h: int = 4, prior=(0.70, 0.30),
+                        scales=(0.60, 1.20)) -> Dict[str, Any]:
+    """Learns w_model / w_price for 'Kısa Vade Yön' from real 4h outcomes,
+    walk-forward (expanding window, 4h embargo), non-negative weights
+    (a negative weight would mean 'trade against the model', not allowed
+    without proof). Reports the prior 70/30 blend, the learned blend and
+    naive baselines on the SAME out-of-sample timestamps."""
+    out: Dict[str, Any] = {"horizon_h": h, "prior": {"w_model": prior[0], "w_price": prior[1]}, "assets": {}}
+    if panel is None or panel.empty or f"r{h}" not in panel.columns or "price_score" not in panel.columns:
+        return out
+    for asset, g in panel.groupby("asset"):
+        g = g.sort_values("t").reset_index(drop=True)
+        X = np.c_[np.clip(g["legacy_score"].values / scales[0], -3, 3),
+                  np.clip(g["price_score"].values / scales[1], -3, 3)].astype(float)
+        r = g[f"r{h}"].values.astype(float)
+        ok = np.isfinite(X).all(1) & np.isfinite(r)
+        if ok.sum() < 300:
+            out["assets"][str(asset)] = {"status": "INSUFFICIENT_DATA", "rows": int(ok.sum())}
+            continue
+        t = g["t"]
+        oos = np.full(len(g), np.nan)
+        for fs in pd.date_range(t.iloc[0] + pd.Timedelta(days=MIN_TRAIN_DAYS), t.iloc[-1], freq=f"{FOLD_DAYS}D"):
+            tr = (ok & (t <= fs - pd.Timedelta(hours=h))).values
+            te = (ok & (t > fs) & (t <= fs + pd.Timedelta(days=FOLD_DAYS))).values
+            if tr.sum() < 200 or te.sum() == 0:
+                continue
+            w = np.linalg.lstsq(X[tr], r[tr], rcond=None)[0]
+            w = np.clip(w, 0.0, None)
+            oos[te] = X[te] @ w if w.sum() > 0 else 0.0
+        sel = np.isfinite(oos) & ok
+        if sel.sum() < 100:
+            out["assets"][str(asset)] = {"status": "INSUFFICIENT_OOS", "rows": int(sel.sum())}
+            continue
+        span_h = (t[sel].iloc[-1] - t[sel].iloc[0]).total_seconds() / 3600.0
+        prior_pred = X @ np.array(prior)
+        def ev(sig):
+            return _stats(np.where(sel, sig, np.nan), np.where(sel, r, np.nan), span_h, h)
+        ic = float(pd.Series(oos[sel]).rank().corr(pd.Series(r[sel]).rank()))
+        ic = 0.0 if not np.isfinite(ic) else ic
+        t_ic = ic * math.sqrt(max(span_h / h, 1.0))
+        ic_p = float(pd.Series(prior_pred[sel]).rank().corr(pd.Series(r[sel]).rank()))
+        w_all = np.clip(np.linalg.lstsq(X[ok], r[ok], rcond=None)[0], 0.0, None)
+        tot = float(w_all.sum())
+        learned = ev(np.sign(oos))
+        prior_ev = ev(np.sign(prior_pred))
+        deploy = bool(tot > 0 and t_ic >= DEPLOY_T_MIN and learned.get("hit", 0) >= prior_ev.get("hit", 1))
+        out["assets"][str(asset)] = {
+            "status": "OK", "deploy": deploy,
+            "w_model": round(float(w_all[0] / tot), 4) if tot > 0 else None,
+            "w_price": round(float(w_all[1] / tot), 4) if tot > 0 else None,
+            "ic": round(ic, 4), "t_ic": round(t_ic, 2), "prior_ic": round(ic_p if np.isfinite(ic_p) else 0.0, 4),
+            "learned": learned, "prior_70_30": prior_ev,
+            "always_long": ev(np.ones(len(g))), "price_only": ev(np.sign(X[:, 1])),
+        }
+    return out
+
+
+def short_term_report_lines(res: Dict[str, Any]) -> List[str]:
+    h = res.get("horizon_h", 4)
+    L = [f"## ⏱️ Kısa Vade Yön — sonraki {h} saatlik mum tahmini (walk-forward, örneklem dışı)",
+         "Kısa vade tahmini = model (çok faktörlü) + fiyat itkisi. Varsayılan ağırlık 70/30; öğrenilmiş ağırlık "
+         "yalnız t ≥ 2 ve isabet ≥ 70/30 ise canlıya alınır.", "",
+         "| Varlık | Durum | Öğrenilmiş model/fiyat | IC | t | Öğrenilmiş | 70/30 | Yalnız fiyat | Hep AL |",
+         "|---|---|---|---|---|---|---|---|---|"]
+    f = lambda d: "—" if not d or not d.get("n") else f"%{d['hit']*100:.1f}"
+    for a, m in sorted((res.get("assets") or {}).items()):
+        if m.get("status") != "OK":
+            L.append(f"| {a} | {m.get('status')} | — | — | — | — | — | — | — |")
+            continue
+        st = "✅ öğrenilmiş" if m["deploy"] else "70/30"
+        L.append(f"| {a} | {st} | {m['w_model']}/{m['w_price']} | {m['ic']:+.3f} | {m['t_ic']:+.1f} | "
+                 f"{f(m['learned'])} | {f(m['prior_70_30'])} | {f(m['price_only'])} | {f(m['always_long'])} |")
+    L.append("")
+    return L
 
 
 # ----------------------------------------------------------------------

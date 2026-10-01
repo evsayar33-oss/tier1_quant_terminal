@@ -370,3 +370,14 @@ ENTRY_TIMING_CONFIG = {
 #   "legacy"  : not-proven asset -> old score, entry rules unchanged.
 LEARNED_MODEL_POLICY = "advisory"
 LEARNED_MODEL_PATH = "validation_reports/learned_model.json"
+
+
+# ---------------------------------------------------------------------------
+# v3.6 — "Kısa Vade Yön (1-4 Saat)": a FORECAST of the next 1h/4h candles,
+# not a description of the last bar. Both parts are normalised to z-units;
+# price action is capped at the project's 10-30% principle.
+# The weekly walk-forward learns these weights from real 4h outcomes and
+# overrides them only when its out-of-sample evidence passes (t >= 2).
+# ---------------------------------------------------------------------------
+SHORT_TERM_WEIGHTS = {"model": 0.70, "price": 0.30}
+SHORT_TERM_SCALES = {"model": 0.60, "price": 1.20}   # typical |score| of each part

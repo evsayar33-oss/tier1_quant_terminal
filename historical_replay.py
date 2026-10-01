@@ -309,8 +309,10 @@ def _run_replay_inner(cache_dir, out_dir, days, step_hours, max_cycles, end):
             prev_map = {k: v.get("verdict", "NÖTR (BEKLE)") for k, v in verdicts.items()}
             for ak, v in verdicts.items():
                 _ls = v.get("legacy_score", v.get("score"))
+                _ps = v.get("live_price_score")
                 meta_rows.append((ak, t, str(gk.active_macro_regime_id),
-                                  float(_ls) if _ls is not None else 0.0))
+                                  float(_ls) if _ls is not None else 0.0,
+                                  float(_ps) if _ps is not None else float("nan")))
             for ak, v in verdicts.items():
                 for row in v.get("details", []) or []:
                     val = row.get("ham_deger")
@@ -361,10 +363,11 @@ def _run_replay_inner(cache_dir, out_dir, days, step_hours, max_cycles, end):
         if not panel.empty:
             panel.to_csv(os.path.join(out_dir, "factor_panel.csv.gz"), index=False, compression="gzip")
         learned = WFO.optimize(panel)
+        learned["short_term"] = WFO.optimize_short_term(panel)
         learned["replay_window"] = {"start": str(times[0]) if times else None, "end": str(times[-1]) if times else None,
                                     "step_hours": step_hours, "cycles": len(times)}
         WFO.save(learned, os.path.join(out_dir, "learned_model.json"))
-        opt_lines = WFO.report_lines(learned)
+        opt_lines = WFO.report_lines(learned) + WFO.short_term_report_lines(learned["short_term"])
     except Exception as exc:
         opt_lines = ["## 🤖 Kendini optimize eden model", f"- Optimizasyon çalışmadı: {exc}", ""]
 

@@ -35,7 +35,7 @@ import numpy as np
 
 from stateful_memory_store import StatefulMemoryStore
 
-LIVE_REGIME_PREFIX = "LIVE::"
+LIVE_REGIME_PREFIX = "SHORT::"   # v3.6: forecast score lives on a new scale -> fresh distributions
 BOOTSTRAP_P50 = 0.45
 BOOTSTRAP_P70 = 0.85
 BOOTSTRAP_P85 = 1.35
@@ -229,7 +229,7 @@ class StatefulLiveDirectionEngine:
 
         display_pct = float(ret_pct_1h if ret_pct_1h is not None else 0.0)
         event_tag = " ⚠️REJİM GEÇİŞİ" if regime_event else ""
-        label = f"{icon} {label_core} (%{display_pct:+.2f}){event_tag}"
+        label = f"{icon} {label_core} (son 1s %{display_pct:+.2f}){event_tag}"
 
         # Skoru sınıflandırma SONRASI dağılıma ekle (kendi kendini geçerli
         # verinin dışına referans vermesin diye — bkz. finalize_cycle'daki

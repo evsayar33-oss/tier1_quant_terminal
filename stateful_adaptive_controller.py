@@ -316,6 +316,22 @@ class StatefulAdaptiveController:
     # ------------------------------------------------------------------
     _LEARNED_CACHE: Dict[str, Any] = {"mtime": None, "data": None, "path": None}
 
+    def _short_term_weights(self, asset_key):
+        """Prior 70/30 from config; replaced by walk-forward-learned weights
+        only when the replay proved them out-of-sample."""
+        try:
+            from config import SHORT_TERM_WEIGHTS as W0
+        except Exception:
+            W0 = {"model": 0.70, "price": 0.30}
+        data = self._load_learned() or {}
+        node = ((data.get("short_term") or {}).get("assets") or {}).get(asset_key) or {}
+        if node.get("deploy") and node.get("w_model") is not None:
+            wm, wp = float(node["w_model"]), float(node["w_price"])
+            tot = abs(wm) + abs(wp)
+            if tot > 0:
+                return wm / tot, wp / tot, "öğrenilmiş"
+        return float(W0["model"]), float(W0["price"]), "varsayılan 70/30"
+
     @classmethod
     def _load_learned(cls) -> Optional[Dict[str, Any]]:
         if os.environ.get("TIER1_DISABLE_LEARNED") == "1":      # historical replay: no look-ahead
@@ -610,10 +626,24 @@ class StatefulAdaptiveController:
                         adx_val, atr_ratio, prev_label=_prev.get("label")
                     )
                     leading_bias = self._leading_bias_for_asset(asset_key, gatekeeper)
+                    # v3.6 SHORT-TERM FORECAST: next 1h/4h candle direction =
+                    # w_model x (multi-factor model, z) + w_price x (price impulse, z).
+                    _wm, _wp, _wsrc = self._short_term_weights(asset_key)
+                    try:
+                        from config import SHORT_TERM_SCALES as _SC
+                    except Exception:
+                        _SC = {"model": 0.60, "price": 1.20}
+                    _model_z = float(np.clip(float(out.get("score", 0.0)) / _SC["model"], -3.0, 3.0))
+                    _price_z = float(np.clip(float(live_score) / _SC["price"], -3.0, 3.0))
+                    forecast = _wm * _model_z + _wp * _price_z
+                    out["short_term_parts"] = {"model_z": round(_model_z, 3), "price_z": round(_price_z, 3),
+                                               "w_model": round(_wm, 3), "w_price": round(_wp, 3),
+                                               "weights_source": _wsrc}
+                    out["live_price_score"] = round(float(live_score), 4)
                     live_state = self.live_direction.evaluate(
                         asset=asset_key,
                         regime_label=regime_info["label"],
-                        score=live_score,
+                        score=forecast,
                         ret_pct_1h=live_meta.get("ret_pct_1h"),
                         ret_pct_2h=live_meta.get("ret_pct_2h"),
                         leading_bias=leading_bias,

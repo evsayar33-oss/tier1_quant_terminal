@@ -110,3 +110,23 @@ def test_advisory_policy_keeps_direction_live_but_closes_entry(tmp_path):
     finally:
         config.LEARNED_MODEL_PATH = old
         C.StatefulAdaptiveController._LEARNED_CACHE.update({"mtime": None, "data": None, "path": None})
+
+
+def test_short_term_weights_learned_from_4h_outcomes():
+    rng = np.random.default_rng(5)
+    H = 24 * 300
+    idx = pd.date_range("2025-01-01", periods=H, freq="h", tz="UTC")
+    m = np.zeros(H)
+    for i in range(1, H):
+        m[i] = 0.99 * m[i - 1] + 0.14 * rng.normal()
+    price = rng.normal(0, 1, H)
+    ret = 0.0006 * np.roll(m, 1) + rng.normal(0, 0.004, H)          # model part predicts, price part does not
+    close = pd.Series(100 * np.exp(np.cumsum(ret)), index=idx)
+    ts = idx[::2][50:]
+    fr = [("A", t, "x0", "n", "E", 0.0) for t in ts]
+    mr = [("A", t, "3", float(m[idx.get_loc(t)]) * 0.6, float(price[idx.get_loc(t)])) for t in ts]
+    panel = W.build_panel(fr, mr, {"A": close})
+    res = W.optimize_short_term(panel)
+    a = res["assets"]["A"]
+    assert a["status"] == "OK" and a["w_model"] > a["w_price"]
+    assert "r4" in panel.columns and "price_score" in panel.columns

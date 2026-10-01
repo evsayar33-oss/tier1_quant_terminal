@@ -834,7 +834,7 @@ class PreTradeGatekeeper:
         else:
             tier, core = "GÜÇLÜ", ("GÜÇLÜ YUKARI" if up else "GÜÇLÜ AŞAĞI")
             icon, color = ("🟢🟢", "darkgreen") if up else ("🔴🔴", "darkred")
-        v["current_direction"] = f"{icon} {core} (%{roc:+.2f}){tail}"
+        v["current_direction"] = f"{icon} {core} (son 1s %{roc:+.2f}){tail}"
         v["current_icon"], v["current_color"], v["live_tier"] = icon, color, tier
         v["live_score_pair_adjusted"] = round(float(score), 4)
 
@@ -964,14 +964,14 @@ class PreTradeGatekeeper:
             if h4 * sgn < -0.20 and d1 is not None and d1 * sgn < -0.20:
                 if tier in ("GÜÇLÜ", "YÖNLÜ", "HAFİF"):
                     core = "HAFİF YUKARI" if up else "HAFİF AŞAĞI"
-                    v["current_direction"] = f"{'🟢' if up else '🔴'} {core} (%{roc:+.2f}) ↩ TERS-TREND TEPKİ"
+                    v["current_direction"] = f"{'🟢' if up else '🔴'} {core} (son 1s %{roc:+.2f}) ↩ TERS-TREND TEPKİ"
                     v["current_icon"] = "🟢" if up else "🔴"
                     v["current_color"] = "palegreen" if up else "lightcoral"
                     v["live_tier"] = "HAFİF"
                     v["live_counter_trend"] = True
             elif h4 * sgn < -0.20 and tier == "GÜÇLÜ":
                 core = "YUKARI" if up else "AŞAĞI"
-                v["current_direction"] = f"{'🟢' if up else '🔴'} {core} (%{roc:+.2f}) · 4S teyitsiz"
+                v["current_direction"] = f"{'🟢' if up else '🔴'} {core} (son 1s %{roc:+.2f}) · 4S teyitsiz"
                 v["current_icon"] = "🟢" if up else "🔴"
                 v["current_color"] = "lightgreen" if up else "red"
                 v["live_tier"] = "YÖNLÜ"

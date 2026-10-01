@@ -1063,7 +1063,7 @@ for k in ASSET_MATRICES.keys():
                     "name"
                 ],
 
-            "📍 Canlı Fiyat Yönü (1-4 Saat)":
+            "⏱️ Kısa Vade Yön (1-4 Saat)":
                 curr_dir,
 
             "Gün-içi Rejim":
@@ -1115,7 +1115,7 @@ st.dataframe(
 
 
 st.caption(
-    "💡 **İki Ayrı Ufuk:** 📍 *Canlı Fiyat Yönü* günün gün-içi rejimine "
+    "💡 **İki Ayrı Ufuk:** ⏱️ *Kısa Vade Yön* = sonraki 1-4 saatlik mumun olası yönü (tahmin: %70 çok faktörlü model + %30 fiyat itkisi; haftalık walk-forward ağırlıkları kanıtla günceller), günün gün-içi rejimine "
     "(trend gücü + volatilite) göre kalibre edilmiş **1-4 saatlik** olası yönü; "
     "🔮 *Model Sinyali* haftalık/aylık makro rejime göre kalibre edilmiş "
     "**24 saat-1 haftalık** olası yönü gösterir. Her iki motor da kendi eşiklerini "
@@ -1226,7 +1226,7 @@ intraday_regime = res.get("intraday_regime", {}) or {}
 if intraday_regime.get("label"):
     event_note = " — ⚠️ **rejim az önce değişti**, eşikler geçici genişletildi" if res.get("live_regime_event") else ""
     st.caption(
-        f"🕒 Gün-içi rejim (Canlı Fiyat Yönü, 1-4s ufuk): "
+        f"🕒 Gün-içi rejim (Kısa Vade Yön, 1-4s ufuk): "
         f"**{intraday_regime.get('label')}**{event_note}"
     )
 
@@ -1246,7 +1246,7 @@ col_card1, col_card2 = st.columns(
 with col_card1:
 
     st.markdown(
-        f"#### 📍 Canlı Fiyat Durumu (1-4 Saat Olası Yön): **{curr_dir}**"
+        f"#### ⏱️ Kısa Vade Yön (sonraki 1-4 saatlik mum): **{curr_dir}**"
     )
 
 
