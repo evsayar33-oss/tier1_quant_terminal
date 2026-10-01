@@ -367,6 +367,21 @@ if not hasattr(gk, "reconcile_pairs_post_adaptive"):
     gk = st.session_state.gatekeeper
 
 
+# v3.6.1 STALE-CODE GUARD: Streamlit re-runs app.py after an upload but keeps the
+# other modules in memory until a reboot -> new screen, old calculations.
+try:
+    import glob as _glob
+    import stateful_adaptive_controller as _sac
+    _here = _os.path.dirname(_os.path.abspath(__file__))
+    _newest = max(_os.path.getmtime(f) for f in _glob.glob(_os.path.join(_here, "*.py"))
+                  if not _os.path.basename(f).startswith("test_") and _os.path.basename(f) != "app.py")
+    if _newest > getattr(_sac, "MODULES_LOADED_AT", _newest) + 5:
+        st.error("⚠️ Kod dosyaları güncellendi ama uygulama eski hesaplama modüllerini bellekte tutuyor. "
+                 "Sonuçlar YANLIŞ olabilir — sağ alttan **Manage app → ⋮ → Reboot app** yapın.")
+except Exception:
+    pass
+
+
 # =============================================================================
 # STATEFUL ADAPTIVE CONTROLLER
 # =============================================================================

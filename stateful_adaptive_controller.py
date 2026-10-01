@@ -39,6 +39,8 @@ from stateful_factor_quality import sanitize_factor_rows
 
 
 DEFAULT_MEMORY_FILE = "stateful_adaptive_memory.json"
+import time as _time
+MODULES_LOADED_AT = _time.time()   # v3.6.1: lets the app detect stale in-memory modules
 SCORE_EMA_HALF_LIFE_H = 12.0   # v3.5: model-signal smoothing matched to its 24h-1w horizon
 
 
