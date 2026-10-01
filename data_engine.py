@@ -55,6 +55,47 @@ def save_freshness_store() -> None:
     _FRESHNESS_STORE.save()
 
 
+# ---------------------------------------------------------------------------
+# v3.5.1: crypto hourly volume. Yahoo reports Volume=0 on ~50% of BTC/ETH
+# hourly bars, so RVOL could not be measured ("—" in the table). OKX's public
+# candle endpoint (free, no key) gives the real exchange volume per hour; it is
+# used ONLY for the Volume column, prices stay Yahoo's.
+# ---------------------------------------------------------------------------
+_OKX_VOLUME_INST = {"BTC-USD": "BTC-USDT", "ETH-USD": "ETH-USDT"}
+
+
+def _fill_crypto_volume_from_okx(frame: pd.DataFrame, inst: str) -> pd.DataFrame:
+    try:
+        vol = frame["Volume"]
+        if float((vol > 0).mean()) >= 0.80:          # Yahoo volume already usable
+            return frame
+        rows = []
+        after = None
+        for _ in range(2):                            # 2 x 300 = 600 hours
+            params = {"instId": inst, "bar": "1H", "limit": "300"}
+            if after:
+                params["after"] = after
+            r = requests.get("https://www.okx.com/api/v5/market/history-candles", params=params, timeout=8)
+            data = (r.json() or {}).get("data") or []
+            if not data:
+                break
+            rows.extend(data)
+            after = data[-1][0]
+        if not rows:
+            return frame
+        ts = pd.to_datetime([int(x[0]) for x in rows], unit="ms", utc=True)
+        okx = pd.Series([float(x[7]) for x in rows], index=ts).sort_index()      # quote (USDT) volume
+        okx = okx[~okx.index.duplicated(keep="last")]
+        idx = pd.to_datetime(frame.index, utc=True)
+        mapped = okx.reindex(idx)
+        out = frame.copy()
+        out["Volume"] = np.where(mapped.notna().values, mapped.values, out["Volume"].values)
+        out.attrs["volume_source"] = "OKX " + inst
+        return out
+    except Exception:
+        return frame
+
+
 import concurrent.futures
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
@@ -266,9 +307,14 @@ class ResilientDataEngine:
             # a bar actually closes; the forming price is kept for display.
             bar = pd.Timedelta(hours=1)
             forming = None
-            if len(frame) > 2 and last + bar > now:
+            # v3.5.1: Yahoo crypto feeds may append an extra off-grid row stamped
+            # at the fetch minute (08:49) AFTER the forming 08:00 bar; dropping only
+            # the last row left the forming bar in (ETH showed +0.25% from the
+            # unfinished bar while BTC showed the closed -0.84% bar).
+            _closed = frame.index + bar <= now
+            if len(frame) > 2 and not bool(_closed.all()) and int(_closed.sum()) >= 2:
                 forming = frame.iloc[-1]
-                frame = frame.iloc[:-1]
+                frame = frame[_closed]
                 last = pd.Timestamp(frame.index[-1])
             age = max(0.0, (now - (last + bar)).total_seconds())
             from state_mode import is_read_only
@@ -309,6 +355,8 @@ class ResilientDataEngine:
                 progress=False, timeout=12, auto_adjust=False
             )
             clean = clean_frame(raw)
+            if len(clean) >= 2 and source in _OKX_VOLUME_INST:
+                clean = _fill_crypto_volume_from_okx(clean, _OKX_VOLUME_INST[source])
             if len(clean) >= 2:
                 # Only successful DIRECT bars enter persistent history.
                 clean = merge_and_persist(source, clean, max_bars=DEFAULT_MAX_BARS)

@@ -81,3 +81,59 @@ def test_direction_clock_is_the_closed_bar_clock(tmp_path):
         e.evaluate("SPX", 3, -0.4, 0, 3, th, now=datetime(2026, 10, 1, 7, 10, tzinfo=timezone.utc))
         outs.append(e.evaluate("SPX", 3, -0.9, 0, 3, th, now=datetime(2026, 10, 1, 8, minute, tzinfo=timezone.utc)))
     assert outs[0]["velocity"] == outs[1]["velocity"]
+
+
+def test_offgrid_crypto_row_and_forming_bar_both_dropped(tmp_path):
+    import data_engine
+    from system_clock import set_frozen_now, clear_frozen_now
+    idx = list(pd.date_range("2026-10-01 00:00", periods=9, freq="h", tz="UTC")) + [pd.Timestamp("2026-10-01 08:49", tz="UTC")]
+    df = pd.DataFrame({"Open": 1.0, "High": 2.0, "Low": 0.5, "Close": np.arange(1.0, 11.0), "Volume": 1.0},
+                      index=pd.DatetimeIndex(idx))
+
+    class _YF:
+        @staticmethod
+        def download(*a, **k):
+            return df.copy()
+
+    old_yf, old_dir = data_engine.yf, os.environ.get("OHLCV_HISTORY_DIR")
+    data_engine.yf = _YF
+    os.environ["OHLCV_HISTORY_DIR"] = str(tmp_path)
+    set_frozen_now(pd.Timestamp("2026-10-01 08:50", tz="UTC"))
+    try:
+        _, out = data_engine.ResilientDataEngine(fred_api_key="").fetch_single_ticker_1h("TESTC")
+        assert pd.Timestamp(out.index[-1]) == pd.Timestamp("2026-10-01 07:00", tz="UTC")
+    finally:
+        clear_frozen_now()
+        data_engine.yf = old_yf
+        if old_dir is None:
+            os.environ.pop("OHLCV_HISTORY_DIR", None)
+        else:
+            os.environ["OHLCV_HISTORY_DIR"] = old_dir
+
+
+def test_crypto_volume_filled_from_okx():
+    import data_engine
+    idx = pd.date_range("2026-10-01 00:00", periods=6, freq="h", tz="UTC")
+    fr = pd.DataFrame({"Open": 1.0, "High": 1.0, "Low": 1.0, "Close": 1.0, "Volume": [0, 0, 5, 0, 0, 0.0]}, index=idx)
+
+    class _R:
+        def __init__(self, d): self._d = d
+        def json(self): return self._d
+
+    calls = {"n": 0}
+
+    def _get(url, params=None, timeout=None):
+        calls["n"] += 1
+        if calls["n"] > 1:
+            return _R({"data": []})
+        rows = [[str(int(t.timestamp() * 1000)), "1", "1", "1", "1", "1", "1", str(100.0 + i), "1"]
+                for i, t in enumerate(reversed(idx))]
+        return _R({"data": rows})
+
+    old = data_engine.requests.get
+    data_engine.requests.get = _get
+    try:
+        out = data_engine._fill_crypto_volume_from_okx(fr, "BTC-USDT")
+    finally:
+        data_engine.requests.get = old
+    assert (out["Volume"] > 0).all() and out.attrs["volume_source"] == "OKX BTC-USDT"
