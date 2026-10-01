@@ -1054,6 +1054,13 @@ class PreTradeGatekeeper:
                 v["atr_ratio"] = round(float(_prof["atr_ratio"]), 2)   # v3.3.3: BTC showed 0.00x
             self._flag_live_vs_model(v)
 
+            if "NOT_PROVEN" in str(v.get("learned_model_status", "")) and "LEGACY" not in str(v.get("learned_model_status", "")):
+                v["entry_allowed"] = False
+                v["entry_grade"] = "-"
+                v["entry_timing"] = "Örneklem dışı kanıt yok; zamanlama değerlendirilmez."
+                v["entry_status"] = "⛔ GİRİŞ KAPALI (KANITSIZ SİNYAL)"
+                continue
+
             if d == 0:
                 v["entry_grade"] = "-"
                 v["entry_timing"] = "Yön sinyali yok; giriş değerlendirilmez."

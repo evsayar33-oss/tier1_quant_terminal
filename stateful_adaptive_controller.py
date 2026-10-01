@@ -299,10 +299,13 @@ class StatefulAdaptiveController:
             "factor_data_diagnostics": data_diag,
             **learned_info,
         })
-        if learned_info.get("learned_model_status") == "NOT_PROVEN_ABSTAIN":
+        _ls = str(learned_info.get("learned_model_status", ""))
+        if _ls in ("NOT_PROVEN_ABSTAIN", "NOT_PROVEN_ADVISORY"):
+            _o = learned_info.get("learned_model_oos") or {}
             out["entry_allowed"] = False
+            out["entry_status"] = "⛔ GİRİŞ KAPALI (KANITSIZ SİNYAL)"
             out["entry_reason"] = (
-                "Model bu varlıkta örneklem dışı avantaj kanıtlayamadı (walk-forward) → sinyal üretilmiyor. "
+                f"⛔ Kanıt yok (örneklem dışı t={_o.get('t_ic')} < {_o.get('t_required')}) → giriş kapalı. "
                 + str(out.get("entry_reason", ""))
             ).strip()
         return out, score_model
@@ -354,18 +357,24 @@ class StatefulAdaptiveController:
             "legacy_hit": (oos.get("legacy_model") or {}).get("hit"),
             "trained_until": node.get("trained_until"),
         }
+        info["learned_model_oos"].update({
+            "t_required": node.get("t_required"), "family": node.get("family"),
+            "horizon_h": node.get("horizon_h"),
+        })
         try:
             from config import LEARNED_MODEL_POLICY
         except Exception:
-            LEARNED_MODEL_POLICY = "abstain"
+            LEARNED_MODEL_POLICY = "advisory"
         if not node.get("deploy"):
             if LEARNED_MODEL_POLICY == "abstain":
                 score_model["score"] = 0.0
                 score_model["bull_clusters"] = 0
                 score_model["bear_clusters"] = 0
                 info["learned_model_status"] = "NOT_PROVEN_ABSTAIN"
-            else:
+            elif LEARNED_MODEL_POLICY == "legacy":
                 info["learned_model_status"] = "NOT_PROVEN_LEGACY"
+            else:
+                info["learned_model_status"] = "NOT_PROVEN_ADVISORY"
             return info
 
         import walkforward_optimizer as WFO
@@ -440,7 +449,7 @@ class StatefulAdaptiveController:
                 # abstaining 0 must never be blended).
                 sa = adaptive[a].get("learned_model_status", "NO_MODEL")
                 sb = adaptive[b].get("learned_model_status", "NO_MODEL")
-                if "ABSTAIN" in sa or "ABSTAIN" in sb:
+                if "ABSTAIN" in sa or "ABSTAIN" in sb:   # an abstaining 0 must not drag its twin
                     return False
                 return (sa == "ACTIVE") == (sb == "ACTIVE")
 

@@ -363,7 +363,10 @@ ENTRY_TIMING_CONFIG = {
 # ---------------------------------------------------------------------------
 # The weekly historical replay learns factor weights + drift + regime
 # deviations per asset out-of-sample and writes validation_reports/learned_model.json.
-#   "abstain": deployed asset -> learned score; not-proven asset -> NO signal (NÖTR).
-#   "legacy" : deployed asset -> learned score; not-proven asset -> old hand-weighted score.
-LEARNED_MODEL_POLICY = "abstain"
+#   "advisory": deployed asset -> learned score; not-proven asset -> old score is
+#               still computed and SHOWN (direction/velocity/persistence stay
+#               live) but tagged "KANITSIZ" and entry permission is closed.  (default)
+#   "abstain" : not-proven asset -> no signal at all (NÖTR).
+#   "legacy"  : not-proven asset -> old score, entry rules unchanged.
+LEARNED_MODEL_POLICY = "advisory"
 LEARNED_MODEL_PATH = "validation_reports/learned_model.json"

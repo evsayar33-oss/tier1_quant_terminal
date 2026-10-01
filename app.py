@@ -23,6 +23,24 @@ V2.2 ENTEGRASYONU
 import streamlit as st
 
 
+_US_CASH = {"SPY", "QQQ", "SMH", "RSP", "HYG", "LQD", "XLU", "SHY", "XLY", "ARKK", "TLT", "XLP", "XLF",
+            "KRE", "USO", "BDRY", "IYT", "TIP", "IEF", "^VIX", "VIX", "^VIX3M", "VIX3M", "^GVZ", "GVZ",
+            "^VXN", "VXN", "^SKEW", "SKEW", "^VXSLV", "VXSLV", "^TNX", "TNX"}
+
+
+def _session_aware_status(symbol, status):
+    """v3.4.1: a US cash ETF/index whose last bar is from the previous session
+    is not a data fault when the US cash market is simply closed."""
+    s_ = str(status)
+    if s_ != "STALE" or str(symbol) not in _US_CASH:
+        return s_
+    from system_clock import now_utc as _now_utc
+    now = _now_utc()
+    mins = now.hour * 60 + now.minute
+    open_ = now.weekday() < 5 and (13 * 60 + 30) <= mins <= (20 * 60 + 15)
+    return s_ if open_ else "SEANS KAPALI"
+
+
 def _evidence_label(d):
     """v3.4: is this asset's signal backed by out-of-sample (walk-forward) evidence?"""
     st_ = str(d.get("learned_model_status", "NO_MODEL"))
@@ -31,7 +49,11 @@ def _evidence_label(d):
         h = o.get("hit")
         return f"✅ Öğrenilmiş model (örneklem dışı %{h*100:.0f})" if h else "✅ Öğrenilmiş model"
     if "NOT_PROVEN" in st_:
-        return "⛔ Kanıt yok → sinyal yok" if "ABSTAIN" in st_ else "⚠️ Kanıt yok (eski model)"
+        t_, tr_ = o.get("t_ic"), o.get("t_required")
+        tail = f" (t={t_}/{tr_})" if t_ is not None and tr_ is not None else ""
+        if "ABSTAIN" in st_:
+            return "⛔ Kanıt yok → sinyal yok" + tail
+        return "⚠️ Kanıtsız · bilgi amaçlı" + tail
     return "— Eski model (öğrenilmiş model henüz yok)"
 import json
 import os
@@ -848,7 +870,7 @@ if stateful_diag:
     with stateful_cols[3]:
         st.metric(
             "Aday Rejim",
-            str(regime_diag.get("candidate_regime_id", "-")),
+            ("Yok" if regime_diag.get("candidate_regime_id") in (None, "None", "") else str(regime_diag.get("candidate_regime_id"))),
         )
 
     with stateful_cols[4]:
@@ -895,10 +917,7 @@ for symbol, quality in (
                 symbol,
 
             "Durum":
-                quality.get(
-                    "status",
-                    "UNAVAILABLE",
-                ),
+                _session_aware_status(symbol, quality.get("status", "UNAVAILABLE")),
 
             "Kaynak":
                 quality.get(
@@ -992,6 +1011,8 @@ for k in ASSET_MATRICES.keys():
         f"{data.get('icon', '⚪')} "
         f"{data.get('verdict', 'NÖTR (BEKLE)')}"
     )
+    if "NOT_PROVEN" in str(data.get("learned_model_status", "")) and "NÖTR" not in str(data.get("verdict", "")):
+        fore_dir = f"{fore_dir} · kanıtsız"
 
     entry_st = data.get(
         "entry_status",
