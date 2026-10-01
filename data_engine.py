@@ -255,11 +255,25 @@ class ResilientDataEngine:
             if frame is None or frame.empty:
                 return frame
             frame = frame.copy()
-            last = pd.Timestamp(frame.index[-1])
             _clock_now = pd.Timestamp(now_utc())
+            last = pd.Timestamp(frame.index[-1])
             now = _clock_now.tz_convert(last.tz) if last.tz is not None else _clock_now.tz_convert(None)
-            age = max(0.0, (now - last).total_seconds())
-            _FRESHNESS_STORE.update(f"BAR_AGE_SECONDS::{source}", age)
+            # v3.5 CLOSED-BAR RULE: the in-progress hourly bar is dropped. Its
+            # close moves every minute, so every refresh inside the same hour
+            # produced a different score/label (measured: SPX live score
+            # -0.57 -> -0.16 and ETH model NÖTR -> SAT within one hour, with
+            # data/memory otherwise identical). Signals now change only when
+            # a bar actually closes; the forming price is kept for display.
+            bar = pd.Timedelta(hours=1)
+            forming = None
+            if len(frame) > 2 and last + bar > now:
+                forming = frame.iloc[-1]
+                frame = frame.iloc[:-1]
+                last = pd.Timestamp(frame.index[-1])
+            age = max(0.0, (now - (last + bar)).total_seconds())
+            from state_mode import is_read_only
+            if not is_read_only():
+                _FRESHNESS_STORE.update(f"BAR_AGE_SECONDS::{source}", age)
             live_cutoff = _live_cutoff_seconds(source)
             actual_status = status or ("LIVE" if age <= live_cutoff else "STALE")
             frame.attrs.update({
@@ -275,6 +289,8 @@ class ResilientDataEngine:
                 "quality": actual_status,
                 "execution_eligible": actual_status == "LIVE",
                 "reason": reason,
+                "closed_bars_only": True,
+                "forming_bar_close": (float(forming["Close"]) if forming is not None else None),
             })
             return frame
 
@@ -395,6 +411,13 @@ class ResilientDataEngine:
             clean = clean_frame(raw)
             if len(clean) >= 2:
                 clean = merge_and_persist(history_key, clean, max_bars=400)
+                # v3.5: HTF uses CLOSED daily bars only (today's partial bar
+                # changes with every tick and made the 1D confluence jitter).
+                _today = pd.Timestamp(now_utc()).tz_convert(None).normalize()
+                _idx = pd.to_datetime(clean.index)
+                _idx = _idx.tz_convert(None) if _idx.tz is not None else _idx
+                if len(clean) > 2 and _idx[-1].normalize() >= _today:
+                    clean = clean.iloc[:-1]
                 self._cache[history_key] = clean.copy()
                 self._cache_fetched_at[history_key] = time.time()
                 return source, clean

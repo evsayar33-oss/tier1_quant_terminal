@@ -161,6 +161,9 @@ class StatefulMemoryStore:
 
     def save(self) -> None:
         """Atomic JSON replacement to prevent partial/corrupted memory."""
+        from state_mode import is_read_only
+        if is_read_only():          # v3.5: the app never rewrites the published memory
+            return
         with _LOCK:
             self.memory["version"] = MEMORY_VERSION
             self.memory["last_updated"] = _iso(_utc_now())

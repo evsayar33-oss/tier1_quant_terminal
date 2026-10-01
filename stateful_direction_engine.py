@@ -232,6 +232,11 @@ class StatefulDirectionEngine:
         now: Optional[datetime] = None,
     ) -> Dict[str, Any]:
         current = now or self._now()
+        # v3.5: the inputs are closed hourly bars, so the engine's clock is
+        # the closed-bar clock. Two evaluations on the same closed bar (app
+        # refreshes at 08:20 and 08:41) now yield identical velocity and
+        # acceleration instead of drifting with wall-clock time.
+        current = current.replace(minute=0, second=0, microsecond=0)
         score = float(np.clip(self._finite(score), -3.5, 3.5))
         previous_runtime = self._get_runtime(asset, regime_id)
         previous_n = self._finite(previous_runtime.get("n"), 0.0)

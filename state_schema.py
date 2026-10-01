@@ -78,6 +78,9 @@ def backup_file(path: str, reason: str) -> Optional[str]:
         base = os.path.basename(path)
         safe_reason = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in reason)[:40]
         dest = os.path.join(BACKUP_DIR, f"{base}.{stamp}.{safe_reason}.bak")
+        from state_mode import is_read_only
+        if is_read_only():
+            return None
         shutil.copy2(path, dest)
         _log_event(f"BACKUP {base} -> {dest} ({reason})")
         return dest
@@ -86,6 +89,9 @@ def backup_file(path: str, reason: str) -> Optional[str]:
 
 
 def atomic_write_json(path: str, payload: Dict[str, Any], **dump_kwargs) -> None:
+    from state_mode import is_read_only
+    if is_read_only():          # v3.5 single-writer rule (Streamlit app is read-only)
+        return
     d = os.path.dirname(os.path.abspath(path)) or "."
     os.makedirs(d, exist_ok=True)
     fd, tmp_path = tempfile.mkstemp(prefix=".state_", dir=d)

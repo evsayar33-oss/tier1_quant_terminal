@@ -78,6 +78,9 @@ def _utc_now_iso() -> str:
 
 
 def _atomic_write_json(path: str, payload: Dict) -> None:
+    from state_mode import is_read_only
+    if is_read_only():
+        return
     d = os.path.dirname(os.path.abspath(path)) or "."
     fd, tmp_path = tempfile.mkstemp(prefix=".art_", dir=d)
     try:

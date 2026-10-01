@@ -39,6 +39,7 @@ from stateful_factor_quality import sanitize_factor_rows
 
 
 DEFAULT_MEMORY_FILE = "stateful_adaptive_memory.json"
+SCORE_EMA_HALF_LIFE_H = 12.0   # v3.5: model-signal smoothing matched to its 24h-1w horizon
 
 
 class StatefulAdaptiveController:
@@ -490,6 +491,36 @@ class StatefulAdaptiveController:
                         adaptive["BTC"]["pair_common_factor"] = cf_diag
                 except Exception:
                     pass  # reconciliation is a refinement; never block the cycle
+
+            # 2c) v3.5 HORIZON-MATCHED SMOOTHING. The model signal is a
+            # 24h-1w call but its inputs are fast hourly factors; the raw score
+            # changed sign 2.14x per day on the 700-day panel. A time-based
+            # EMA (half-life SCORE_EMA_HALF_LIFE_H) cut that to 0.33x/day with
+            # unchanged out-of-sample IC. Re-evaluating the same closed bar
+            # (dt ~ 0) leaves the smoothed value unchanged.
+            _now = self._now()
+            _ema = self.store.memory.setdefault("score_ema", {})
+            for asset_key, out in adaptive.items():
+                raw = float(out.get("score", 0.0))
+                node = _ema.get(asset_key) or {}
+                try:
+                    _t = datetime.fromisoformat(str(node.get("t")).replace("Z", "+00:00"))
+                    if _t.tzinfo is None:
+                        _t = _t.replace(tzinfo=timezone.utc)
+                    dt_h = max((_now - _t).total_seconds() / 3600.0, 0.0)
+                    prev = float(node.get("value"))
+                except Exception:
+                    dt_h, prev = None, None
+                if prev is None or dt_h is None or dt_h > 24 * 7 or str(node.get("scale")) != str(out.get("learned_model_status") == "ACTIVE"):
+                    sm = raw
+                else:
+                    alpha = 1.0 - 0.5 ** (dt_h / SCORE_EMA_HALF_LIFE_H)
+                    sm = prev + alpha * (raw - prev)
+                _ema[asset_key] = {"value": float(sm), "t": _now.isoformat(),
+                                   "scale": str(out.get("learned_model_status") == "ACTIVE")}
+                out["score_raw_cycle"] = round(raw, 4)
+                out["score"] = round(float(sm), 4)
+                out["score_smoothing_half_life_h"] = SCORE_EMA_HALF_LIFE_H
 
             # 3) Direction is resolved WITHOUT entry_allowed.
             direction_diag: Dict[str, Any] = {}

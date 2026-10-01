@@ -20,6 +20,8 @@ V2.2 ENTEGRASYONU
 - Existing XAU/XAG architecture preserved
 """
 
+import os as _os
+_os.environ.setdefault("TIER1_READ_ONLY_STATE", "1")   # v3.5: the app never writes learning state
 import streamlit as st
 
 
@@ -437,12 +439,14 @@ if (
     ):
 
         try:
-            prev_verdicts = (
-                st.session_state.state_data.get(
-                    "asset_verdicts",
-                    {},
-                )
-            )
+            # v3.5: every refresh starts from the PUBLISHED state (what the
+            # background job committed), never from this session's own earlier
+            # refreshes -> same closed bar = same answer, for every viewer.
+            _published = load_persisted_state() or {}
+            prev_verdicts = _published.get("asset_verdicts", {}) or {}
+            gk = PreTradeGatekeeper(fred_api_key=effective_fred_key)
+            st.session_state.gatekeeper = gk
+            stateful_controller = StatefulAdaptiveController()
 
             # ----------------------------------------------------
             # MARKET REFRESH
@@ -758,9 +762,8 @@ if (
                 current_time_iso
             )
 
-            save_persisted_state(
-                new_state
-            )
+            # v3.5: no save_persisted_state() here -- terminal_state.json is
+            # written only by the background job (single writer).
         except Exception as refresh_error:
             # Yenileme sırasında BEKLENMEDİK bir hata oluşursa artık tüm
             # sayfa çökmüyor ve önceki (son başarılı) analiz ekranda kalıyor;

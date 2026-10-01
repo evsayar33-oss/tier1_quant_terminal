@@ -228,13 +228,13 @@ def _run_replay_inner(cache_dir, out_dir, days, step_hours, max_cycles, end):
                 self.data_quality[source] = {"status": "UNAVAILABLE", "quality": "UNAVAILABLE", "source": source,
                                              "execution_eligible": False, "reason": "REPLAY_NO_DATA"}
                 return source, pd.DataFrame()
-            frame = df[df.index <= now].tail(DEFAULT_MAX_BARS)
+            frame = df[df.index + pd.Timedelta(hours=1) <= now].tail(DEFAULT_MAX_BARS)   # v3.5: closed bars only
             if len(frame) < 2 or (now - frame.index[-1]) > pd.Timedelta(days=10):
                 self.data_quality[source] = {"status": "UNAVAILABLE", "quality": "UNAVAILABLE", "source": source,
                                              "execution_eligible": False, "reason": "REPLAY_NO_DATA_AT_T"}
                 return source, pd.DataFrame()
             frame = frame.copy()
-            age = max(0.0, (now - frame.index[-1]).total_seconds())
+            age = max(0.0, (now - (frame.index[-1] + pd.Timedelta(hours=1))).total_seconds())
             _FRESHNESS_STORE.update(f"BAR_AGE_SECONDS::{source}", age)
             status = "LIVE" if age <= _live_cutoff_seconds(source) else "STALE"
             frame.attrs.update({
@@ -253,17 +253,7 @@ def _run_replay_inner(cache_dir, out_dir, days, step_hours, max_cycles, end):
             d = full_1d.get(source)
             if d is None or d.empty:
                 return source, pd.DataFrame()
-            hist = d[d.index.normalize() < now.normalize()]
-            intraday = full_1h.get(source)
-            if intraday is not None:
-                today = intraday[(intraday.index.normalize() == now.normalize()) & (intraday.index <= now)]
-                if len(today):
-                    part = pd.DataFrame({
-                        "Open": [float(today["Open"].iloc[0])], "High": [float(today["High"].max())],
-                        "Low": [float(today["Low"].min())], "Close": [float(today["Close"].iloc[-1])],
-                        "Volume": [float(pd.to_numeric(today["Volume"], errors="coerce").fillna(0).sum())],
-                    }, index=[now.normalize()])
-                    hist = pd.concat([hist, part])
+            hist = d[d.index.normalize() < now.normalize()]     # v3.5: closed daily bars only (as live)
             return source, hist.tail(400)
 
         def fetch_fred_series_observations(self, series_id, limit=300):

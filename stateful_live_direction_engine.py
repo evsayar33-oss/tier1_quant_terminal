@@ -43,7 +43,9 @@ MIN_HISTORY_FOR_ADAPTIVE = 8.0
 EVENT_WIDEN_FACTOR = 1.25  # rejim yeni değiştiyse eşikleri %25 genişlet (yaşla söner)
 EVENT_DECAY_HOURS = 2.0    # v3.3.5: genişletme 2 saatte doğrusal olarak sıfıra iner
 SHRINK_K = 12.0            # v3.3.5: rejim kovası güveni w = n/(n+K)
-MIN_TIER_RATIO = 1.15      # v3.3.5: kademeler arası asgari oran (p70>=1.15*p50 ...)
+MIN_TIER_RATIO = 1.15
+ANCHOR_THRESHOLDS = (0.60, 1.00, 1.50)   # v3.5: fixed meaning of HAFİF / YÖNLÜ / GÜÇLÜ (score units)
+TIER_HYSTERESIS = 0.10                   # v3.5: enter +10% above, leave 10% below a boundary      # v3.3.5: kademeler arası asgari oran (p70>=1.15*p50 ...)
 
 
 class StatefulLiveDirectionEngine:
@@ -158,24 +160,55 @@ class StatefulLiveDirectionEngine:
         known_vol = "BİLİNMİYOR" not in regime_label
         wr = (n_r / (n_r + SHRINK_K)) if (n_r and known_vol) else 0.0
         q = [wr * reg_q[i] + (1.0 - wr) * base[i] for i in range(3)] if n_r else list(base)
-        p50 = max(q[0], 0.10)
-        p70 = max(q[1], p50 * MIN_TIER_RATIO)
-        p85 = max(q[2], p70 * MIN_TIER_RATIO)
+        # v3.5: the learned quantiles may only fine-tune a FIXED-meaning
+        # anchor (+-20%). Pure self-referential percentiles from 10-20 points
+        # moved with every observation (same score -0.88 labelled AŞAĞI, then
+        # HAFİF AŞAĞI one run later) and made "GÜÇLÜ" mean "top 15% of THIS
+        # asset's last few days" (NQ -2.08 was shown as HAFİF).
+        a50, a70, a85 = ANCHOR_THRESHOLDS
+        p50 = float(np.clip(max(q[0], 0.10), a50 * 0.8, a50 * 1.25))
+        p70 = float(np.clip(max(q[1], p50 * MIN_TIER_RATIO), a70 * 0.8, a70 * 1.25))
+        p85 = float(np.clip(max(q[2], p70 * MIN_TIER_RATIO), a85 * 0.8, a85 * 1.25))
+        p70 = max(p70, p50 * MIN_TIER_RATIO)
+        p85 = max(p85, p70 * MIN_TIER_RATIO)
         p50, p70, p85 = p50 * widen, p70 * widen, p85 * widen
         adaptive = n_p >= MIN_HISTORY_FOR_ADAPTIVE
         n = float(n_r)
 
         abs_score = abs(adjusted_score)
         sign = 1 if adjusted_score > 0 else (-1 if adjusted_score < 0 else 0)
+        order = ("YATAY", "HAFİF", "YÖNLÜ", "GÜÇLÜ")
 
-        if sign == 0 or abs_score < p50:
-            tier = "YATAY"
-        elif abs_score < p70:
-            tier = "HAFİF"
-        elif abs_score < p85:
-            tier = "YÖNLÜ"
-        else:
-            tier = "GÜÇLÜ"
+        def _tier(scale: float) -> int:
+            if sign == 0 or abs_score < p50 * scale:
+                return 0
+            if abs_score < p70 * scale:
+                return 1
+            if abs_score < p85 * scale:
+                return 2
+            return 3
+
+        # v3.5 HYSTERESIS: a tier is entered 10% above its boundary and left
+        # 10% below it, so a score sitting on a boundary cannot flip the
+        # label on every refresh / every bar.
+        prev_t = (self.store.memory.get("live_tier_state", {}) or {}).get(str(asset), {})
+        up, down = _tier(1.0 + TIER_HYSTERESIS), _tier(1.0 - TIER_HYSTERESIS)
+        p_idx = int(prev_t.get("tier", -1)) if prev_t else -1
+        p_sign = int(prev_t.get("sign", 0)) if prev_t else 0
+        if p_idx < 0 or regime_event:
+            t_idx = _tier(1.0)
+        elif p_idx == 0 or p_sign == sign:
+            if up > p_idx:
+                t_idx = up
+            elif down < p_idx:
+                t_idx = down
+            else:
+                t_idx = p_idx
+        else:                                     # direction reversal needs a clear crossing
+            t_idx = up
+        tier = order[t_idx]
+        self.store.memory.setdefault("live_tier_state", {})[str(asset)] = {
+            "tier": int(t_idx), "sign": int(sign if t_idx > 0 else 0)}
 
         if tier == "YATAY":
             label_core, icon, color = "YATAY / DENGELİ", "⚪", "gray"
