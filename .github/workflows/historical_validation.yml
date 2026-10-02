@@ -57,18 +57,22 @@ jobs:
             --step-hours "${{ github.event.inputs.step_hours || '2' }}" \
             --out validation_reports
 
-      - name: Commit report
+      - name: Publish to the reports branch (single commit, no history growth)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git config --local user.email "quantbot@github.com"
-          git config --local user.name "QuantBot Tier-1"
-          git add validation_reports
-          if git diff --staged --quiet; then
-            echo "Değişiklik yok."
-            exit 0
-          fi
-          git commit -m "🧪 Historical walk-forward validation: $(date -u)"
+          OUT="$RUNNER_TEMP/reports_pub"
+          rm -rf "$OUT" && mkdir -p "$OUT"
+          cp -r validation_reports "$OUT/"
+          cd "$OUT"
+          git init -q
+          git checkout -q -b reports
+          git config user.email "quantbot@github.com"
+          git config user.name "QuantBot Tier-1"
+          git add -A
+          git commit -q -m "🧪 walk-forward $(date -u +%Y-%m-%dT%H:%MZ)"
           for i in 1 2 3; do
-            git pull --rebase --autostash && git push && exit 0
+            git push -q -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" reports && exit 0
             sleep 5
           done
-          echo "Push başarısız" && exit 1
+          echo "reports push başarısız" && exit 1

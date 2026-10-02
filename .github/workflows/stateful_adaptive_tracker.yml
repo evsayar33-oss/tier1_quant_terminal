@@ -1,4 +1,8 @@
-name: Tier-1 Stateful Adaptive Quant Tracker v3.2
+name: Tier-1 Stateful Adaptive Quant Tracker v3.7
+
+# v3.7: state lives on the `state` branch (ONE commit, force-pushed every run)
+# instead of a new commit on `main` every 30 min. `main` = code only, so the
+# repository no longer grows and Streamlit no longer reloads 16x a day.
 
 on:
   schedule:
@@ -17,8 +21,25 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - name: Repository Checkout
+      - name: Repository Checkout (code)
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Restore published state + learned model
+        run: |
+          # First run: the branches do not exist yet -> the seed files in main are used.
+          if git fetch --depth 1 origin state 2>/dev/null; then
+            git archive FETCH_HEAD | tar -x
+            echo "state dalı geri yüklendi"
+          else
+            echo "state dalı yok: main içindeki başlangıç dosyaları kullanılıyor"
+          fi
+          if git fetch --depth 1 origin reports 2>/dev/null; then
+            git archive FETCH_HEAD validation_reports | tar -x || true
+            echo "reports dalından öğrenilmiş model alındı"
+          fi
+          rm -f state_bundle.tar.gz
 
       - name: Python 3.11
         uses: actions/setup-python@v6
@@ -38,28 +59,32 @@ jobs:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
         run: python stateful_background_tracker.py
 
-      - name: Commit state and memory
+      - name: Cap growing files + build bundle
         run: |
-          git config --local user.email "quantbot@github.com"
-          git config --local user.name "QuantBot Tier-1"
-          # Every file the system LEARNS into must be committed, otherwise the
-          # next run starts from scratch and "self-improving" never happens.
-          for f in terminal_state.json terminal_history_stateful.csv \
-                   stateful_adaptive_memory.json ohlcv_history \
+          python state_sync.py prune
+          python state_sync.py bundle
+
+      - name: Publish to the state branch (single commit, no history growth)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          OUT="$RUNNER_TEMP/state_pub"
+          rm -rf "$OUT" && mkdir -p "$OUT"
+          for f in state_bundle.tar.gz terminal_state.json stateful_adaptive_memory.json \
                    adaptive_regime_thresholds_state.json data_freshness_state.json \
-                   timeframe_confluence_state.json performance_ledger.json \
-                   performance_report.md state_backups; do
-            if [ -e "$f" ]; then git add "$f"; fi
+                   timeframe_confluence_state.json performance_ledger.json performance_report.md \
+                   terminal_history_stateful.csv ohlcv_history state_backups; do
+            if [ -e "$f" ]; then cp -r "$f" "$OUT/"; fi
           done
-          if git diff --staged --quiet; then
-            echo "Değişiklik yok."
-            exit 0
-          fi
-          git commit -m "🤖 Stateful Adaptive Quant State: $(date -u)"
-          # The weekly historical-validation job may have pushed in between:
-          # rebase onto it instead of failing the push.
+          cd "$OUT"
+          git init -q
+          git checkout -q -b state
+          git config user.email "quantbot@github.com"
+          git config user.name "QuantBot Tier-1"
+          git add -A
+          git commit -q -m "🤖 state $(date -u +%Y-%m-%dT%H:%MZ)"
           for i in 1 2 3; do
-            git pull --rebase --autostash && git push && exit 0
+            git push -q -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" state && exit 0
             sleep 5
           done
-          echo "Push başarısız" && exit 1
+          echo "state push başarısız" && exit 1
