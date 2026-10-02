@@ -4,9 +4,9 @@ name: Tier-1 Stateful Adaptive Quant Tracker v3.7
 # instead of a new commit on `main` every 30 min. `main` = code only, so the
 # repository no longer grows and Streamlit no longer reloads 16x a day.
 
+# v3.8: the schedule moved to tier1_engine_loop.yml (continuous engine).
+# This workflow stays as a MANUAL fallback (Run workflow).
 on:
-  schedule:
-    - cron: '*/30 * * * 1-5'
   workflow_dispatch:
 
 concurrency:
