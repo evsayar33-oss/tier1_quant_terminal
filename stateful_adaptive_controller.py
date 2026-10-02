@@ -637,8 +637,20 @@ class StatefulAdaptiveController:
                         _SC = {"model": 0.60, "price": 1.20}
                     _model_z = float(np.clip(float(out.get("score", 0.0)) / _SC["model"], -3.0, 3.0))
                     _price_z = float(np.clip(float(live_score) / _SC["price"], -3.0, 3.0))
-                    forecast = _wm * _model_z + _wp * _price_z
+                    # v3.7.1 HARD SHARE CAP: a fixed 30% WEIGHT is not a 30% SHARE --
+                    # with a neutral model (z~0.07) and a strong last hour (price z
+                    # clipped at 3) price made up 87% of the forecast on average
+                    # (SPX 95%). The price part may now never exceed w_p/w_m of the
+                    # model part, so price's share is <= w_p by construction and a
+                    # neutral model cannot be overridden by one candle.
+                    _m_part = _wm * _model_z
+                    _p_part = _wp * _price_z
+                    _p_cap = (_wp / max(_wm, 1e-9)) * abs(_m_part)
+                    _p_part = float(np.clip(_p_part, -_p_cap, _p_cap))
+                    forecast = _m_part + _p_part
                     out["short_term_parts"] = {"model_z": round(_model_z, 3), "price_z": round(_price_z, 3),
+                                               "model_part": round(_m_part, 3), "price_part": round(_p_part, 3),
+                                               "price_share": round(abs(_p_part) / max(abs(_m_part) + abs(_p_part), 1e-9), 3),
                                                "w_model": round(_wm, 3), "w_price": round(_wp, 3),
                                                "weights_source": _wsrc}
                     out["live_price_score"] = round(float(live_score), 4)

@@ -137,3 +137,15 @@ def test_crypto_volume_filled_from_okx():
     finally:
         data_engine.requests.get = old
     assert (out["Volume"] > 0).all() and out.attrs["volume_source"] == "OKX BTC-USDT"
+
+
+def test_short_term_price_share_never_exceeds_weight():
+    import inspect, stateful_adaptive_controller as C
+    src = inspect.getsource(C)
+    assert "_p_cap = (_wp / max(_wm, 1e-9)) * abs(_m_part)" in src
+    wm, wp = 0.7, 0.3
+    for mz, pz in ((0.07, 3.0), (-1.0, 3.0), (0.0, -3.0), (2.0, 0.5)):
+        m = wm * mz
+        p = max(-wp / wm * abs(m), min(wp / wm * abs(m), wp * pz))
+        share = abs(p) / max(abs(m) + abs(p), 1e-9)
+        assert share <= wp + 1e-9
