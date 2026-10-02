@@ -367,6 +367,14 @@ if not hasattr(gk, "reconcile_pairs_post_adaptive"):
     gk = st.session_state.gatekeeper
 
 
+# v3.7: the live state is published on the `state` branch, not in the code.
+try:
+    import state_sync as _ss
+    _sync = _ss.ensure_local_state(_os.path.dirname(_os.path.abspath(__file__)))
+    st.session_state["state_sync_msg"] = _sync.get("msg", "")
+except Exception as _e:
+    st.session_state["state_sync_msg"] = f"state senkronu atlandı: {_e}"
+
 # v3.6.1 STALE-CODE GUARD: Streamlit re-runs app.py after an upload but keeps the
 # other modules in memory until a reboot -> new screen, old calculations.
 try:
@@ -457,6 +465,12 @@ if (
             # v3.5: every refresh starts from the PUBLISHED state (what the
             # background job committed), never from this session's own earlier
             # refreshes -> same closed bar = same answer, for every viewer.
+            try:
+                import state_sync as _ss2
+                st.session_state["state_sync_msg"] = _ss2.ensure_local_state(
+                    _os.path.dirname(_os.path.abspath(__file__)), force=True).get("msg", "")
+            except Exception:
+                pass
             _published = load_persisted_state() or {}
             prev_verdicts = _published.get("asset_verdicts", {}) or {}
             gk = PreTradeGatekeeper(fred_api_key=effective_fred_key)

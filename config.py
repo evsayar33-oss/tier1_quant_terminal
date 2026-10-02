@@ -381,3 +381,7 @@ LEARNED_MODEL_PATH = "validation_reports/learned_model.json"
 # ---------------------------------------------------------------------------
 SHORT_TERM_WEIGHTS = {"model": 0.70, "price": 0.30}
 SHORT_TERM_SCALES = {"model": 0.60, "price": 1.20}   # typical |score| of each part
+
+
+# v3.7: where the app downloads the published state bundle (branch `state`).
+STATE_REPO = "evsayar33-oss/tier1_quant_terminal"
