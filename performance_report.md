@@ -1,6 +1,6 @@
 # 📊 Canlı Performans Karnesi (örneklem dışı, ileriye dönük)
 
-_Son güncelleme: 2026-10-01T20:25:50.121700+00:00 · döngü: 40 · kayıt: 163 (notlanan: 157)_
+_Son güncelleme: 2026-10-02T00:01:59.282574+00:00 · döngü: 41 · kayıt: 169 (notlanan: 161)_
 
 Bu sayfa sistemin **yayınladığı nihai sinyalleri** gerçekleşen fiyatla notlar. Model bu sayfadan öğrenmez; sadece hakemdir. Bir satırın güvenilir olması için en az **30** bağımsız (çakışmayan) örnek gerekir.
 
@@ -8,14 +8,14 @@ Bu sayfa sistemin **yayınladığı nihai sinyalleri** gerçekleşen fiyatla not
 
 ## Genel
 ### 4 saat sonrası
-- **Model:** %53.0 isabet · ort +2 bps · n=83 (bağımsız 55, alt sınır %42)
-- Hep AL: %47.0 isabet · ort -2 bps · n=83 (bağımsız 55, alt sınır %36)
-- Trend takibi: %31.5 isabet · ort -13 bps · n=73 (bağımsız 49, alt sınır %22)
+- **Model:** %51.8 isabet · ort +1 bps · n=85 (bağımsız 57, alt sınır %41)
+- Hep AL: %48.2 isabet · ort -1 bps · n=85 (bağımsız 57, alt sınır %38)
+- Trend takibi: %31.1 isabet · ort -13 bps · n=74 (bağımsız 50, alt sınır %22)
 - Sadece giriş izni verilenler: %57.6 isabet · ort +20 bps · n=33 (bağımsız 22, alt sınır %40) ⚠️az bağımsız örnek
 - Zamanlama notu A: %65.5 isabet · ort +18 bps · n=29 (bağımsız 19, alt sınır %47) ⚠️az bağımsız örnek
 - Zamanlama notu B: %53.3 isabet · ort +6 bps · n=15 (bağımsız 12, alt sınır %31) ⚠️az bağımsız örnek
 - Zamanlama notu C: %77.3 isabet · ort +17 bps · n=22 (bağımsız 20, alt sınır %59) ⚠️az bağımsız örnek
-- Sonuç: 🟡 Olumlu ama henüz istatistiksel olarak kanıtlanmadı (+6.0 puan).
+- Sonuç: 🟡 Olumlu ama henüz istatistiksel olarak kanıtlanmadı (+3.5 puan).
 
 ### 24 saat sonrası
 - **Model:** %53.0 isabet · ort -4 bps · n=66 (bağımsız 15, alt sınır %33) ⚠️az bağımsız örnek
@@ -28,12 +28,12 @@ Bu sayfa sistemin **yayınladığı nihai sinyalleri** gerçekleşen fiyatla not
 - Sonuç: Karar için henüz yeterli bağımsız örnek yok (gereken: 30).
 
 ### 72 saat sonrası
-- **Model:** %43.2 isabet · ort -4 bps · n=44 (bağımsız 6, alt sınır %18) ⚠️az bağımsız örnek
-- Hep AL: %56.8 isabet · ort +4 bps · n=44 (bağımsız 6, alt sınır %27) ⚠️az bağımsız örnek
-- Trend takibi: %42.9 isabet · ort +4 bps · n=42 (bağımsız 6, alt sınır %17) ⚠️az bağımsız örnek
-- Sadece giriş izni verilenler: %37.5 isabet · ort -24 bps · n=24 (bağımsız 6, alt sınır %14) ⚠️az bağımsız örnek
-- Zamanlama notu A: %40.0 isabet · ort -20 bps · n=20 (bağımsız 4, alt sınır %13) ⚠️az bağımsız örnek
-- Zamanlama notu B: %12.5 isabet · ort -77 bps · n=8 (bağımsız 3, alt sınır %1) ⚠️az bağımsız örnek
+- **Model:** %42.6 isabet · ort -7 bps · n=47 (bağımsız 8, alt sınır %20) ⚠️az bağımsız örnek
+- Hep AL: %57.4 isabet · ort +7 bps · n=47 (bağımsız 8, alt sınır %31) ⚠️az bağımsız örnek
+- Trend takibi: %40.9 isabet · ort -1 bps · n=44 (bağımsız 7, alt sınır %17) ⚠️az bağımsız örnek
+- Sadece giriş izni verilenler: %37.0 isabet · ort -28 bps · n=27 (bağımsız 6, alt sınır %14) ⚠️az bağımsız örnek
+- Zamanlama notu A: %38.1 isabet · ort -22 bps · n=21 (bağımsız 4, alt sınır %12) ⚠️az bağımsız örnek
+- Zamanlama notu B: %20.0 isabet · ort -73 bps · n=10 (bağımsız 4, alt sınır %4) ⚠️az bağımsız örnek
 - Zamanlama notu C: %62.5 isabet · ort +54 bps · n=16 (bağımsız 5, alt sınır %29) ⚠️az bağımsız örnek
 - Sonuç: Karar için henüz yeterli bağımsız örnek yok (gereken: 30).
 
@@ -76,28 +76,28 @@ Bu sayfa sistemin **yayınladığı nihai sinyalleri** gerçekleşen fiyatla not
 - 24s Model: %64.3 isabet · ort +10 bps · n=14 (bağımsız 3, alt sınır %24) ⚠️az bağımsız örnek
   - Hep AL: %35.7 isabet · ort -10 bps · n=14 (bağımsız 3, alt sınır %9) ⚠️az bağımsız örnek · Trend: %0.0 isabet · ort -31 bps · n=10 (bağımsız 3, alt sınır %0) ⚠️az bağımsız örnek
   - Karar için henüz yeterli bağımsız örnek yok (gereken: 30).
-- 72s Model: %100.0 isabet · ort +44 bps · n=7 (bağımsız 1, alt sınır %27) ⚠️az bağımsız örnek
-  - Hep AL: %0.0 isabet · ort -44 bps · n=7 (bağımsız 1, alt sınır %0) ⚠️az bağımsız örnek · Trend: %0.0 isabet · ort -44 bps · n=7 (bağımsız 1, alt sınır %0) ⚠️az bağımsız örnek
+- 72s Model: %100.0 isabet · ort +41 bps · n=8 (bağımsız 2, alt sınır %43) ⚠️az bağımsız örnek
+  - Hep AL: %0.0 isabet · ort -41 bps · n=8 (bağımsız 2, alt sınır %0) ⚠️az bağımsız örnek · Trend: %0.0 isabet · ort -44 bps · n=7 (bağımsız 1, alt sınır %0) ⚠️az bağımsız örnek
   - Karar için henüz yeterli bağımsız örnek yok (gereken: 30).
 
 ### XAG
 - 24s Model: %58.3 isabet · ort +40 bps · n=12 (bağımsız 3, alt sınır %20) ⚠️az bağımsız örnek
   - Hep AL: %41.7 isabet · ort -40 bps · n=12 (bağımsız 3, alt sınır %11) ⚠️az bağımsız örnek · Trend: %58.3 isabet · ort +40 bps · n=12 (bağımsız 3, alt sınır %20) ⚠️az bağımsız örnek
   - Karar için henüz yeterli bağımsız örnek yok (gereken: 30).
-- 72s Model: %100.0 isabet · ort +140 bps · n=8 (bağımsız 1, alt sınır %27) ⚠️az bağımsız örnek
-  - Hep AL: %0.0 isabet · ort -140 bps · n=8 (bağımsız 1, alt sınır %0) ⚠️az bağımsız örnek · Trend: %100.0 isabet · ort +140 bps · n=8 (bağımsız 1, alt sınır %27) ⚠️az bağımsız örnek
+- 72s Model: %88.9 isabet · ort +117 bps · n=9 (bağımsız 2, alt sınır %34) ⚠️az bağımsız örnek
+  - Hep AL: %11.1 isabet · ort -117 bps · n=9 (bağımsız 2, alt sınır %1) ⚠️az bağımsız örnek · Trend: %88.9 isabet · ort +117 bps · n=9 (bağımsız 2, alt sınır %34) ⚠️az bağımsız örnek
   - Karar için henüz yeterli bağımsız örnek yok (gereken: 30).
 
 ### XAU
 - 24s Model: %60.0 isabet · ort +4 bps · n=10 (bağımsız 2, alt sınır %17) ⚠️az bağımsız örnek
   - Hep AL: %40.0 isabet · ort -4 bps · n=10 (bağımsız 2, alt sınır %8) ⚠️az bağımsız örnek · Trend: %60.0 isabet · ort +4 bps · n=10 (bağımsız 2, alt sınır %17) ⚠️az bağımsız örnek
   - Karar için henüz yeterli bağımsız örnek yok (gereken: 30).
-- 72s Model: %14.3 isabet · ort -29 bps · n=7 (bağımsız 1, alt sınır %1) ⚠️az bağımsız örnek
-  - Hep AL: %85.7 isabet · ort +29 bps · n=7 (bağımsız 1, alt sınır %20) ⚠️az bağımsız örnek · Trend: %14.3 isabet · ort -29 bps · n=7 (bağımsız 1, alt sınır %1) ⚠️az bağımsız örnek
+- 72s Model: %12.5 isabet · ort -42 bps · n=8 (bağımsız 1, alt sınır %1) ⚠️az bağımsız örnek
+  - Hep AL: %87.5 isabet · ort +42 bps · n=8 (bağımsız 1, alt sınır %21) ⚠️az bağımsız örnek · Trend: %12.5 isabet · ort -42 bps · n=8 (bağımsız 1, alt sınır %1) ⚠️az bağımsız örnek
   - Karar için henüz yeterli bağımsız örnek yok (gereken: 30).
 
 ## Rejim bazında (Model)
-- Rejim 3: 24s %53.0 isabet · ort -4 bps · n=66 (bağımsız 15, alt sınır %33) ⚠️az bağımsız örnek · 72s %43.2 isabet · ort -4 bps · n=44 (bağımsız 6, alt sınır %18) ⚠️az bağımsız örnek
+- Rejim 3: 24s %53.0 isabet · ort -4 bps · n=66 (bağımsız 15, alt sınır %33) ⚠️az bağımsız örnek · 72s %42.6 isabet · ort -7 bps · n=47 (bağımsız 8, alt sınır %20) ⚠️az bağımsız örnek
 
 ## Veri sağlığı (faktör bazında erişilebilirlik)
 - Tüm faktörler son döngülerde %80+ oranında veri aldı. ✅
