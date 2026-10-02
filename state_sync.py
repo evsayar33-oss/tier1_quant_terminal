@@ -38,6 +38,8 @@ STATE_FILES = [
     "performance_ledger.json",
     "performance_report.md",
     "terminal_history_stateful.csv",
+    "signals.json",          # v3.8: bot contract
+    "bot_status.json",       # v3.8: engine heartbeat
 ]
 STATE_DIRS = ["ohlcv_history"]
 REPORT_FILES = [  # copied from the `reports` branch, needed by app + tracker
@@ -73,6 +75,48 @@ def prune(root: str = ".") -> List[str]:
     if len(backups) > MAX_BACKUPS:
         done.append(f"state_backups: {len(backups)} -> {MAX_BACKUPS}")
     return done
+
+
+def publish(branch: str, paths: List[str], root: str = ".", message: str = "") -> bool:
+    """Force-push `paths` as ONE orphan commit to `branch` (no history growth).
+    Needs GH_TOKEN + GITHUB_REPOSITORY (set by GitHub Actions)."""
+    import shutil
+    import subprocess
+    import tempfile
+    token, repo = os.environ.get("GH_TOKEN"), os.environ.get("GITHUB_REPOSITORY")
+    remote = os.environ.get("TIER1_PUBLISH_REMOTE") or (
+        f"https://x-access-token:{token}@github.com/{repo}.git" if token and repo else None)
+    if not remote:
+        print("[publish] GH_TOKEN/GITHUB_REPOSITORY yok; atlandı")
+        return False
+    tmp = tempfile.mkdtemp(prefix="pub_")
+    try:
+        for f in paths:
+            src = os.path.join(root, f)
+            if os.path.isdir(src):
+                shutil.copytree(src, os.path.join(tmp, f))
+            elif os.path.exists(src):
+                os.makedirs(os.path.dirname(os.path.join(tmp, f)) or tmp, exist_ok=True)
+                shutil.copy2(src, os.path.join(tmp, f))
+        run = lambda *a: subprocess.run(a, cwd=tmp, check=True, capture_output=True)
+        run("git", "init", "-q")
+        run("git", "checkout", "-q", "-b", branch)
+        run("git", "config", "user.email", "quantbot@github.com")
+        run("git", "config", "user.name", "QuantBot Tier-1")
+        run("git", "add", "-A")
+        run("git", "commit", "-q", "-m", message or f"{branch} {time.strftime('%Y-%m-%dT%H:%MZ', time.gmtime())}")
+        for _ in range(3):
+            r = subprocess.run(["git", "push", "-q", "-f", remote, branch], cwd=tmp, capture_output=True)
+            if r.returncode == 0:
+                return True
+            time.sleep(5)
+        print("[publish] push başarısız:", r.stderr.decode(errors="ignore")[-300:].replace(token or "", "***"))
+        return False
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+STATE_PUBLISH_PATHS = STATE_FILES + STATE_DIRS + ["state_backups", BUNDLE]
 
 
 def build_bundle(root: str = ".", out: Optional[str] = None) -> str:

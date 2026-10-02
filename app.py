@@ -879,6 +879,29 @@ if stateful_diag:
         "🧠 Stateful Adaptive Motor"
     )
 
+    # v3.8: continuous engine heartbeat
+
+    try:
+
+        _bs = json.load(open("bot_status.json", encoding="utf-8"))
+
+        _lc = pd.Timestamp(_bs.get("last_cycle")).tz_convert("Europe/Istanbul")
+
+        _nc = pd.Timestamp(_bs.get("next_cycle")).tz_convert("Europe/Istanbul")
+
+        _age_m = (pd.Timestamp.now(tz="UTC") - pd.Timestamp(_bs.get("last_cycle"))).total_seconds() / 60
+
+        _icon = "🟢" if _age_m < 75 else ("🟡" if _age_m < 180 else "🔴")
+
+        st.caption(f"{_icon} Motor: son döngü {_lc:%d.%m %H:%M} TSİ · sıradaki {_nc:%H:%M} · "
+
+                   f"işlem yapılabilir: {', '.join(_bs.get('tradeable_assets') or []) or 'yok (kanıt bekleniyor)'}")
+
+    except Exception:
+
+        pass
+
+
     stateful_cols = st.columns(5)
 
     with stateful_cols[0]:
