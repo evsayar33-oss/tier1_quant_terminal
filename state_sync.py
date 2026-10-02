@@ -39,6 +39,8 @@ STATE_FILES = [
     "performance_report.md",
     "terminal_history_stateful.csv",
     "signals.json",          # v3.8: bot contract
+    "paper_ledger.json",     # v3.9: paper trading
+    "paper_report.md",
     "bot_status.json",       # v3.8: engine heartbeat
 ]
 STATE_DIRS = ["ohlcv_history"]

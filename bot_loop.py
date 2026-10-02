@@ -26,6 +26,7 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 import pandas as pd
 
+import paper_broker
 import state_sync
 
 CYCLE_DELAY_S = 90            # Yahoo publishes the closed hourly bar within ~1 min
@@ -118,6 +119,11 @@ def main() -> None:
             state = json.load(open("terminal_state.json", encoding="utf-8"))
             sig = build_signals(state, t0)
             json.dump(sig, open("signals.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+            try:   # v3.9: paper trading on real closed bars (evidence collection)
+                sc = paper_broker.step(sig)
+                print("[paper] " + " · ".join(f"{k}: {v['n']} işlem" for k, v in sc.items()), flush=True)
+            except Exception as exc:
+                print(f"[paper] hata: {exc}", flush=True)
             status = {"engine": "github-actions-loop", "last_cycle": t0.isoformat(), "last_cycle_ok": ok,
                       "last_success": last_ok.isoformat() if last_ok else None,
                       "next_cycle": next_cycle_time(_now()).isoformat(), "job_started": started.isoformat(),

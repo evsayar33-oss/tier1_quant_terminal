@@ -901,6 +901,11 @@ if stateful_diag:
 
         pass
 
+    # v3.9: paper trading scorecard
+    if os.path.exists("paper_report.md"):
+        with st.expander("📒 Paper Trading Karnesi (kanıt toplama)", expanded=False):
+            st.markdown(open("paper_report.md", encoding="utf-8").read())
+
 
     stateful_cols = st.columns(5)
 
