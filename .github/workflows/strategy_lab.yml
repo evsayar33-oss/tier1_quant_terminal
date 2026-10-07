@@ -1,11 +1,18 @@
 name: Tier-1 Strategy Lab (strateji testi)
 
-# v4.0 Aşama 4: broad, selection-corrected strategy research on 730 days of
-# hourly bars (1h/4h) and ~10 years of daily bars, for SPX/NQ/XAU/XAG/BTC/ETH.
-# ~4,000 configurations, walk-forward + Deflated Sharpe. Takes ~5-10 minutes.
-# Results -> branch `lab` (one commit, no growth). The continuous engine picks
-# them up at its next job start (or immediately via "Motoru Şimdi Yeniden Başlat").
-# Runs every Saturday; start it any time from Actions -> Run workflow.
+# v5.0: leveraged perpetual-futures research over EVERY system signal (alone and
+# in combinations) + 54 technical rules, long/short/long-only/short-only,
+# 8 exit rules, funding & fees, leverage/liquidation table. Walk-forward +
+# Deflated Sharpe + alpha vs holding. Takes ~15-40 minutes.
+#
+# Uses the system's point-in-time signals from the `reports` branch
+# (validation_reports/signal_panel.csv.gz, produced by
+# "Tier-1 Historical Walk-Forward Validation"; falls back to factor_panel).
+#
+# RESULTS:
+#   * run page -> bottom -> Artifacts -> strategy-lab-results (zip, all files)
+#   * run page -> Summary: full report + a one-tap zip link of the `lab` branch
+#   * the app's "Strateji Laboratuvarı" section (after the engine's next cycle)
 
 on:
   workflow_dispatch:
@@ -22,12 +29,19 @@ permissions:
 jobs:
   lab:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 180
     steps:
       - name: Repository Checkout (code)
         uses: actions/checkout@v6
         with:
           fetch-depth: 1
+
+      - name: Restore the system's historical signals (reports branch)
+        run: |
+          if git fetch --depth 1 origin reports 2>/dev/null; then
+            git archive FETCH_HEAD validation_reports | tar -x || true
+          fi
+          ls -la validation_reports || echo "reports dalı yok: sadece teknik kurallar test edilecek"
 
       - name: Python 3.11
         uses: actions/setup-python@v6
@@ -42,6 +56,31 @@ jobs:
 
       - name: Strategy research
         run: python strategy_lab.py --source yahoo --out lab_out
+
+      - name: Download links + full report on the run page
+        if: always()
+        run: |
+          {
+            echo "## ⬇️ Sonuç dosyaları"
+            echo ""
+            echo "- **Tek tıkla hepsi (zip):** https://github.com/${GITHUB_REPOSITORY}/archive/refs/heads/lab.zip"
+            echo "- Bu sayfanın en altında **Artifacts → strategy-lab-results** (aynı dosyalar)"
+            echo ""
+            if [ -f lab_out/lab_report.md ]; then cat lab_out/lab_report.md; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload result files (Artifacts -> strategy-lab-results)
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: strategy-lab-results
+          path: |
+            lab_out/lab_report.md
+            lab_out/lab_results.json
+            lab_out/lab_playbook.json
+            lab_out/lab_all_configs.csv.gz
+          if-no-files-found: warn
+          retention-days: 30
 
       - name: Publish to the lab branch (single commit, no history growth)
         env:
@@ -59,19 +98,3 @@ jobs:
             sleep 5
           done
           echo "lab push başarısız" && exit 1
-
-      - name: Show the FULL report in the run page
-        if: always()
-        run: |
-          if [ -f lab_out/lab_report.md ]; then cat lab_out/lab_report.md >> "$GITHUB_STEP_SUMMARY"; fi
-
-      - name: Downloadable result files (run page -> Artifacts -> strategy-lab-results)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: strategy-lab-results
-          path: |
-            lab_out/lab_report.md
-            lab_out/lab_results.json
-            lab_out/lab_playbook.json
-          retention-days: 30

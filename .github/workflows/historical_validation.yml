@@ -57,6 +57,28 @@ jobs:
             --step-hours "${{ github.event.inputs.step_hours || '2' }}" \
             --out validation_reports
 
+      - name: Download links + report on the run page
+        if: always()
+        run: |
+          {
+            echo "## ⬇️ Sonuç dosyaları"
+            echo ""
+            echo "- **Tek tıkla hepsi (zip):** https://github.com/${GITHUB_REPOSITORY}/archive/refs/heads/reports.zip"
+            echo "- Bu sayfanın en altında **Artifacts → historical-validation-results**"
+            echo "- Sistem sinyal paneli hazır: şimdi **Tier-1 Strategy Lab (strateji testi)** iş akışını çalıştırın."
+            echo ""
+            if [ -f validation_reports/historical_replay_report.md ]; then head -150 validation_reports/historical_replay_report.md; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload result files (Artifacts -> historical-validation-results)
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: historical-validation-results
+          path: validation_reports/
+          if-no-files-found: warn
+          retention-days: 30
+
       - name: Publish to the reports branch (single commit, no history growth)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
