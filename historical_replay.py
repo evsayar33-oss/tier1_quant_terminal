@@ -278,6 +278,9 @@ def _run_replay_inner(cache_dir, out_dir, days, step_hours, max_cycles, end):
 
     factor_rows: List[tuple] = []
     meta_rows: List[tuple] = []          # v3.4: (asset, t, regime, legacy score) for the optimizer
+    signal_rows: List[dict] = []         # v5.0: EVERY system output per asset per step (strategy lab)
+    import signal_panel as SP
+    _fsigns = SP.factor_signs()
     replay_ledger = PerformanceLedger(path="replay_ledger.json", max_records=None)
     prev_map = {k: "NÖTR (BEKLE)" for k in ASSET_MATRICES}
     crisis, breaches = False, 0
@@ -313,6 +316,11 @@ def _run_replay_inner(cache_dir, out_dir, days, step_hours, max_cycles, end):
                 meta_rows.append((ak, t, str(gk.active_macro_regime_id),
                                   float(_ls) if _ls is not None else 0.0,
                                   float(_ps) if _ps is not None else float("nan")))
+            _mac = SP.macro_of(gk)
+            for ak, v in verdicts.items():
+                _r = SP.flatten(v, _mac, _fsigns)
+                _r.update({"asset": ak, "t": t})
+                signal_rows.append(_r)
             for ak, v in verdicts.items():
                 for row in v.get("details", []) or []:
                     val = row.get("ham_deger")
@@ -359,6 +367,11 @@ def _run_replay_inner(cache_dir, out_dir, days, step_hours, max_cycles, end):
     try:
         import walkforward_optimizer as WFO
         closes = {a: _close_series(StatefulAdaptiveController._asset_df(g.grid_1h, a)) for a in ASSET_MATRICES}
+        if signal_rows:
+            _sp = pd.DataFrame(signal_rows)
+            _sp = _sp[["asset", "t"] + [c for c in _sp.columns if c not in ("asset", "t")]]
+            _sp.to_csv(os.path.join(out_dir, "signal_panel.csv.gz"), index=False, compression="gzip")
+            print(f"[replay] signal_panel: {len(_sp)} satır · {len(_sp.columns) - 2} sinyal", flush=True)
         panel = WFO.build_panel(factor_rows, meta_rows, closes)
         if not panel.empty:
             panel.to_csv(os.path.join(out_dir, "factor_panel.csv.gz"), index=False, compression="gzip")

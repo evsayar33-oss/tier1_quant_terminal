@@ -959,6 +959,12 @@ if stateful_diag:
             if os.path.exists("paper_ledger.json"):
                 _dc[2].download_button("⬇️ Paper defter (.json)", open("paper_ledger.json", encoding="utf-8").read(),
                                        file_name="paper_ledger.json", mime="application/json", use_container_width=True)
+            try:
+                from config import STATE_REPO as _repo
+                st.markdown(f"⬇️ **Tüm laboratuvar dosyaları (her konfigürasyonun tek tek sonucu dahil, zip):** "
+                            f"[lab.zip](https://github.com/{_repo}/archive/refs/heads/lab.zip)")
+            except Exception:
+                pass
             st.markdown(_lab_md)
     else:
         st.caption("🧪 Strateji Laboratuvarı henüz çalışmadı: Actions → 'Tier-1 Strategy Lab (strateji testi)' → Run workflow.")
@@ -1120,7 +1126,7 @@ except Exception:
 if not any(_lab_live.values()):
     try:   # before the engine's first v4.0 cycle: weekly playbook snapshot
         _pbk = json.load(open("lab_playbook.json", encoding="utf-8"))
-        _lab_live = {k: dict(v.get("signal") or {}, proven=v.get("proven"), overlay=v.get("overlay"),
+        _lab_live = {k: dict(v.get("signal") or {}, proven=v.get("proven"), beta_only=v.get("beta_only"),
                              strategy=v.get("label")) for k, v in (_pbk.get("assets") or {}).items()}
     except Exception:
         _lab_live = {}
@@ -1130,9 +1136,9 @@ def _lab_cell(k):
     lb = _lab_live.get(k) or {}
     if not lb:
         return "— (lab henüz çalışmadı)"
-    side = {"LONG": "🟢 AL", "SHORT": "🔴 SAT"}.get(lb.get("side"), "⚪ POZİSYON YOK")
+    side = {"LONG": "🟢 LONG", "SHORT": "🔴 SHORT"}.get(lb.get("side"), "⚪ POZİSYON YOK")
     proof = ("✅ KANITLI ALFA" if lb.get("proven") else
-             "🛡️ risk azaltıcı (alfa yok)" if lb.get("overlay") else "⚠️ aday · kanıtsız")
+             "⚠️ β ağırlıklı (al-tut'u geçmiyor)" if lb.get("beta_only") else "⚠️ aday · kanıtsız")
     cons = {"LONG": " · 📈 trend kuralı: AL", "SHORT": " · 📈 trend kuralı: SAT",
             "FLAT": " · 📈 trend kuralı: YOK"}.get(lb.get("consensus_side"), "")
     return f"{side} · {proof} · {lb.get('strategy', '')}{cons}"

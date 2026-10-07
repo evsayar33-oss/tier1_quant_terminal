@@ -1,49 +1,53 @@
 """
-Strategy Lab (v4.0, Aşama 4) — broad, selection-corrected strategy research
-==========================================================================
-Question it answers: "Which strategy / timeframe / stop rule has a REAL,
-after-cost, out-of-sample edge on SPX, NQ, XAU, XAG, BTC, ETH - and what is it
-saying right now?"
+Strategy Lab v5 — leveraged perpetual-futures research over EVERY system signal
+================================================================================
+What is tested (per asset: SPX, NQ, XAU, XAG, BTC, ETH)
+  * EVERY output of the terminal, point-in-time (validation_reports/
+    signal_panel.csv.gz from the historical replay): model verdict, forecast,
+    short-term direction, live tier, direction stage, all scores / z's /
+    velocities, pair & cluster scores, timeframe confluence, entry gate &
+    grade, RVOL, ATR, ADX, every macro factor, regime, USD risk, VIX ...
+      - as a direction (sign, and strong-only |z| > 1 against its own past
+        30 days), in the system's orientation AND contrarian
+      - as a filter (entry allowed, grade, volume/volatility support, ADX trend,
+        regime, crisis off, live-vs-model agreement, RVOL/ATR high/low)
+  * 54 technical rules on 1h / 4h / 1d (momentum, EMA trend & cross, Donchian,
+    MACD, DMI/ADX, RSI trend & mean-reversion, Bollinger, Keltner)
+  * combinations: system direction x filter, technical x system filter,
+    technical x system-direction agreement, factor x regime, majority votes
+  * long-short, long-only, short-only
+  * exits: signal, ATR stop/target (1.5/3, 2/4, 3/6), ATR trailing (2, 3),
+    time stop (4h, 24h)
+  -> tens of thousands of configurations per asset, all on the same hourly
+     execution grid (position decided at a bar's close earns the next bar;
+     stops/targets/trailing checked on later bars' High/Low, stop first).
 
-Search space (per asset)
-  timeframes  1h, 4h (730 days of hourly bars), 1d (up to ~10 years)
-  families    tsmom (time-series momentum), ema_trend, ema_cross, donchian
-              breakout, bollinger mean-reversion, rsi mean-reversion,
-              keltner volatility breakout
-  sides       long-short (LS) and long-only (LO, what a spot account can do)
-  exits       signal only, or ATR stop/target: 1.5/3, 2/4, 3/6
-  -> ~700 configurations per asset, ~4,000 in total.
+Perpetual-futures economics
+  * fee + slippage per side, funding: longs pay 0.01%/8h (shorts credited
+    nothing - conservative), every hour a position is open
+  * leverage table for the selected rules: 1x..10x with isolated-margin
+    liquidation (maintenance 0.5%), and a volatility-targeted sizing
 
-Honesty machinery (why a winner here is not just luck)
-  * no look-ahead: a position decided at the close of bar t earns bar t+1;
-    stops/targets are checked on later bars' High/Low (stop first if both).
-  * costs on every position change (fee + slippage, per asset).
-  * every config is aggregated to a common DAILY return grid so 1h/4h/1d
-    compete on equal terms.
-  * walk-forward of the SELECTION PROCEDURE: the window is cut into 6 folds;
-    for folds 2..6 the best config on all earlier data is chosen and only its
-    next-fold result is recorded. That OOS series includes the cost of
-    choosing among ~700 candidates.
-  * Deflated Sharpe Ratio (Bailey & López de Prado 2014) for the selected
-    config, with N = number of configs tried.
-  * daily configs are re-checked on the long history (up to 10 years).
+Honesty machinery (unchanged in spirit)
+  * walk-forward of the WHOLE selection procedure (6 folds), Deflated Sharpe
+    with the effective number of independent configurations, ≥ 30 trades
+  * alpha vs simply holding the perp (beta-adjusted). Beating cash with a
+    mostly-long rule in a bull market is not an edge -> "β ağırlıklı".
+  * a second, independent 10-year daily test for daily technical rules.
 
-A config is "KANITLI" (deployable) only if ALL hold:
-  WF-OOS Sharpe >= 0.5 · >= 3 of 5 OOS folds positive · DSR >= 0.90 ·
-  >= 30 trades in the window · (1d configs) long-history Sharpe > 0.3.
-
-Outputs: lab_results.json (all tables), lab_playbook.json (per-asset
-candidate + live signal), lab_report.md (Turkish report).
-CLI:  python strategy_lab.py --source yahoo          (GitHub Actions)
-      python strategy_lab.py --source panel --panel validation_reports/factor_panel.csv.gz
+Outputs: lab_report.md, lab_results.json, lab_playbook.json,
+         lab_all_configs.csv.gz (EVERY configuration with its numbers).
+CLI:  python strategy_lab.py --source yahoo --panel validation_reports/signal_panel.csv.gz
+      python strategy_lab.py --source panel --panel validation_reports/factor_panel.csv.gz   (offline preview)
 """
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 import math
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -51,71 +55,167 @@ import pandas as pd
 
 ASSETS = {"SPX": "ES=F", "NQ": "NQ=F", "XAU": "GC=F", "XAG": "SI=F", "BTC": "BTC-USD", "ETH": "ETH-USD"}
 NAMES = {"SPX": "S&P 500", "NQ": "Nasdaq 100", "XAU": "Altın", "XAG": "Gümüş", "BTC": "Bitcoin", "ETH": "Ethereum"}
-# one-way cost (fee + slippage) as a fraction of price; perp-exchange level, conservative
-COST = {"BTC": 0.0010, "ETH": 0.0010, "SPX": 0.0008, "NQ": 0.0008, "XAU": 0.0008, "XAG": 0.0010}
-TF_HOURS = {"1h": 1, "4h": 4, "1d": 24}
-STOPS = [None, (1.5, 3.0), (2.0, 4.0), (3.0, 6.0)]
+# one-way cost (perp taker fee + slippage) as a fraction of notional
+COST = {"BTC": 0.0008, "ETH": 0.0008, "SPX": 0.0008, "NQ": 0.0008, "XAU": 0.0008, "XAG": 0.0010}
+FUND_LONG_H = 0.0001 / 8.0          # longs pay 0.01% per 8h
+FUND_SHORT_H = 0.0                  # shorts: assume no credit (conservative)
+LEVERAGES = (1, 2, 3, 5, 10)
+MMR = 0.005                         # maintenance margin (isolated)
+VOL_TARGET, VOL_MAX_LEV = 0.40, 5.0
 WINDOW_DAYS = 730
-FOLDS = 6
-LONG_FOLDS = 8
-MIN_SELECT_TRADES = 15          # fewer trades in the window -> not eligible as "best"
-# Two independent ways to be proven:
-#  A) 730-day window, all timeframes: walk-forward OOS t >= 2 (selection-honest),
-#     >= 3/5 positive folds, DSR >= 0.90, >= 30 trades
-#  B) long daily history (>= 6 years), daily configs only: long walk-forward
-#     OOS t >= 2, >= 5/7 positive folds, DSR >= 0.90, >= 30 trades
+FOLDS, LONG_FOLDS = 6, 8
+MIN_SELECT_TRADES = 15
+Z_WINDOW, Z_MIN = "30D", 60
+BATCH = 3000
 CRIT = {"wf_t": 2.0, "pos_folds": 3, "dsr": 0.90, "trades": 30,
-        "long_t": 2.0, "long_pos_folds": 5, "long_years": 6.0,
-        # v4.1: beating cash is not enough -> the OOS result must also beat HOLDING the asset
-        "alpha_t": 2.0,
-        # ...otherwise, a rule with similar risk-adjusted return but much smaller drawdowns is
-        # reported as a "risk overlay" (useful for exposure management, NOT an edge)
-        "overlay_sharpe_ratio": 0.8, "overlay_dd_ratio": 0.6}
+        "long_t": 2.0, "long_pos_folds": 5, "long_years": 6.0, "alpha_t": 2.0}
+EXITS = [{"type": "sig"},
+         {"type": "sltp", "k1": 1.5, "k2": 3.0}, {"type": "sltp", "k1": 2.0, "k2": 4.0}, {"type": "sltp", "k1": 3.0, "k2": 6.0},
+         {"type": "trail", "k1": 2.0}, {"type": "trail", "k1": 3.0},
+         {"type": "time", "h": 4}, {"type": "time", "h": 24}]
+MODES = ("LS", "LO", "SO")
+EX_CODE = {"sig": 0, "sltp": 1, "trail": 2, "time": 3}
+TF_H = {"1h": 1, "4h": 4, "1d": 24}
 
-FAMILY_TR = {"tsmom": "Momentum (zaman serisi)", "ema_trend": "EMA trend filtresi", "ema_cross": "EMA kesişimi",
-             "donchian": "Donchian kırılımı", "boll_mr": "Bollinger ortalamaya dönüş",
-             "rsi_mr": "RSI ortalamaya dönüş", "keltner": "Keltner volatilite kırılımı"}
-
-GRIDS = {
-    "1h": {"tsmom": [12, 24, 48, 96, 168, 336], "ema_trend": [24, 50, 100, 200, 400],
-           "ema_cross": [(12, 48), (24, 96), (50, 200), (100, 400)], "donchian": [24, 48, 96, 168]},
-    "4h": {"tsmom": [6, 12, 30, 42, 90, 180], "ema_trend": [20, 50, 100, 200],
-           "ema_cross": [(10, 30), (20, 50), (50, 200)], "donchian": [20, 55, 120]},
-    "1d": {"tsmom": [5, 10, 20, 60, 120, 250], "ema_trend": [20, 50, 100, 200],
-           "ema_cross": [(10, 30), (20, 50), (50, 200)], "donchian": [20, 55, 100]},
+# ---------------------------------------------------------------- technical rules
+TECH = {
+    "1h": {"tsmom": [24, 72, 168, 336], "ema_trend": [50, 200], "ema_cross": [(24, 96), (50, 200)],
+           "donchian": [48, 168], "macd": [(12, 26, 9)], "dmi": [14], "boll_mr": [(20, 2.0)],
+           "rsi_mr": [(2, 10, 90)], "rsi_trend": [14], "keltner": [(20, 2.0)]},
+    "4h": {"tsmom": [12, 42, 90, 180], "ema_trend": [50, 200], "ema_cross": [(10, 30), (20, 50), (50, 200)],
+           "donchian": [20, 55, 120], "macd": [(12, 26, 9)], "dmi": [14], "boll_mr": [(20, 2.0)],
+           "rsi_mr": [(2, 10, 90)], "rsi_trend": [14], "keltner": [(20, 2.0)]},
+    "1d": {"tsmom": [10, 20, 60, 120, 250], "ema_trend": [20, 50, 100, 200],
+           "ema_cross": [(10, 30), (20, 50), (50, 200)], "donchian": [20, 55], "macd": [(12, 26, 9)],
+           "dmi": [14], "boll_mr": [(20, 2.0)], "rsi_mr": [(2, 10, 90)], "rsi_trend": [14], "keltner": [(20, 2.0)]},
 }
-MR_GRID = {"boll_mr": [(20, 2.0), (20, 2.5), (50, 2.0), (50, 2.5)],
-           "rsi_mr": [(2, 10, 90), (2, 5, 95), (14, 30, 70)],
-           "keltner": [(20, 1.5), (20, 2.5), (50, 2.0)]}
+TECH_TR = {"tsmom": "Momentum", "ema_trend": "EMA trend", "ema_cross": "EMA kesişimi", "donchian": "Donchian kırılımı",
+           "macd": "MACD", "dmi": "DMI/ADX yönü", "boll_mr": "Bollinger dönüş", "rsi_mr": "RSI(2) dönüş",
+           "rsi_trend": "RSI trend", "keltner": "Keltner kırılımı"}
+TREND_FAMS = ("tsmom", "ema_trend", "ema_cross", "donchian", "macd", "dmi", "rsi_trend", "keltner")
+
+# system columns that are the system's main DIRECTION outputs (used in combos)
+CORE_SYS = ["cat::verdict", "cat::forecast", "cat::short_term", "cat::stage", "cat::live_tier", "cat::direction",
+            "sys::score", "sys::adaptive_score", "sys::legacy_score", "sys::live_score", "sys::live_price_score",
+            "sys::direction_score_z", "sys::pair_direction_score", "sys::timeframe_confluence.confluence_score",
+            "sys::short_term_parts.model_z"]
+# columns that must never be used (future returns in the factor panel, bookkeeping)
+FORBIDDEN_PREFIX = ("r1", "r4", "r24", "r72", "vol_1h", "past_24h")
+
+TR = {  # Turkish names of the most important system signals
+    "cat::verdict": "Model sinyali (24s-1h)", "cat::forecast": "Model tahmini", "cat::short_term": "Kısa Vade Yön",
+    "cat::stage": "Yön aşaması", "cat::live_tier": "Kısa vade kademesi", "cat::direction": "Yön motoru",
+    "sys::score": "Model skoru", "sys::adaptive_score": "Adaptif skor", "sys::legacy_score": "Makro model skoru",
+    "sys::live_score": "Kısa vade skoru", "sys::live_price_score": "Fiyat itkisi skoru",
+    "sys::direction_score_z": "Yön z-skoru", "sys::pair_direction_score": "Çift-uyumlu yön skoru",
+    "sys::timeframe_confluence.confluence_score": "Zaman dilimi uyumu", "sys::short_term_parts.model_z": "Model z (kısa vade)",
+    "sys::entry_allowed": "Giriş izni", "cat::entry_grade": "Giriş notu", "sys::volume_supports": "Hacim desteği",
+    "sys::volatility_supports": "Volatilite desteği", "cat::adx_trend": "ADX trend rejimi", "cat::live_vs_model": "Kısa vade=model",
+    "mac::crisis_active": "Kriz kilidi", "mac::regime_id": "Makro rejim", "sys::rvol": "RVOL", "sys::atr_ratio": "ATR oranı",
+}
 
 
-# =============================================================== configs
-def cfg_id(c: dict) -> str:
-    p = c["p"] if not isinstance(c["p"], (list, tuple)) else "-".join(str(x) for x in c["p"])
-    s = "none" if not c.get("stop") else f"{c['stop'][0]}/{c['stop'][1]}"
-    return f"{c['tf']}|{c['fam']}|{p}|{c['mode']}|{s}"
+def tr_name(col: str) -> str:
+    if col in TR:
+        return TR[col]
+    if col.startswith("z::"):
+        return tr_name(col[3:]) + " (z)"
+    if col.startswith("tech:"):
+        _, tf, fam, p = col.split(":", 3)
+        return f"{TECH_TR.get(fam, fam)} ({p.replace('-', '/')}) · {tf}"
+    for pre, lab in (("f::", "Faktör: "), ("sys::", ""), ("mac::", "Makro: "), ("cat::", "")):
+        if col.startswith(pre):
+            return lab + col[len(pre):]
+    return col
 
 
-def cfg_label(c: dict) -> str:
-    p = c["p"] if not isinstance(c["p"], (list, tuple)) else "/".join(str(x) for x in c["p"])
-    stop = "sinyalle çıkış" if not c.get("stop") else f"SL {c['stop'][0]}×ATR · TP {c['stop'][1]}×ATR"
-    side = "çift yönlü" if c["mode"] == "LS" else "sadece alış"
-    return f"{FAMILY_TR[c['fam']]} ({p}) · {c['tf']} · {side} · {stop}"
+# ================================================================= data
+def _closed(df: pd.DataFrame, hours: int, now: datetime) -> pd.DataFrame:
+    if df is None or df.empty:
+        return df
+    return df[df.index + pd.Timedelta(hours=hours) <= pd.Timestamp(now)]
 
 
-def configs_for(tf: str) -> List[dict]:
-    out = []
-    fams = dict(GRIDS[tf])
-    fams.update(MR_GRID)
-    for fam, plist in fams.items():
-        for p in plist:
-            for mode in ("LS", "LO"):
-                for stop in STOPS:
-                    out.append({"tf": tf, "fam": fam, "p": p, "mode": mode, "stop": stop})
+def _resample(h: pd.DataFrame, rule: str) -> pd.DataFrame:
+    return h.resample(rule, label="left", closed="left").agg(
+        {"Open": "first", "High": "max", "Low": "min", "Close": "last"}).dropna()
+
+
+def load_yahoo(now: Optional[datetime] = None, hourly_period: str = "730d", daily_period: str = "10y") -> Dict[str, dict]:
+    import yfinance as yf
+    now = now or datetime.now(timezone.utc)
+    out = {}
+    for a, sym in ASSETS.items():
+        try:
+            t = yf.Ticker(sym)
+            h = t.history(period=hourly_period, interval="1h", auto_adjust=False)[["Open", "High", "Low", "Close"]]
+            h.index = pd.to_datetime(h.index, utc=True)
+            h = _closed(h[~h.index.duplicated()].dropna().sort_index(), 1, now)
+            d = t.history(period=daily_period, interval="1d", auto_adjust=False)[["Open", "High", "Low", "Close"]]
+            d.index = pd.to_datetime(d.index.date).tz_localize("UTC")
+            d = _closed(d[~d.index.duplicated()].dropna().sort_index(), 24, now)
+            out[a] = {"1h": h, "1d": d}
+            print(f"[lab] {a}: 1h={len(h)} 1d={len(d)}", flush=True)
+        except Exception as exc:
+            print(f"[lab] {a}: veri alınamadı ({exc})", flush=True)
     return out
 
 
-# =============================================================== indicators
+def load_signal_panel(path: Optional[str]) -> Optional[pd.DataFrame]:
+    """System signals, point-in-time. Prefers signal_panel.csv.gz (every system
+    output); falls back to factor_panel.csv.gz (model score, price score,
+    factors, regime). Future-return columns are dropped."""
+    cands = [p for p in ([path] if path else []) +
+             ["validation_reports/signal_panel.csv.gz", "validation_reports/factor_panel.csv.gz"] if p]
+    for p in cands:
+        if p and os.path.exists(p):
+            P = pd.read_csv(p, low_memory=False)
+            P["t"] = pd.to_datetime(P["t"], utc=True)
+            if "sys::score" not in P.columns:           # factor_panel -> same naming as signal_panel
+                ren = {"legacy_score": "sys::legacy_score", "price_score": "sys::live_price_score"}
+                P = P.rename(columns=ren)
+                if "regime" in P.columns:
+                    P["mac::regime_id"] = pd.to_numeric(P["regime"], errors="coerce").fillna(0.0)
+            keep = ["asset", "t"] + [c for c in P.columns if c.startswith(("sys::", "cat::", "f::", "mac::"))]
+            P = P[keep]
+            print(f"[lab] sistem sinyal paneli: {p} · {len(P)} satır · {len(keep) - 2} sinyal", flush=True)
+            P.attrs["source"] = os.path.basename(p)
+            return P
+    return None
+
+
+def panel_price_path(path: str) -> Dict[str, dict]:
+    """OFFLINE PREVIEW ONLY: an hourly close path rebuilt from the factor panel
+    (r4 = exact 4h log return chains every 2h, r1 = next hour; one constant
+    offset between the two interleaved chains is estimated). No High/Low."""
+    P = pd.read_csv(path, usecols=["asset", "t", "r1", "r4"])
+    P["t"] = pd.to_datetime(P["t"], utc=True)
+    out = {}
+    for a, g in P.groupby("asset"):
+        g = g.sort_values("t").reset_index(drop=True)
+        r4 = g["r4"].fillna(0.0).values
+        x = np.zeros(len(g))
+        for i in range(2, len(g)):
+            x[i] = x[i - 2] + r4[i - 2]
+        alt = np.where(np.arange(len(g)) % 2 == 1, 1.0, 0.0)
+        d1 = np.diff(x)
+        c = -np.mean(d1 * np.where(alt[1:] == 1, 1, -1))        # offset that minimises alternating jumps
+        x = x + alt * c
+        r1 = g["r1"].fillna(0.0).values
+        ts = list(g["t"]) + list(g["t"] + pd.Timedelta(hours=1))
+        lp = list(x) + list(x + r1)
+        s = pd.Series(lp, index=pd.DatetimeIndex(ts)).sort_index()
+        s = s[~s.index.duplicated()]
+        close = 100 * np.exp(s - s.iloc[0])
+        bars = pd.DataFrame({"Close": close.values}, index=s.index - pd.Timedelta(hours=1))   # bar start = close time - 1h
+        bars["Open"] = bars["Close"].shift(1).fillna(bars["Close"])
+        bars["High"] = bars[["Open", "Close"]].max(axis=1)
+        bars["Low"] = bars[["Open", "Close"]].min(axis=1)
+        out[a] = {"1h": bars[["Open", "High", "Low", "Close"]]}
+    return out
+
+
+# ================================================================= indicators
 def _ema(x: pd.Series, n: int) -> pd.Series:
     return x.ewm(span=n, adjust=False, min_periods=n).mean()
 
@@ -133,138 +233,425 @@ def _rsi(c: pd.Series, n: int) -> pd.Series:
     return 100 - 100 / (1 + up / dn.replace(0, np.nan))
 
 
-def _hold(events: pd.Series) -> np.ndarray:
-    """events: +1/-1 = enter, 0 = exit, NaN = keep previous state."""
-    return events.ffill().fillna(0.0).values
+def _hold(ev: pd.Series) -> pd.Series:
+    return ev.ffill().fillna(0.0)
 
 
-def signal(c: dict, df: pd.DataFrame) -> np.ndarray:
-    """Target position decided at each bar's CLOSE using data up to that close."""
+def tech_signal(fam: str, p, df: pd.DataFrame) -> pd.Series:
+    """Direction in {-1,0,1} known at each bar's close (no look-ahead)."""
     C = df["Close"]
-    fam, p = c["fam"], c["p"]
+    nan = pd.Series(np.nan, index=df.index)
     if fam == "tsmom":
-        s = np.sign(C / C.shift(p) - 1.0).fillna(0.0).values
-    elif fam == "ema_trend":
-        s = np.sign(C - _ema(C, p)).fillna(0.0).values
-    elif fam == "ema_cross":
-        s = np.sign(_ema(C, p[0]) - _ema(C, p[1])).fillna(0.0).values
-    elif fam == "donchian":
-        hi = df["High"].rolling(p).max().shift(1)
-        lo = df["Low"].rolling(p).min().shift(1)
-        ev = pd.Series(np.nan, index=df.index)
-        ev[C > hi] = 1.0
-        ev[C < lo] = -1.0
-        s = _hold(ev)
-    elif fam == "boll_mr":
+        return np.sign(C / C.shift(p) - 1.0).fillna(0.0)
+    if fam == "ema_trend":
+        return np.sign(C - _ema(C, p)).fillna(0.0)
+    if fam == "ema_cross":
+        return np.sign(_ema(C, p[0]) - _ema(C, p[1])).fillna(0.0)
+    if fam == "donchian":
+        ev = nan.copy()
+        ev[C > df["High"].rolling(p).max().shift(1)] = 1.0
+        ev[C < df["Low"].rolling(p).min().shift(1)] = -1.0
+        return _hold(ev)
+    if fam == "macd":
+        f, s, g = p
+        m = _ema(C, f) - _ema(C, s)
+        return np.sign(m - _ema(m, g)).fillna(0.0)
+    if fam == "dmi":
+        h, l = df["High"], df["Low"]
+        up, dn = h.diff(), -l.diff()
+        pdm = pd.Series(np.where((up > dn) & (up > 0), up, 0.0), index=df.index)
+        mdm = pd.Series(np.where((dn > up) & (dn > 0), dn, 0.0), index=df.index)
+        atr = _atr(df, p)
+        pdi = 100 * pdm.ewm(alpha=1 / p, adjust=False).mean() / atr
+        mdi = 100 * mdm.ewm(alpha=1 / p, adjust=False).mean() / atr
+        adx = (100 * (pdi - mdi).abs() / (pdi + mdi)).ewm(alpha=1 / p, adjust=False).mean()
+        return (np.sign(pdi - mdi) * (adx > 20)).fillna(0.0)
+    if fam == "boll_mr":
         n, k = p
-        m, sd = C.rolling(n).mean(), C.rolling(n).std()
-        z = (C - m) / sd.replace(0, np.nan)
-        ev = pd.Series(np.nan, index=df.index)
+        z = (C - C.rolling(n).mean()) / C.rolling(n).std()
+        ev = nan.copy()
         ev[np.sign(z) != np.sign(z.shift())] = 0.0
         ev[z < -k] = 1.0
         ev[z > k] = -1.0
-        s = _hold(ev)
-    elif fam == "rsi_mr":
-        n, lo_, hi_ = p
+        return _hold(ev)
+    if fam == "rsi_mr":
+        n, lo, hi = p
         r = _rsi(C, n)
-        ev = pd.Series(np.nan, index=df.index)
+        ev = nan.copy()
         ev[np.sign(r - 50) != np.sign(r.shift() - 50)] = 0.0
-        ev[r < lo_] = 1.0
-        ev[r > hi_] = -1.0
-        s = _hold(ev)
-    elif fam == "keltner":
+        ev[r < lo] = 1.0
+        ev[r > hi] = -1.0
+        return _hold(ev)
+    if fam == "rsi_trend":
+        return np.sign(_rsi(C, p) - 50).fillna(0.0)
+    if fam == "keltner":
         n, k = p
         e, a = _ema(C, n), _atr(df, n)
-        ev = pd.Series(np.nan, index=df.index)
+        ev = nan.copy()
         ev[np.sign(C - e) != np.sign(C.shift() - e.shift())] = 0.0
         ev[C > e + k * a] = 1.0
         ev[C < e - k * a] = -1.0
-        s = _hold(ev)
-    else:
-        raise ValueError(fam)
-    s = np.nan_to_num(np.asarray(s, dtype=float))
-    if c["mode"] == "LO":
-        s = np.clip(s, 0.0, 1.0)
-    return s
+        return _hold(ev)
+    raise ValueError(fam)
 
 
-# =============================================================== simulation
-def simulate(c: dict, df: pd.DataFrame, cost: float, sig: Optional[np.ndarray] = None) -> dict:
-    """Per-bar net log returns. r[t] is earned DURING bar t by the position held
-    after the close of bar t-1. Returns r, effective position, trade owner ids
-    and the final open-trade state (for live signals)."""
-    if sig is None:
-        sig = signal(c, df)
-    C = df["Close"].values.astype(float)
-    n = len(C)
-    stop = c.get("stop")
-    if not stop:
-        lr = np.zeros(n)
-        lr[1:] = np.diff(np.log(C))
-        prev = np.concatenate([[0.0], sig[:-1]])
-        r = prev * lr - cost * np.abs(sig - prev)
-        pos = sig
-        state = {"side": int(sig[-1]), "entry": None, "sl": None, "tp": None}
-    else:
-        O = df["Open"].values.astype(float)
-        H = df["High"].values.astype(float)
-        L = df["Low"].values.astype(float)
-        atr = _atr(df).values
-        sl_k, tp_k = stop
-        r = np.zeros(n)
-        pos = np.zeros(n)
-        cur, ent, s_lv, t_lv, blocked = 0.0, 0.0, 0.0, 0.0, None
-        for t in range(1, n):
-            rt = 0.0
-            if cur != 0.0:
-                if cur > 0:
-                    if L[t] <= s_lv:
-                        rt, cur = math.log(min(O[t], s_lv) / C[t - 1]) - cost, 0.0
-                        blocked = 1.0
-                    elif H[t] >= t_lv:
-                        rt, cur = math.log(t_lv / C[t - 1]) - cost, 0.0
-                        blocked = 1.0
+def _pstr(p) -> str:
+    return "-".join(str(x) for x in p) if isinstance(p, (list, tuple)) else str(p)
+
+
+# ================================================================= context
+class Ctx:
+    """Everything a rule can look at, aligned to the hourly execution grid."""
+
+    def __init__(self, h1: pd.DataFrame, d1: Optional[pd.DataFrame] = None, sys: Optional[pd.DataFrame] = None):
+        self.idx = h1.index
+        self.O, self.H, self.L, self.C = (h1[c].values.astype(float) for c in ("Open", "High", "Low", "Close"))
+        self.T = len(h1)
+        # bars whose High/Low are just max/min(Open, Close) carry no intrabar information
+        self.no_wicks = bool(np.allclose(self.H, np.maximum(self.O, self.C)) and np.allclose(self.L, np.minimum(self.O, self.C)))
+        close_t = h1.index + pd.Timedelta(hours=1)
+        self.feat: Dict[str, np.ndarray] = {}
+        frames = {"1h": h1, "4h": _resample(h1, "4h")}
+        frames["1d"] = d1 if d1 is not None and len(d1) > 30 else _resample(h1, "1D")
+        self.atr: Dict[str, np.ndarray] = {}
+        for tf, df in frames.items():
+            avail = df.index + pd.Timedelta(hours=TF_H[tf])            # known once the bar has closed
+            pos = np.searchsorted(avail.values, close_t.values, side="right") - 1
+
+            def _map(s: pd.Series) -> np.ndarray:
+                v = s.values.astype(float)
+                return np.where(pos >= 0, v[np.clip(pos, 0, len(v) - 1)], np.nan)
+
+            self.atr[tf] = _map(_atr(df))
+            for fam, plist in TECH[tf].items():
+                for p in plist:
+                    self.feat[f"tech:{tf}:{fam}:{_pstr(p)}"] = np.nan_to_num(_map(tech_signal(fam, p, df)))
+        self.sys_cols: List[str] = []
+        if sys is not None and len(sys):
+            S = sys.sort_values("t").drop_duplicates("t", keep="last").set_index("t")
+            S = S[[c for c in S.columns if c not in ("asset",) and not c.startswith(FORBIDDEN_PREFIX)]]
+            S = S.apply(pd.to_numeric, errors="coerce")
+            Z = (S - S.rolling(Z_WINDOW, min_periods=Z_MIN).mean()) / S.rolling(Z_WINDOW, min_periods=Z_MIN).std()
+            Z.columns = ["z::" + c for c in S.columns]
+            A = pd.concat([S, Z], axis=1)
+            tv = A.index.values
+            pos = np.searchsorted(tv, close_t.values, side="right") - 1
+            fresh = (pos >= 0) & ((close_t.values - tv[np.clip(pos, 0, len(tv) - 1)]) <= np.timedelta64(3, "h"))
+            for c in A.columns:
+                v = A[c].values.astype(float)
+                self.feat[c] = np.where(fresh, v[np.clip(pos, 0, len(v) - 1)], np.nan)
+            self.sys_cols = list(S.columns)
+            self.sys_cover = (int(np.argmax(fresh)) if fresh.any() else self.T,
+                              int(len(fresh) - np.argmax(fresh[::-1])) if fresh.any() else 0)
+        else:
+            self.sys_cover = (0, 0)
+
+    # ---------------- rule evaluation
+    def direction(self, d: dict) -> np.ndarray:
+        if "bench" in d:
+            return np.full(self.T, 1.0 if d["bench"] == "long" else -1.0)
+        if "ens" in d:
+            parts = [self.direction(x) for x in d["ens"]]
+            M = np.vstack(parts)
+            vote = M.sum(0)
+            if d.get("need") == "all":
+                return np.where(np.all(M == M[0], axis=0), M[0], 0.0)
+            need = math.ceil(len(parts) / 2.0)
+            return np.where(np.abs(vote) >= need, np.sign(vote), 0.0) if len(parts) > 2 else np.sign(vote) * (np.abs(vote) == len(parts))
+        x = self.feat.get(d["src"])
+        if x is None:
+            return np.zeros(self.T)
+        x = np.nan_to_num(x)
+        if d.get("op") == "z":
+            thr = float(d.get("thr", 1.0))
+            out = np.where(x > thr, 1.0, np.where(x < -thr, -1.0, 0.0))
+        else:
+            out = np.sign(x)
+        return -out if d.get("inv") else out
+
+    def mask(self, f: Optional[dict], d_arr: np.ndarray) -> np.ndarray:
+        if not f:
+            return np.ones(self.T, dtype=bool)
+        if f.get("op") == "agree":
+            return np.sign(self.direction(f["d"])) == np.sign(d_arr)
+        x = self.feat.get(f["src"])
+        if x is None:
+            return np.zeros(self.T, dtype=bool)
+        v = float(f.get("val", 0.0))
+        with np.errstate(invalid="ignore"):
+            if f["op"] == "gt":
+                return np.nan_to_num(x, nan=-np.inf) > v
+            if f["op"] == "lt":
+                return np.nan_to_num(x, nan=np.inf) < v
+            if f["op"] == "eq":
+                return np.nan_to_num(x, nan=-999) == v
+            if f["op"] == "ge":
+                return np.nan_to_num(x, nan=-np.inf) >= v
+        return np.ones(self.T, dtype=bool)
+
+    def position(self, rule: dict) -> np.ndarray:
+        d = self.direction(rule["d"])
+        p = d * self.mask(rule.get("f"), d)
+        if rule["mode"] == "LO":
+            p = np.clip(p, 0, 1)
+        elif rule["mode"] == "SO":
+            p = np.clip(p, -1, 0)
+        return p.astype(np.int8)
+
+
+# ================================================================= rule universe
+def _two_sided(x: np.ndarray) -> bool:
+    v = x[np.isfinite(x)]
+    if len(v) < 200 or np.nanstd(v) == 0:
+        return False
+    return (v > 0).mean() > 0.1 and (v < 0).mean() > 0.1
+
+
+def _usable(x: np.ndarray) -> bool:
+    v = x[np.isfinite(x)]
+    return len(v) >= 200 and np.nanstd(v) > 0
+
+
+def direction_rules(ctx: Ctx) -> List[Tuple[str, dict, Optional[dict]]]:
+    """(category, direction spec, filter spec) - every single signal and every
+    a-priori combination. Built from what the panel actually contains."""
+    out: List[Tuple[str, dict, Optional[dict]]] = []
+    sys_dir = [c for c in ctx.sys_cols if _two_sided(ctx.feat[c]) and not c.startswith("mac::regime")]
+    core = [c for c in CORE_SYS if c in ctx.sys_cols and _usable(ctx.feat[c])]
+    tech = [k for k in ctx.feat if k.startswith("tech:")]
+    # --- filters
+    filters: List[dict] = []
+    for c, op, v in (("sys::entry_allowed", "eq", 1.0), ("cat::entry_grade", "ge", 2.0), ("sys::volume_supports", "eq", 1.0),
+                     ("sys::volatility_supports", "eq", 1.0), ("cat::adx_trend", "eq", 1.0), ("cat::adx_trend", "eq", 0.0),
+                     ("cat::live_vs_model", "eq", 1.0), ("mac::crisis_active", "eq", 0.0),
+                     ("z::sys::rvol", "gt", 0.0), ("z::sys::atr_ratio", "gt", 0.0), ("z::sys::atr_ratio", "lt", 0.0)):
+        if c in ctx.feat and _usable(np.nan_to_num(ctx.feat[c], nan=0.0) + 0.0) and np.nanstd(ctx.feat[c]) > 0:
+            filters.append({"src": c, "op": op, "val": v})
+    regimes = []
+    if "mac::regime_id" in ctx.feat:
+        r = ctx.feat["mac::regime_id"]
+        vals, cnt = np.unique(r[np.isfinite(r)], return_counts=True)
+        regimes = [float(v) for v, n in sorted(zip(vals, cnt), key=lambda z: -z[1]) if n >= 0.1 * np.isfinite(r).sum()][:4]
+        filters += [{"src": "mac::regime_id", "op": "eq", "val": v} for v in regimes]
+    agree_tech = [k for k in ("tech:1d:ema_trend:200", "tech:1d:tsmom:60", "tech:4h:ema_trend:50", "tech:1h:ema_trend:200") if k in ctx.feat]
+    agree_sys = [c for c in ("cat::verdict", "cat::short_term", "sys::timeframe_confluence.confluence_score", "sys::legacy_score") if c in core]
+    # 1) every system output alone: sign and strong-only (|z|>1), system orientation and contrarian
+    for c in sys_dir:
+        for inv in (False, True):
+            out.append(("sys", {"src": c, "op": "sign", "inv": inv}, None))
+            if "z::" + c in ctx.feat and _usable(ctx.feat["z::" + c]):
+                out.append(("sys", {"src": "z::" + c, "op": "z", "thr": 1.0, "inv": inv}, None))
+    # 2) core system directions x every filter (incl. agreement with trend and other system outputs)
+    for c in core:
+        for inv in (False, True):
+            d = {"src": c, "op": "sign", "inv": inv}
+            for f in filters:
+                out.append(("sys×filtre", d, f))
+            for k in agree_tech:
+                out.append(("sys×trend", d, {"op": "agree", "d": {"src": k, "op": "sign"}}))
+            for k in agree_sys:
+                if k != c:
+                    out.append(("sys×sys", d, {"op": "agree", "d": {"src": k, "op": "sign"}}))
+    # 3) every technical rule alone (trend and its contrarian)
+    for k in tech:
+        for inv in (False, True):
+            out.append(("teknik", {"src": k, "op": "sign", "inv": inv}, None))
+    # 4) technical x system filters, technical x system-direction agreement
+    for k in tech:
+        d = {"src": k, "op": "sign"}
+        for f in filters:
+            out.append(("teknik×filtre", d, f))
+        for c in core:
+            out.append(("teknik×sys", d, {"op": "agree", "d": {"src": c, "op": "sign"}}))
+    # 5) factor x regime (does a macro factor only work in one regime?)
+    for c in [c for c in sys_dir if c.startswith("f::")]:
+        for inv in (False, True):
+            for v in regimes:
+                out.append(("faktör×rejim", {"src": c, "op": "sign", "inv": inv}, {"src": "mac::regime_id", "op": "eq", "val": v}))
+    # 6) votes / ensembles
+    if len(core) >= 3:
+        out.append(("oylama", {"ens": [{"src": c, "op": "sign"} for c in core], "need": "maj"}, None))
+    for tf in ("1h", "4h", "1d"):
+        ks = [k for k in tech if k.startswith(f"tech:{tf}:") and k.split(":")[2] in TREND_FAMS]
+        if len(ks) >= 3:
+            out.append(("oylama", {"ens": [{"src": k, "op": "sign"} for k in ks], "need": "maj"}, None))
+    allt = [k for k in tech if k.split(":")[2] in TREND_FAMS]
+    if allt:
+        out.append(("oylama", {"ens": [{"src": k, "op": "sign"} for k in allt], "need": "maj"}, None))
+    if core and agree_tech:
+        out.append(("oylama", {"ens": [{"src": core[0], "op": "sign"}] + [{"src": k, "op": "sign"} for k in agree_tech[:2]],
+                               "need": "all"}, None))
+    # 7) benchmarks
+    out.append(("referans", {"bench": "long"}, None))
+    out.append(("referans", {"bench": "short"}, None))
+    return out
+
+
+def _dir_tf(d: dict) -> str:
+    """Which ATR scale the stops of this rule use."""
+    src = d.get("src") or ""
+    if src.startswith("tech:"):
+        return src.split(":")[1]
+    if "ens" in d:
+        tfs = {x.get("src", "").split(":")[1] for x in d["ens"] if str(x.get("src", "")).startswith("tech:")}
+        return "1d" if tfs == {"1d"} else "4h"
+    return "4h"
+
+
+def rule_id(cat: str, d: dict, f: Optional[dict], mode: str, ex: dict) -> str:
+    def ds(x):
+        if "bench" in x:
+            return "HOLD_" + x["bench"].upper()
+        if "ens" in x:
+            return ("ALL(" if x.get("need") == "all" else "MAJ(") + ",".join(ds(e) for e in x["ens"]) + ")"
+        s = x["src"] + (f">{x.get('thr', 1.0)}σ" if x.get("op") == "z" else "")
+        return ("-" if x.get("inv") else "") + s
+    fs = ""
+    if f:
+        fs = " & agree(" + ds(f["d"]) + ")" if f.get("op") == "agree" else f" & {f['src']} {f['op']} {f.get('val')}"
+    es = ex["type"] + ("" if ex["type"] == "sig" else f"{ex.get('k1', '')}/{ex.get('k2', '')}" if ex["type"] != "time" else f"{ex['h']}h")
+    return f"{ds(d)}{fs} | {mode} | {es}"
+
+
+def rule_label(r: dict) -> str:
+    d, f = r["d"], r.get("f")
+
+    def ds(x):
+        if "bench" in x:
+            return "Sürekli " + ("LONG" if x["bench"] == "long" else "SHORT") + " (referans)"
+        if "ens" in x:
+            return ("Hepsi aynı yönde: " if x.get("need") == "all" else "Çoğunluk oyu: ") + \
+                   (", ".join(tr_name(e["src"]) for e in x["ens"]) if len(x["ens"]) <= 4 else f"{len(x['ens'])} sinyal")
+        s = tr_name(x["src"]) + (" (güçlü, |z|>1)" if x.get("op") == "z" else "")
+        return ("TERS " if x.get("inv") else "") + s
+    txt = ds(d)
+    if f:
+        if f.get("op") == "agree":
+            txt += f" + teyit: {ds(f['d'])}"
+        else:
+            sym = {"eq": "=", "ge": "≥", "gt": ">", "lt": "<"}[f["op"]]
+            txt += f" + filtre: {tr_name(f['src'])} {sym} {f.get('val'):g}"
+    ex = r["exit"]
+    exs = {"sig": "sinyalle çıkış", "sltp": f"SL {ex.get('k1')}×ATR / TP {ex.get('k2')}×ATR",
+           "trail": f"iz süren stop {ex.get('k1')}×ATR", "time": f"{ex.get('h')} saat tut"}[ex["type"]]
+    mode = {"LS": "long+short", "LO": "sadece long", "SO": "sadece short"}[r["mode"]]
+    return f"{txt} · {mode} · {exs}"
+
+
+# ================================================================= vectorised simulator
+def simulate_batch(P: np.ndarray, ex: List[dict], atr_sel: np.ndarray, ctx_arrays: dict, cost: float,
+                   day_idx: np.ndarray, n_days: int, fund_long: float = FUND_LONG_H, fund_short: float = FUND_SHORT_H,
+                   keep_hourly: bool = False) -> dict:
+    """Simulate n configurations at once along time. P: int8 [n, T] target
+    positions decided at each bar's close. Returns daily net log returns etc."""
+    O, H, L, C, ATR = (ctx_arrays[k] for k in ("O", "H", "L", "C", "ATR"))
+    close_fill = bool(ctx_arrays.get("close_fill", False))
+    n, T = P.shape
+    et = np.array([EX_CODE[e["type"]] for e in ex])
+    k1 = np.array([float(e.get("k1", 0.0)) for e in ex])
+    k2 = np.array([float(e.get("k2", 0.0)) for e in ex])
+    hmax = np.array([float(e.get("h", 1e9)) for e in ex])
+    has_sl = (et == 1) | (et == 2)
+    has_tp = et == 1
+    is_trail = et == 2
+    is_time = et == 3
+    cur = np.zeros(n)
+    blocked = np.zeros(n)
+    entry = np.zeros(n); sl = np.full(n, np.nan); tp = np.full(n, np.nan); ext = np.zeros(n); atr_e = np.zeros(n)
+    held = np.zeros(n); tpnl = np.zeros(n)
+    ntr = np.zeros(n); nwin = np.zeros(n); inpos = np.zeros(n)
+    R = np.zeros((n, n_days), dtype=np.float32)
+    E = np.zeros((n, n_days), dtype=np.int16)
+    hourly = np.zeros((n, T)) if keep_hourly else None
+    pos_h = np.zeros((n, T)) if keep_hourly else None
+    ent_h = np.zeros((n, T)) if keep_hourly else None
+    any_stop = bool((has_sl | is_time).any())
+    rows = np.arange(n)
+    for t in range(1, T):
+        pc = C[t - 1]
+        lr = math.log(C[t] / pc) if pc > 0 and C[t] > 0 else 0.0
+        ps = cur
+        fund = np.where(ps > 0, fund_long * ps, np.where(ps < 0, -fund_short * ps, 0.0))
+        ret = ps * lr - fund
+        if any_stop:
+            live = ps != 0
+            if live.any():
+                lng = ps > 0
+                sht = ps < 0
+                with np.errstate(invalid="ignore"):
+                    hit_sl = has_sl & live & ((lng & (L[t] <= sl)) | (sht & (H[t] >= sl)))
+                    hit_tp = has_tp & live & ~hit_sl & ((lng & (H[t] >= tp)) | (sht & (L[t] <= tp)))
+                stop_exit = hit_sl | hit_tp
+                if stop_exit.any():
+                    if close_fill:      # no real High/Low: a stop seen only at the close is filled AT the close
+                        px = np.full(n, C[t])
                     else:
-                        rt = math.log(C[t] / C[t - 1])
-                else:
-                    if H[t] >= s_lv:
-                        rt, cur = -math.log(max(O[t], s_lv) / C[t - 1]) - cost, 0.0
-                        blocked = -1.0
-                    elif L[t] <= t_lv:
-                        rt, cur = -math.log(t_lv / C[t - 1]) - cost, 0.0
-                        blocked = -1.0
-                    else:
-                        rt = -math.log(C[t] / C[t - 1])
-            want = sig[t]
-            if blocked is not None:
-                if want == blocked:
-                    want = 0.0          # stay out until the signal itself changes
-                else:
-                    blocked = None
-            if want != cur:
-                a = atr[t]
-                if want != 0.0 and not (a > 0):
-                    want = 0.0          # no ATR yet -> no trade
-                rt -= cost * abs(want - cur)
-                cur = want
-                if cur != 0.0:
-                    ent = C[t]
-                    s_lv, t_lv = ent - cur * sl_k * a, ent + cur * tp_k * a
-            r[t] = rt
-            pos[t] = cur
-        state = {"side": int(cur), "entry": float(ent) if cur else None,
-                 "sl": float(s_lv) if cur else None, "tp": float(t_lv) if cur else None}
-    # trade ownership: return of bar t belongs to the trade open after bar t-1;
-    # an entry bar's cost belongs to the new trade
-    chg = np.concatenate([[pos[0] != 0], (pos[1:] != pos[:-1]) & (pos[1:] != 0)])
-    tid = np.cumsum(chg)
-    prev_pos = np.concatenate([[0.0], pos[:-1]])
-    prev_tid = np.concatenate([[0], tid[:-1]])
-    owner = np.where(prev_pos != 0, prev_tid, np.where(pos != 0, tid, -1))
-    return {"r": r, "pos": pos, "owner": owner, "entries": chg.astype(int), "state": state}
+                        px = np.where(hit_sl, np.where(lng, np.minimum(O[t], sl), np.maximum(O[t], sl)), tp)
+                    px = np.where(px > 0, px, C[t])
+                    ret = np.where(stop_exit, ps * np.log(px / pc) - cost * np.abs(ps) - fund, ret)
+                tr_upd = is_trail & live & ~stop_exit
+                if tr_upd.any():
+                    ext = np.where(tr_upd & lng, np.maximum(ext, H[t]), np.where(tr_upd & sht, np.minimum(ext, L[t]), ext))
+                    sl = np.where(tr_upd & lng, np.maximum(sl, ext - k1 * atr_e),
+                                  np.where(tr_upd & sht, np.minimum(sl, ext + k1 * atr_e), sl))
+                held = held + live
+                time_exit = is_time & live & ~stop_exit & (held >= hmax)
+                if time_exit.any():
+                    ret = np.where(time_exit, ret - cost * np.abs(ps), ret)
+                closed = stop_exit | time_exit
+                tpnl = tpnl + np.where(live, ret, 0.0)
+                if closed.any():
+                    ntr += closed
+                    nwin += closed & (tpnl > 0)
+                    tpnl = np.where(closed, 0.0, tpnl)
+                    blocked = np.where(closed, ps, blocked)
+                    cur = np.where(closed, 0.0, ps)
+            else:
+                cur = ps
+        else:
+            tpnl = tpnl + np.where(ps != 0, ret, 0.0)
+        # ---- decision at the close of bar t
+        raw = P[:, t].astype(float)
+        blk = blocked != 0
+        still = blk & (raw == blocked)
+        blocked = np.where(blk & ~still, 0.0, blocked)
+        want = np.where(still, 0.0, raw)
+        change = want != cur
+        if change.any():
+            closing = change & (cur != 0)
+            ret = ret - cost * np.abs(cur) * closing
+            tpnl = tpnl - cost * np.abs(cur) * closing
+            ntr += closing
+            nwin += closing & (tpnl > 0)
+            tpnl = np.where(closing, 0.0, tpnl)
+            opening = change & (want != 0)
+            ret = ret - cost * np.abs(want) * opening
+            tpnl = np.where(opening, -cost * np.abs(want), tpnl)
+            a = ATR[atr_sel, t]
+            entry = np.where(opening, C[t], entry)
+            sl = np.where(opening & has_sl, C[t] - want * k1 * a, np.where(opening, np.nan, sl))
+            tp = np.where(opening & has_tp, C[t] + want * k2 * a, np.where(opening, np.nan, tp))
+            ext = np.where(opening, C[t], ext)
+            atr_e = np.where(opening, a, atr_e)
+            held = np.where(opening, 0.0, held)
+            E[opening, day_idx[t]] += 1
+            cur = np.where(change, want, cur)
+        inpos += cur != 0
+        R[:, day_idx[t]] += ret.astype(np.float32)
+        if keep_hourly:
+            hourly[:, t] = ret
+            pos_h[:, t] = cur
+            ent_h[:, t] = entry
+    # open trades at the end count as closed for the statistics
+    open_ = cur != 0
+    ntr += open_
+    nwin += open_ & (tpnl > 0)
+    return {"R": R, "E": E, "ntr": ntr, "nwin": nwin, "exposure": inpos / max(T - 1, 1), "hourly": hourly,
+            "pos": pos_h, "ent": ent_h,
+            "state": {"side": cur, "entry": entry, "sl": sl, "tp": tp}}
 
 
-# =============================================================== statistics
+# ================================================================= statistics
 def sharpe(x: np.ndarray, per_year: float = 365.0) -> float:
     x = np.asarray(x, dtype=float)
     if len(x) < 5:
@@ -273,40 +660,42 @@ def sharpe(x: np.ndarray, per_year: float = 365.0) -> float:
     return float(x.mean() / sd * math.sqrt(per_year)) if sd > 0 else 0.0
 
 
+def _rows_sharpe(R: np.ndarray) -> np.ndarray:
+    mu = R.mean(1, dtype=np.float64)
+    sd = R.std(1, ddof=1, dtype=np.float64)
+    return np.where(sd > 0, mu / np.where(sd > 0, sd, 1) * math.sqrt(365.0), 0.0)
+
+
 def _norm_cdf(x: float) -> float:
     return 0.5 * (1 + math.erf(x / math.sqrt(2)))
 
 
 def _norm_ppf(p: float) -> float:
-    # Acklam's rational approximation (|err| < 1.2e-9)
     a = [-3.969683028665376e+01, 2.209460984245205e+02, -2.759285104469687e+02, 1.383577518672690e+02,
          -3.066479806614716e+01, 2.506628277459239e+00]
     b = [-5.447609879822406e+01, 1.615858368580409e+02, -1.556989798598866e+02, 6.680131188771972e+01,
          -1.328068155288572e+01]
-    cc = [-7.784894002430293e-03, -3.223964580411365e-01, -2.400758277161838e+00, -2.549732539343734e+00,
-          4.374664141464968e+00, 2.938163982698783e+00]
+    c = [-7.784894002430293e-03, -3.223964580411365e-01, -2.400758277161838e+00, -2.549732539343734e+00,
+         4.374664141464968e+00, 2.938163982698783e+00]
     d = [7.784695709041462e-03, 3.224671290700398e-01, 2.445134137142996e+00, 3.754408661907416e+00]
-    pl = 0.02425
-    if p < pl:
+    if p < 0.02425:
         q = math.sqrt(-2 * math.log(p))
-        return (((((cc[0] * q + cc[1]) * q + cc[2]) * q + cc[3]) * q + cc[4]) * q + cc[5]) / \
+        return (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / \
                ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1)
-    if p > 1 - pl:
+    if p > 1 - 0.02425:
         return -_norm_ppf(1 - p)
     q = p - 0.5
-    rr = q * q
-    return (((((a[0] * rr + a[1]) * rr + a[2]) * rr + a[3]) * rr + a[4]) * rr + a[5]) * q / \
-           (((((b[0] * rr + b[1]) * rr + b[2]) * rr + b[3]) * rr + b[4]) * rr + 1)
+    r = q * q
+    return (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q / \
+           (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1)
 
 
 def deflated_sharpe(x: np.ndarray, n_trials: float) -> float:
-    """Probability that the selected strategy's true Sharpe > 0 after correcting
-    for the best-of-N selection (Bailey & López de Prado 2014). The null
-    dispersion of Sharpe estimates is 1/T (no skill); N is the EFFECTIVE number
-    of independent trials (see n_effective), not the raw count of near-copies."""
+    """P(true Sharpe > 0) after best-of-N selection (Bailey & López de Prado);
+    null dispersion 1/T, N = effective number of independent trials."""
     x = np.asarray(x, dtype=float)
     T = len(x)
-    sd = x.std(ddof=1)
+    sd = x.std(ddof=1) if T > 2 else 0.0
     if T < 30 or sd <= 0:
         return 0.0
     sr = x.mean() / sd
@@ -316,36 +705,29 @@ def deflated_sharpe(x: np.ndarray, n_trials: float) -> float:
     z = (x - x.mean()) / sd
     skew, kurt = float((z ** 3).mean()), float((z ** 4).mean())
     den = 1 - skew * sr + (kurt - 1) / 4.0 * sr * sr
-    if den <= 0:
-        return 0.0
-    return float(_norm_cdf((sr - sr0) * math.sqrt(T - 1) / math.sqrt(den)))
+    return float(_norm_cdf((sr - sr0) * math.sqrt(T - 1) / math.sqrt(den))) if den > 0 else 0.0
 
 
 def n_effective(R: np.ndarray) -> float:
-    """Effective number of independent strategies (participation ratio of the
-    correlation-matrix eigenvalues). 700 configs that are mostly variations of
-    a few ideas count as a few dozen trials, not 700."""
-    R = R[R.std(1) > 0]
-    if len(R) < 2:
+    """Effective number of independent configurations: participation ratio of
+    the correlation eigenvalues, computed in the (days x days) dual space so
+    100k configurations cost the same as 700."""
+    T = R.shape[1]
+    G = np.zeros((T, T))
+    used = 0
+    for i in range(0, R.shape[0], 5000):                 # chunked: memory stays flat for 100k configurations
+        X = np.asarray(R[i:i + 5000], dtype=np.float64)
+        sd = X.std(1)
+        X = X[sd > 0]
+        if not len(X):
+            continue
+        Z = (X - X.mean(1, keepdims=True)) / X.std(1, keepdims=True)
+        G += Z.T @ Z
+        used += len(X)
+    if used < 2:
         return 1.0
-    ev = np.clip(np.linalg.eigvalsh(np.corrcoef(R)), 0, None)
+    ev = np.clip(np.linalg.eigvalsh(G / T), 0, None)    # same non-zero eigenvalues as the N x N correlation
     return float(max(1.0, ev.sum() ** 2 / (ev ** 2).sum()))
-
-
-def alpha_t(x: np.ndarray, b: np.ndarray) -> Tuple[float, float, float]:
-    """OLS x = alpha + beta*b. Returns (annualised alpha, beta, t-stat of alpha).
-    A long-only trend rule in a rising market beats CASH easily; the question
-    that matters is whether it beats simply HOLDING the asset."""
-    x, b = np.asarray(x, float), np.asarray(b, float)
-    n = len(x)
-    if n < 30 or b.std() == 0:
-        return 0.0, 0.0, 0.0
-    beta = float(np.cov(x, b, ddof=1)[0, 1] / b.var(ddof=1))
-    e = x - beta * b
-    a = e.mean()
-    resid = e - a
-    se = math.sqrt((resid ** 2).sum() / (n - 2)) * math.sqrt(1.0 / n + b.mean() ** 2 / ((b - b.mean()) ** 2).sum())
-    return float(a * 365), beta, float(a / se) if se > 0 else 0.0
 
 
 def t_stat(x: np.ndarray) -> float:
@@ -354,79 +736,25 @@ def t_stat(x: np.ndarray) -> float:
     return float(x.mean() / sd * math.sqrt(len(x))) if sd > 0 else 0.0
 
 
+def alpha_t(x: np.ndarray, b: np.ndarray) -> Tuple[float, float, float]:
+    """OLS x = alpha + beta*b -> (annual alpha, beta, t of alpha)."""
+    x, b = np.asarray(x, float), np.asarray(b, float)
+    n = len(x)
+    if n < 30 or b.std() == 0:
+        return 0.0, 0.0, 0.0
+    beta = float(np.cov(x, b, ddof=1)[0, 1] / b.var(ddof=1))
+    e = x - beta * b
+    a = e.mean()
+    se = math.sqrt(((e - a) ** 2).sum() / (n - 2)) * math.sqrt(1.0 / n + b.mean() ** 2 / ((b - b.mean()) ** 2).sum())
+    return float(a * 365), beta, float(a / se) if se > 0 else 0.0
+
+
 def max_dd(daily: np.ndarray) -> float:
-    eq = np.cumsum(daily)
-    return float(1 - math.exp((eq - np.maximum.accumulate(np.concatenate([[0.0], eq]))[1:]).min())) if len(eq) else 0.0
-
-
-def trade_stats(sim: dict, lo: int = 0, hi: Optional[int] = None) -> dict:
-    r, owner = sim["r"][lo:hi], sim["owner"][lo:hi]
-    m = owner >= 0
-    if not m.any():
-        return {"trades": 0, "win": None, "avg_trade": None}
-    s = pd.Series(r[m]).groupby(owner[m]).sum()
-    return {"trades": int(len(s)), "win": float((s > 0).mean()), "avg_trade": float(s.mean())}
-
-
-# =============================================================== data
-def _closed(df: pd.DataFrame, tf: str, now: datetime) -> pd.DataFrame:
-    if df is None or df.empty:
-        return df
-    end = df.index + pd.Timedelta(hours=TF_HOURS[tf])
-    return df[end <= pd.Timestamp(now)]
-
-
-def _resample_4h(h: pd.DataFrame) -> pd.DataFrame:
-    agg = h.resample("4h", label="left", closed="left").agg(
-        {"Open": "first", "High": "max", "Low": "min", "Close": "last"})
-    return agg.dropna()
-
-
-def load_yahoo(now: Optional[datetime] = None, hourly_period: str = "730d", daily_period: str = "10y") -> Dict[str, dict]:
-    import yfinance as yf
-    now = now or datetime.now(timezone.utc)
-    out = {}
-    for a, sym in ASSETS.items():
-        try:
-            t = yf.Ticker(sym)
-            h = t.history(period=hourly_period, interval="1h", auto_adjust=False)[["Open", "High", "Low", "Close"]]
-            h.index = pd.to_datetime(h.index, utc=True)
-            h = _closed(h[~h.index.duplicated()].dropna().sort_index(), "1h", now)
-            d = t.history(period=daily_period, interval="1d", auto_adjust=False)[["Open", "High", "Low", "Close"]]
-            d.index = pd.to_datetime(d.index.date).tz_localize("UTC")
-            d = _closed(d[~d.index.duplicated()].dropna().sort_index(), "1d", now)
-            out[a] = {"1h": h, "4h": _closed(_resample_4h(h), "4h", now), "1d": d}
-            print(f"[lab] {a}: 1h={len(h)} 4h={len(out[a]['4h'])} 1d={len(d)}", flush=True)
-        except Exception as exc:
-            print(f"[lab] {a}: veri alınamadı ({exc})", flush=True)
-    return out
-
-
-def load_panel(path: str, hour: int = 20) -> Dict[str, dict]:
-    """Preview source: daily closes rebuilt EXACTLY from the walk-forward
-    factor panel (past_24h = log return over the previous 24h, sampled at
-    `hour` UTC each day). No High/Low -> stops are checked on closes."""
-    P = pd.read_csv(path, usecols=["asset", "t", "past_24h"])
-    P["t"] = pd.to_datetime(P["t"], utc=True)
-    out = {}
-    for a, g in P.groupby("asset"):
-        g = g[g["t"].dt.hour == hour].sort_values("t")
-        lp = g["past_24h"].fillna(0.0).cumsum().values
-        c = 100.0 * np.exp(lp - lp[0])
-        d = pd.DataFrame({"Open": c, "High": c, "Low": c, "Close": c},
-                         index=pd.DatetimeIndex(g["t"].dt.normalize()))
-        out[a] = {"1d": d}
-    return out
-
-
-# =============================================================== research
-def _daily(sim: dict, df: pd.DataFrame, days: pd.DatetimeIndex) -> Tuple[np.ndarray, np.ndarray]:
-    day = df.index.tz_convert("UTC").normalize() if df.index.tz is not None else df.index.normalize()
-    pos = days.get_indexer(day)
-    ok = pos >= 0
-    R = np.bincount(pos[ok], weights=sim["r"][ok], minlength=len(days))
-    E = np.bincount(pos[ok], weights=sim["entries"][ok], minlength=len(days))
-    return R, E
+    eq = np.cumsum(np.asarray(daily, float))
+    if not len(eq):
+        return 0.0
+    peak = np.maximum.accumulate(np.concatenate([[0.0], eq]))[1:]
+    return float(1 - math.exp((eq - peak).min()))
 
 
 def _wf(R: np.ndarray, E: np.ndarray, folds: int, min_tr: int = 5) -> dict:
@@ -434,22 +762,19 @@ def _wf(R: np.ndarray, E: np.ndarray, folds: int, min_tr: int = 5) -> dict:
     T = R.shape[1]
     edges = np.linspace(0, T, folds + 1).astype(int)
     oos, picks, fold_ret = [], [], []
+    Ecum = np.zeros(R.shape[0])
     for k in range(1, folds):
         tr = slice(0, edges[k])
         te = slice(edges[k], edges[k + 1])
-        mu, sd = R[:, tr].mean(1), R[:, tr].std(1, ddof=1)
-        sr = np.where(sd > 0, mu / np.where(sd > 0, sd, 1), -np.inf)
-        sr[E[:, tr].sum(1) < min_tr] = -np.inf
+        Ecum = E[:, tr].sum(1)
+        sr = _rows_sharpe(R[:, tr])
+        sr[Ecum < min_tr] = -np.inf
         j = int(np.argmax(sr))
         if not np.isfinite(sr[j]):
-            oos.append(np.zeros(edges[k + 1] - edges[k]))
-            picks.append(None)
-            fold_ret.append(0.0)
+            oos.append(np.zeros(edges[k + 1] - edges[k])); picks.append(None); fold_ret.append(0.0)
             continue
-        x = R[j, te]
-        oos.append(x)
-        picks.append(j)
-        fold_ret.append(float(x.sum()))
+        x = R[j, te].astype(np.float64)
+        oos.append(x); picks.append(j); fold_ret.append(float(x.sum()))
     x = np.concatenate(oos) if oos else np.zeros(0)
     return {"sharpe": sharpe(x), "t": t_stat(x), "ret": float(math.exp(x.sum()) - 1) if len(x) else 0.0,
             "pos_folds": int(sum(1 for f in fold_ret if f > 0)), "n_folds": folds - 1,
@@ -457,329 +782,590 @@ def _wf(R: np.ndarray, E: np.ndarray, folds: int, min_tr: int = 5) -> dict:
             "oos_start": int(edges[1])}
 
 
-def research(data: Dict[str, dict], now: Optional[datetime] = None, source: str = "yahoo") -> dict:
-    now = now or datetime.now(timezone.utc)
-    res = {"generated_at": now.isoformat(), "source": source, "criteria": CRIT, "assets": {}, "families": [],
-           "robust": [], "n_configs": 0}
-    fam_rows = []
-    robust: Dict[str, List[float]] = {}
-    robust_cfg: Dict[str, dict] = {}
-    for a, frames in data.items():
-        cost = COST[a]
-        tfs = [tf for tf in ("1h", "4h", "1d") if tf in frames and frames[tf] is not None and len(frames[tf]) > 300]
-        if not tfs:
-            continue
-        end = min(frames[tf].index[-1] for tf in tfs).normalize()   # common end
-        starts = [frames[tf].index[0].normalize() for tf in tfs if tf != "1d"]
-        w_start = max([end - pd.Timedelta(days=WINDOW_DAYS)] + starts)
-        days = pd.date_range(w_start, end, freq="D", tz="UTC")
-        cfgs, Rs, Es = [], [], []
-        long_on = "1d" in frames and (frames["1d"].index[-1] - frames["1d"].index[0]).days > WINDOW_DAYS * 1.5
-        if long_on:
-            d1 = frames["1d"]
-            ldays = pd.date_range(d1.index[0].normalize(), d1.index[-1].normalize(), freq="D", tz="UTC")
-            li, LR, LE = [], [], []
-        for tf in tfs:
-            df = frames[tf]
-            cache = {}
-            for c in configs_for(tf):
-                key = (c["fam"], str(c["p"]), c["mode"])
-                if key not in cache:
-                    cache[key] = signal(c, df)
-                s = simulate(c, df, cost, cache[key])
-                R, E = _daily(s, df, days)
-                if long_on and tf == "1d":
-                    x, e = _daily(s, df, ldays)
-                    li.append(len(cfgs)); LR.append(x); LE.append(e)
-                cfgs.append(c); Rs.append(R); Es.append(E)
-                del s                                # keep memory flat (~700 sims per asset)
-        R, E = np.vstack(Rs), np.vstack(Es)
-        N = len(cfgs)
-        res["n_configs"] += N
-        srs = np.array([sharpe(x) for x in R])
-        n_tr = E.sum(1)
-        ranked = np.where(n_tr >= MIN_SELECT_TRADES, srs, -np.inf)   # a "best" with 2 trades is noise
-        best = int(np.argmax(ranked)) if np.isfinite(ranked).any() else int(np.argmax(srs))
-        wf = _wf(R, E, FOLDS, min_tr=max(3, MIN_SELECT_TRADES // 3))
-        neff = n_effective(R)
-        dsr = deflated_sharpe(R[best], neff)
-
-        def _lo(i):
-            return int(frames[cfgs[i]["tf"]].index.searchsorted(days[0]))
-
-        _memo = {}
-
-        def sims(i):                                  # re-simulate on demand (cheap, deterministic)
-            if i not in _memo:
-                _memo[i] = simulate(cfgs[i], frames[cfgs[i]["tf"]], cost)
-            return _memo[i]
-
-        ts_best = trade_stats(sims(best), _lo(best))
-        # buy & hold over the same window (daily grid, from the finest frame)
-        fdf = frames[tfs[0]]
-        bh_sim = {"r": np.concatenate([[0.0], np.diff(np.log(fdf["Close"].values))]),
-                  "entries": np.zeros(len(fdf))}
-        bh, _ = _daily(bh_sim, fdf, days)
-        bh_oos = bh[wf["oos_start"]:]
-        al_a, be_a, at_a = alpha_t(wf["oos"], bh_oos)
-        wf["alpha"], wf["beta"], wf["alpha_t"] = al_a, be_a, at_a
-        wf["maxdd"], wf["bh_sharpe"], wf["bh_maxdd"] = max_dd(wf["oos"]), sharpe(bh_oos), max_dd(bh_oos)
-        base_a = {"wf_t": wf["t"] >= CRIT["wf_t"], "pos_folds": wf["pos_folds"] >= CRIT["pos_folds"],
-                  "dsr": dsr >= CRIT["dsr"], "trades": ts_best["trades"] >= CRIT["trades"]}
-        checks_a = dict(base_a, alpha=at_a >= CRIT["alpha_t"])
-        proven_a = all(checks_a.values())
-        overlay_a = all(base_a.values()) and not proven_a and \
-            wf["sharpe"] >= CRIT["overlay_sharpe_ratio"] * wf["bh_sharpe"] and wf["maxdd"] <= CRIT["overlay_dd_ratio"] * wf["bh_maxdd"]
-        # B) long daily history: an independent, much longer test for 1d configs
-        long, proven_b, checks_b, lbest, overlay_b = None, False, {}, None, False
-        if long_on and li:
-            LR, LE = np.vstack(LR), np.vstack(LE)
-            lsrs = np.array([sharpe(x) for x in LR])
-            lrank = np.where(LE.sum(1) >= CRIT["trades"], lsrs, -np.inf)
-            k = int(np.argmax(lrank)) if np.isfinite(lrank).any() else int(np.argmax(lsrs))
-            lbest = li[k]
-            lwf = _wf(LR, LE, LONG_FOLDS, min_tr=10)
-            ldsr = deflated_sharpe(LR[k], n_effective(LR))
-            lts = trade_stats(sims(lbest))
-            years = len(ldays) / 365.25
-            bh_l = np.bincount(ldays.get_indexer(d1.index.normalize()),
-                               weights=np.concatenate([[0.0], np.diff(np.log(d1["Close"].values))]), minlength=len(ldays))
-            lbh_oos = bh_l[lwf["oos_start"]:]
-            al_b, be_b, at_b = alpha_t(lwf["oos"], lbh_oos)
-            l_dd, l_bh_sr, l_bh_dd = max_dd(lwf["oos"]), sharpe(lbh_oos), max_dd(lbh_oos)
-            base_b = {"long_years": years >= CRIT["long_years"], "long_t": lwf["t"] >= CRIT["long_t"],
-                      "long_pos_folds": lwf["pos_folds"] >= CRIT["long_pos_folds"], "dsr": ldsr >= CRIT["dsr"],
-                      "trades": lts["trades"] >= CRIT["trades"]}
-            checks_b = dict(base_b, alpha=at_b >= CRIT["alpha_t"])
-            proven_b = all(checks_b.values())
-            overlay_b = all(base_b.values()) and not proven_b and \
-                lwf["sharpe"] >= CRIT["overlay_sharpe_ratio"] * l_bh_sr and l_dd <= CRIT["overlay_dd_ratio"] * l_bh_dd
-            long = {"years": round(years, 1), "best_id": cfg_id(cfgs[lbest]), "best_label": cfg_label(cfgs[lbest]),
-                    "sharpe": round(float(lsrs[k]), 2), "ret": round(float(math.exp(LR[k].sum()) - 1), 4),
-                    "maxdd": round(max_dd(LR[k]), 4), "trades": lts["trades"], "win": lts["win"], "dsr": round(ldsr, 3),
-                    "wf_sharpe": lwf["sharpe"], "wf_t": lwf["t"], "wf_ret": lwf["ret"], "wf_pos_folds": lwf["pos_folds"],
-                    "wf_folds": lwf["n_folds"], "bh_sharpe": sharpe(bh_l), "bh_ret": float(math.exp(bh_l.sum()) - 1),
-                    "wf_alpha": al_b, "wf_beta": be_b, "wf_alpha_t": at_b, "wf_maxdd": l_dd,
-                    "wf_bh_sharpe": l_bh_sr, "wf_bh_maxdd": l_bh_dd}
-        if proven_a:
-            cand, path, kind = best, "A", "alpha"
-        elif proven_b:
-            cand, path, kind = lbest, "B", "alpha"
-        elif overlay_a:
-            cand, path, kind = best, "A", "overlay"
-        elif overlay_b:
-            cand, path, kind = lbest, "B", "overlay"
-        else:
-            cand, path, kind = best, None, None
-        c_best = cfgs[cand]
-        tfdf = frames[c_best["tf"]]
-        ts = trade_stats(sims(cand), _lo(cand))
-        # top 10 table
-        order = [i for i in np.argsort(-ranked)[:10] if np.isfinite(ranked[i])]
-        top = []
-        for i in order:
-            c = cfgs[i]
-            t_i = trade_stats(sims(i), _lo(i))
-            top.append({"id": cfg_id(c), "label": cfg_label(c), "sharpe": round(float(srs[i]), 2),
-                        "ret": round(float(math.exp(R[i].sum()) - 1), 4), "maxdd": round(max_dd(R[i]), 4),
-                        "trades": t_i["trades"], "win": None if t_i["win"] is None else round(t_i["win"], 3)})
-        st = sims(cand)["state"]
-        a_res = {
-            "window": [str(days[0].date()), str(days[-1].date())], "n_configs": N, "n_effective": round(neff, 1),
-            "best": {"id": cfg_id(c_best), "cfg": c_best, "label": cfg_label(c_best), "sharpe": round(float(srs[cand]), 2),
-                     "ret": round(float(math.exp(R[cand].sum()) - 1), 4), "maxdd": round(max_dd(R[cand]), 4),
-                     "trades": ts["trades"], "win": ts["win"], "avg_trade": ts["avg_trade"],
-                     "dsr": round(dsr if path != "B" else long["dsr"], 3)},
-            "wf": {k: v for k, v in wf.items() if k not in ("oos", "picks", "oos_start")},
-            "wf_picks": [cfg_id(cfgs[j]) if j is not None else None for j in wf["picks"]],
-            "bh": {"sharpe": round(sharpe(bh), 2), "ret": round(float(math.exp(bh.sum()) - 1), 4), "maxdd": round(max_dd(bh), 4)},
-            "long": long, "checks_a": checks_a, "checks_b": checks_b, "path": path, "kind": kind,
-            "proven": kind == "alpha", "overlay": kind == "overlay",
-            "signal": {"side": {1: "LONG", -1: "SHORT", 0: "FLAT"}[int(np.sign(st["side"]))],
-                       "entry": st["entry"], "sl": st["sl"], "tp": st["tp"],
-                       "as_of": str(tfdf.index[-1])},
-            "top": top,
-        }
-        res["assets"][a] = a_res
-        # family table + robustness inputs
-        for tf in tfs:
-            for fam in FAMILY_TR:
-                idx = [i for i, c in enumerate(cfgs) if c["tf"] == tf and c["fam"] == fam]
-                if not idx:
-                    continue
-                fwf = _wf(R[idx], E[idx], FOLDS)
-                fam_rows.append({"asset": a, "tf": tf, "fam": fam, "best": float(srs[idx].max()),
-                                 "median": float(np.median(srs[idx])), "wf": fwf["sharpe"]})
-        for i, c in enumerate(cfgs):
-            if not c.get("stop"):
-                robust.setdefault(cfg_id(c), []).append(float(srs[i]))
-                robust_cfg[cfg_id(c)] = c
-    fam_df = pd.DataFrame(fam_rows)
-    if not fam_df.empty:
-        g = fam_df.groupby(["tf", "fam"]).agg(best=("best", "mean"), median=("median", "mean"), wf=("wf", "mean"),
-                                               wf_pos=("wf", lambda s: int((s > 0).sum())), n=("wf", "size")).reset_index()
-        res["families"] = g.sort_values("wf", ascending=False).round(3).to_dict("records")
-    rob = [{"id": k, "mean_sharpe": round(float(np.mean(v)), 2), "pos_assets": int(sum(x > 0 for x in v)),
-            "n_assets": len(v)} for k, v in robust.items() if len(v) >= max(2, len(res["assets"]) - 1)]
-    res["robust"] = sorted(rob, key=lambda r: (-r["pos_assets"], -r["mean_sharpe"]))[:12]
-    if res["robust"]:
-        top = res["robust"][0]
-        # one PRE-REGISTERED rule for every asset: chosen for consistency across assets,
-        # not per-asset fit -> the least over-fitted candidate; forward-tested in paper
-        res["consensus"] = dict(top, cfg=robust_cfg[top["id"]], label=cfg_label(robust_cfg[top["id"]]))
-    return res
-
-
-# =============================================================== live use
-def playbook(res: dict) -> dict:
-    out = {"generated_at": res["generated_at"], "source": res["source"], "assets": {}}
-    for a, r in res["assets"].items():
-        b = r["best"]
-        out["assets"][a] = {"cfg": b["cfg"], "id": b["id"], "label": b["label"], "proven": r["proven"], "path": r.get("path"),
-                            "wf_sharpe": r["wf"]["sharpe"], "dsr": b["dsr"], "trades": b["trades"],
-                            "signal": r["signal"], "kind": r.get("kind"), "overlay": bool(r.get("overlay"))}
-    if res.get("consensus"):
-        out["consensus"] = res["consensus"]
+# ================================================================= leverage / liquidation
+def leverage_daily(x: np.ndarray, years: float) -> List[dict]:
+    """Leverage applied to a DAILY net return path (used for the walk-forward
+    out-of-sample path). A day whose levered loss exceeds the margin
+    (1/L - maintenance) is counted as a liquidation."""
+    out = []
+    simple = np.expm1(np.asarray(x, float))
+    for lev in LEVERAGES:
+        eq, peak, mdd, liq = 1.0, 1.0, 0.0, 0
+        for r in simple:
+            if r <= -(1.0 / lev - MMR):
+                eq *= MMR * lev
+                liq += 1
+            else:
+                eq *= max(1.0 + lev * r, 0.0)
+            peak = max(peak, eq)
+            mdd = max(mdd, 1 - eq / peak if peak > 0 else 1.0)
+            if eq <= 1e-6:
+                eq, mdd = 0.0, 1.0
+                break
+        out.append({"lev": lev, "cagr": round(eq ** (1 / years) - 1 if eq > 0 else -1.0, 4), "final": round(eq, 4),
+                    "maxdd": round(mdd, 4), "liquidations": liq})
     return out
 
 
-def live_signals(pb: dict, data: Optional[Dict[str, dict]] = None, now: Optional[datetime] = None) -> dict:
-    """Recompute each asset's candidate strategy on fresh closed bars."""
+def leverage_table(hr: np.ndarray, pos: np.ndarray, ent: np.ndarray, H: np.ndarray, L: np.ndarray, C: np.ndarray,
+                   bars_per_year: float, years: float) -> List[dict]:
+    """Unit-exposure hourly net returns -> leveraged equity. Each trade uses
+    isolated margin = whole equity; it is LIQUIDATED (equity keeps only
+    L*maintenance) when the adverse move from entry reaches 1/L - maintenance
+    on any bar's High/Low. After a liquidation the rule waits for its next
+    signal. 'vol' = leverage set at each entry to hit 40% annual volatility
+    (capped at 5x)."""
+    T = len(hr)
+    simple = np.expm1(hr)
+    win = max(24, int(bars_per_year / 365 * 20))
+    px_r = np.concatenate([[0.0], np.diff(np.log(C))])
+    vol = pd.Series(px_r).rolling(win, min_periods=win // 2).std().values * math.sqrt(bars_per_year)
+    out = []
+    for lev in list(LEVERAGES) + ["vol"]:
+        eq, peak, mdd, liq, dead, cur_lev = 1.0, 1.0, 0.0, 0, False, 1.0
+        for t in range(1, T):
+            p_prev, p_now = pos[t - 1], pos[t]
+            if p_prev == 0 and p_now != 0:          # trade opened at this close: choose its leverage
+                if lev == "vol":
+                    v = vol[t] if np.isfinite(vol[t]) and vol[t] > 0 else VOL_TARGET
+                    cur_lev = float(np.clip(VOL_TARGET / v, 0.25, VOL_MAX_LEV))
+                else:
+                    cur_lev = float(lev)
+                dead = False
+            if p_prev != 0 and not dead:
+                e = ent[t - 1]
+                adverse = (L[t] / e - 1.0) if p_prev > 0 else (1.0 - H[t] / e)
+                if e > 0 and adverse <= -(1.0 / cur_lev - MMR):
+                    eq *= MMR * cur_lev
+                    liq += 1
+                    dead = True
+                else:
+                    eq *= max(1.0 + cur_lev * simple[t], 0.0)
+            elif not dead:
+                eq *= max(1.0 + cur_lev * simple[t], 0.0)        # entry cost of a trade opened at this close
+            if p_now != p_prev and p_prev != 0 and p_now != 0:    # direct flip: new trade, new leverage
+                dead = False
+                if lev == "vol":
+                    v = vol[t] if np.isfinite(vol[t]) and vol[t] > 0 else VOL_TARGET
+                    cur_lev = float(np.clip(VOL_TARGET / v, 0.25, VOL_MAX_LEV))
+            if p_now == 0:
+                dead = False
+            peak = max(peak, eq)
+            mdd = max(mdd, 1 - eq / peak if peak > 0 else 1.0)
+            if eq <= 1e-6:
+                eq = 0.0
+                mdd = 1.0
+                break
+        cagr = eq ** (1 / years) - 1 if eq > 0 and years > 0 else -1.0
+        out.append({"lev": "vol" if lev == "vol" else int(lev), "cagr": round(cagr, 4), "final": round(eq, 4),
+                    "maxdd": round(mdd, 4), "liquidations": liq})
+    return out
+
+
+# ================================================================= research
+def _slice_ctx(ctx: Ctx, w0: int, w1: int) -> Tuple[dict, Dict[str, np.ndarray]]:
+    arr = {"O": ctx.O[w0:w1], "H": ctx.H[w0:w1], "L": ctx.L[w0:w1], "C": ctx.C[w0:w1], "close_fill": ctx.no_wicks,
+           "ATR": np.vstack([np.nan_to_num(ctx.atr[tf][w0:w1], nan=np.nan) for tf in ("1h", "4h", "1d")])}
+    return arr, {}
+
+
+ATR_ROW = {"1h": 0, "4h": 1, "1d": 2}
+
+
+def _enumerate(ctx: Ctx, w0: int, w1: int, with_modes=MODES, exits=EXITS):
+    """Yield (meta, position array) for every distinct configuration."""
+    seen = set()
+    for cat, d, f in direction_rules(ctx):
+        dirv = ctx.direction(d)
+        base = (dirv * ctx.mask(f, dirv))[w0:w1]
+        modes = ("LS",) if "bench" in d else with_modes
+        for mode in modes:
+            p = base if mode == "LS" else (np.clip(base, 0, 1) if mode == "LO" else np.clip(base, -1, 0))
+            if not np.any(p):
+                continue
+            key = hash(p.astype(np.int8).tobytes())
+            if key in seen:
+                continue
+            seen.add(key)
+            p8 = p.astype(np.int8)
+            for ex in exits:
+                if "bench" in d and ex["type"] != "sig":
+                    continue
+                yield {"cat": cat, "d": d, "f": f, "mode": mode, "exit": ex, "atr": _dir_tf(d)}, p8
+
+
+def _run_universe(ctx: Ctx, w0: int, w1: int, cost: float, days: pd.DatetimeIndex, day_idx: np.ndarray,
+                  fund_long: float = FUND_LONG_H, exits=EXITS, modes=MODES):
+    arr, _ = _slice_ctx(ctx, w0, w1)
+    metas, Rs, Es, ntr, nwin, expo, states = [], [], [], [], [], [], []
+    buf_m, buf_p = [], []
+
+    def flush():
+        if not buf_m:
+            return
+        P = np.vstack(buf_p)
+        ex = [m["exit"] for m in buf_m]
+        sel = np.array([ATR_ROW[m["atr"]] for m in buf_m])
+        out = simulate_batch(P, ex, sel, arr, cost, day_idx, len(days), fund_long=fund_long)
+        metas.extend(buf_m); Rs.append(out["R"]); Es.append(out["E"])
+        ntr.append(out["ntr"]); nwin.append(out["nwin"]); expo.append(out["exposure"])
+        st = out["state"]
+        states.extend({"side": float(st["side"][i]), "entry": float(st["entry"][i]), "sl": float(st["sl"][i]),
+                       "tp": float(st["tp"][i])} for i in range(len(buf_m)))
+        buf_m.clear(); buf_p.clear()
+
+    for meta, p in _enumerate(ctx, w0, w1, modes, exits):
+        buf_m.append(meta); buf_p.append(p)
+        if len(buf_m) >= BATCH:
+            flush()
+    flush()
+    return (metas, np.vstack(Rs), np.vstack(Es), np.concatenate(ntr), np.concatenate(nwin),
+            np.concatenate(expo), states, arr)
+
+
+def _bars_per_year(idx: pd.DatetimeIndex) -> float:
+    yrs = max((idx[-1] - idx[0]).total_seconds() / (365.25 * 86400), 1e-6)
+    return len(idx) / yrs
+
+
+def long_daily(d1: pd.DataFrame, cost: float, crypto: bool) -> Optional[dict]:
+    """Path B: 1d technical rules (alone, inverted, majority vote) on up to 10
+    years of daily bars, as perps (funding included)."""
+    if d1 is None or (d1.index[-1] - d1.index[0]).days < WINDOW_DAYS * 1.5:
+        return None
+    feats = {}
+    for fam, plist in TECH["1d"].items():
+        for p in plist:
+            feats[f"tech:1d:{fam}:{_pstr(p)}"] = np.nan_to_num(tech_signal(fam, p, d1).values.astype(float))
+    T = len(d1)
+    arr = {"O": d1["Open"].values.astype(float), "H": d1["High"].values.astype(float),
+           "L": d1["Low"].values.astype(float), "C": d1["Close"].values.astype(float)}
+    a1 = _atr(d1).values
+    arr["ATR"] = np.vstack([a1, a1, a1])
+    dirs = []
+    for k, v in feats.items():
+        dirs.append(({"src": k, "op": "sign", "inv": False}, v))
+        dirs.append(({"src": k, "op": "sign", "inv": True}, -v))
+    trend = [v for k, v in feats.items() if k.split(":")[2] in TREND_FAMS]
+    vote = np.sum(trend, axis=0)
+    dirs.append(({"ens": [{"src": k, "op": "sign"} for k in feats if k.split(":")[2] in TREND_FAMS], "need": "maj"},
+                 np.where(np.abs(vote) >= math.ceil(len(trend) / 2), np.sign(vote), 0.0)))
+    bench = ({"bench": "long"}, np.ones(T))
+    exits = [e for e in EXITS if e["type"] != "time"]
+    metas, P = [], []
+    seen = set()
+    for d, v in dirs + [bench]:
+        for mode in (("LS",) if "bench" in d else MODES):
+            p = v if mode == "LS" else (np.clip(v, 0, 1) if mode == "LO" else np.clip(v, -1, 0))
+            key = hash(p.astype(np.int8).tobytes())
+            if key in seen or not np.any(p):
+                continue
+            seen.add(key)
+            for ex in (exits if "bench" not in d else [EXITS[0]]):
+                metas.append({"cat": "uzun-dönem 1g", "d": d, "f": None, "mode": mode, "exit": ex, "atr": "1d"})
+                P.append(p.astype(np.int8))
+    days = pd.date_range(d1.index[0].normalize(), d1.index[-1].normalize(), freq="D", tz="UTC")
+    day_idx = days.get_indexer(d1.index.normalize())
+    fund = FUND_LONG_H * 24 * (1.0 if crypto else 7.0 / 5.0)
+    P = np.vstack(P)
+    out = simulate_batch(P, [m["exit"] for m in metas], np.full(len(metas), 2), arr, cost, day_idx, len(days), fund_long=fund)
+    R, E = out["R"], out["E"]
+    srs = _rows_sharpe(R)
+    ntr = out["ntr"]
+    rank = np.where(ntr >= CRIT["trades"], srs, -np.inf)
+    rank[[i for i, m in enumerate(metas) if "bench" in m["d"]]] = -np.inf
+    k = int(np.argmax(rank)) if np.isfinite(rank).any() else int(np.argmax(srs))
+    wf = _wf(R, E, LONG_FOLDS, min_tr=10)
+    bi = [i for i, m in enumerate(metas) if "bench" in m["d"]][0]
+    bh = R[bi].astype(float)
+    al, be, at = alpha_t(wf["oos"], bh[wf["oos_start"]:])
+    dsr = deflated_sharpe(R[k], n_effective(R))
+    years = len(days) / 365.25
+    m = metas[k]
+    rule = {"cat": m["cat"], "d": m["d"], "f": None, "mode": m["mode"], "exit": m["exit"], "atr": "1d"}
+    base = {"long_years": years >= CRIT["long_years"], "long_t": wf["t"] >= CRIT["long_t"],
+            "long_pos_folds": wf["pos_folds"] >= CRIT["long_pos_folds"], "dsr": dsr >= CRIT["dsr"],
+            "trades": ntr[k] >= CRIT["trades"]}
+    return {"years": round(years, 1), "rule": rule, "label": rule_label(rule), "id": rule_id(m["cat"], m["d"], None, m["mode"], m["exit"]),
+            "sharpe": round(float(srs[k]), 2), "ret": round(float(math.expm1(R[k].sum())), 4), "maxdd": round(max_dd(R[k]), 4),
+            "trades": int(ntr[k]), "win": round(float(out["nwin"][k] / max(ntr[k], 1)), 3), "dsr": round(dsr, 3),
+            "wf_sharpe": round(wf["sharpe"], 2), "wf_t": round(wf["t"], 2), "wf_pos_folds": wf["pos_folds"], "wf_folds": wf["n_folds"],
+            "wf_fold_ret": wf["fold_ret"], "alpha": round(al, 4), "beta": round(be, 2), "alpha_t": round(at, 2),
+            "bh_sharpe": round(sharpe(bh), 2), "bh_ret": round(float(math.expm1(bh.sum())), 4), "bh_maxdd": round(max_dd(bh), 4),
+            "base": base, "base_ok": all(base.values()), "n_configs": len(metas),
+            "state": {"side": float(out["state"]["side"][k]), "entry": float(out["state"]["entry"][k]),
+                      "sl": float(out["state"]["sl"][k]), "tp": float(out["state"]["tp"][k])}}
+
+
+def research(data: Dict[str, dict], panel: Optional[pd.DataFrame] = None, now: Optional[datetime] = None,
+             source: str = "yahoo", all_rows: Optional[list] = None) -> dict:
+    now = now or datetime.now(timezone.utc)
+    res = {"generated_at": now.isoformat(), "source": source, "panel": (panel.attrs.get("source") if panel is not None else None),
+           "criteria": CRIT, "costs": {"fee_slippage_per_side": COST, "funding_long_per_8h": FUND_LONG_H * 8,
+                                       "funding_short_per_8h": FUND_SHORT_H * 8},
+           "assets": {}, "categories": [], "system_signals": {}, "robust": [], "n_configs": 0}
+    cat_rows, sys_rows = [], []
+    robust: Dict[str, list] = {}
+    robust_meta: Dict[str, dict] = {}
+    for a, frames in data.items():
+        h1 = frames.get("1h")
+        if h1 is None or len(h1) < 500:
+            continue
+        sysp = panel[panel["asset"] == a] if panel is not None else None
+        ctx = Ctx(h1, frames.get("1d"), sysp)
+        idx = ctx.idx
+        w0 = int(np.searchsorted(idx.values, (idx[-1] - pd.Timedelta(days=WINDOW_DAYS)).to_datetime64()))
+        w1 = ctx.T
+        if sysp is not None and ctx.sys_cover[1] > ctx.sys_cover[0]:
+            w0, w1 = max(w0, ctx.sys_cover[0]), min(w1, ctx.sys_cover[1])
+        widx = idx[w0:w1]
+        days = pd.date_range(widx[0].normalize(), widx[-1].normalize(), freq="D", tz="UTC")
+        day_idx = days.get_indexer(widx.normalize())
+        cost = COST[a]
+        metas, R, E, ntr, nwin, expo, states, arr = _run_universe(ctx, w0, w1, cost, days, day_idx)
+        N = len(metas)
+        res["n_configs"] += N
+        print(f"[lab] {a}: {N} konfigürasyon · pencere {days[0].date()} → {days[-1].date()}", flush=True)
+        srs = _rows_sharpe(R)
+        half = R.shape[1] // 2
+        s1, s2 = _rows_sharpe(R[:, :half]), _rows_sharpe(R[:, half:])
+        rank = np.where((ntr >= MIN_SELECT_TRADES), srs, -np.inf)
+        bench_i = [i for i, m in enumerate(metas) if "bench" in m["d"]]
+        long_i = [i for i in bench_i if metas[i]["d"]["bench"] == "long"][0]
+        rank[bench_i] = -np.inf
+        best = int(np.argmax(rank))
+        wf = _wf(R, E, FOLDS, min_tr=max(3, MIN_SELECT_TRADES // 3))
+        neff = n_effective(R)
+        dsr = deflated_sharpe(R[best], neff)
+        bh = R[long_i].astype(float)
+        al, be, at = alpha_t(wf["oos"], bh[wf["oos_start"]:])
+        base_a = {"wf_t": wf["t"] >= CRIT["wf_t"], "pos_folds": wf["pos_folds"] >= CRIT["pos_folds"],
+                  "dsr": dsr >= CRIT["dsr"], "trades": ntr[best] >= CRIT["trades"]}
+        lg = long_daily(frames.get("1d"), cost, a in ("BTC", "ETH"))
+        if all(base_a.values()):
+            path, kind = "A", ("alpha" if at >= CRIT["alpha_t"] else "beta")
+            rule = metas[best]; st = states[best]
+        elif lg and lg["base_ok"]:
+            path, kind = "B", ("alpha" if lg["alpha_t"] >= CRIT["alpha_t"] else "beta")
+            rule = lg["rule"]; st = lg["state"]
+        else:
+            path, kind = None, None
+            rule = metas[best]; st = states[best]
+        # leverage tables for the candidate (window A, hourly) and the long-path rule
+        cand_i = best if path != "B" else None
+        lev_rows = None
+        if cand_i is not None:
+            one = simulate_batch(_enumerate_one(ctx, metas[cand_i], w0, w1)[None, :], [metas[cand_i]["exit"]],
+                                 np.array([ATR_ROW[metas[cand_i]["atr"]]]), arr, cost, day_idx, len(days), keep_hourly=True)
+            lev_rows = leverage_table(one["hourly"][0], one["pos"][0], one["ent"][0], arr["H"], arr["L"], arr["C"],
+                                      _bars_per_year(widx), len(days) / 365.25)
+        top = []
+        for i in [j for j in np.argsort(-rank)[:15] if np.isfinite(rank[j])]:
+            top.append({"label": rule_label(metas[i]), "id": rule_id(**_idargs(metas[i])), "cat": metas[i]["cat"],
+                        "sharpe": round(float(srs[i]), 2), "h1": round(float(s1[i]), 2), "h2": round(float(s2[i]), 2),
+                        "ret": round(float(math.expm1(R[i].sum())), 4), "maxdd": round(max_dd(R[i]), 4),
+                        "trades": int(ntr[i]), "win": round(float(nwin[i] / max(ntr[i], 1)), 3),
+                        "expo": round(float(expo[i]), 2)})
+        res["assets"][a] = {
+            "window": [str(days[0].date()), str(days[-1].date())], "n_configs": N, "n_effective": round(neff, 1),
+            "best": {"label": rule_label(metas[best]), "id": rule_id(**_idargs(metas[best])), "rule": metas[best],
+                     "sharpe": round(float(srs[best]), 2), "h1": round(float(s1[best]), 2), "h2": round(float(s2[best]), 2),
+                     "ret": round(float(math.expm1(R[best].sum())), 4), "maxdd": round(max_dd(R[best]), 4),
+                     "trades": int(ntr[best]), "win": round(float(nwin[best] / max(ntr[best], 1)), 3), "dsr": round(dsr, 3)},
+            "wf": {k: (round(v, 3) if isinstance(v, float) else v) for k, v in wf.items() if k not in ("oos", "picks", "oos_start")},
+            "wf_alpha": round(al, 4), "wf_beta": round(be, 2), "wf_alpha_t": round(at, 2),
+            "wf_picks": [rule_label(metas[j]) if j is not None else None for j in wf["picks"]],
+            "bh": {"sharpe": round(sharpe(bh), 2), "ret": round(float(math.expm1(bh.sum())), 4), "maxdd": round(max_dd(bh), 4)},
+            "long": lg, "base_a": base_a, "path": path, "kind": kind, "proven": kind == "alpha",
+            "candidate": {"rule": rule, "label": rule_label(rule)},
+            "signal": {"side": {1: "LONG", -1: "SHORT", 0: "FLAT"}[int(np.sign(st["side"]))],
+                       "entry": st["entry"] if st["side"] else None, "sl": st["sl"] if st["side"] and np.isfinite(st["sl"]) else None,
+                       "tp": st["tp"] if st["side"] and np.isfinite(st["tp"]) else None, "as_of": str(widx[-1])},
+            "leverage": lev_rows, "top": top,
+            "leverage_wf": leverage_daily(wf["oos"], len(wf["oos"]) / 365.25),
+        }
+        # category table input
+        cats = sorted({m["cat"] for m in metas})
+        for c in cats:
+            ii = np.array([i for i, m in enumerate(metas) if m["cat"] == c])
+            fwf = _wf(R[ii], E[ii], FOLDS, min_tr=5)
+            ok = np.isfinite(rank[ii])
+            cat_rows.append({"asset": a, "cat": c, "n": len(ii), "best": float(np.max(srs[ii][ok])) if ok.any() else float(np.max(srs[ii])),
+                             "median": float(np.median(srs[ii])), "wf": fwf["sharpe"]})
+        # every system signal alone (LS, sign, signal exit): which outputs of the system carry information?
+        for i, m in enumerate(metas):
+            d = m["d"]
+            if m["cat"] == "sys" and m["mode"] == "LS" and m["exit"]["type"] == "sig" and d.get("op") == "sign" and not d.get("inv"):
+                sys_rows.append({"asset": a, "src": d["src"], "sharpe": float(srs[i]), "h1": float(s1[i]), "h2": float(s2[i]),
+                                 "trades": int(ntr[i])})
+            if m["cat"] in ("teknik", "sys", "oylama") and m["f"] is None and not d.get("inv"):
+                key = rule_id(**_idargs(m))
+                robust.setdefault(key, []).append(float(srs[i]))
+                robust_meta[key] = m
+        if all_rows is not None:
+            for i, m in enumerate(metas):
+                all_rows.append((a, m["cat"], rule_label(m), m["mode"], m["exit"]["type"], round(float(srs[i]), 3),
+                                 round(float(s1[i]), 3), round(float(s2[i]), 3), round(float(math.expm1(R[i].sum())), 4),
+                                 round(max_dd(R[i]), 4), int(ntr[i]), round(float(nwin[i] / max(ntr[i], 1)), 3),
+                                 round(float(expo[i]), 3)))
+        del R, E
+    if cat_rows:
+        g = pd.DataFrame(cat_rows).groupby("cat").agg(n=("n", "sum"), best=("best", "mean"), median=("median", "mean"),
+                                                       wf=("wf", "mean"), wf_pos=("wf", lambda s: int((s > 0).sum())),
+                                                       assets=("wf", "size")).reset_index()
+        res["categories"] = g.sort_values("wf", ascending=False).round(3).to_dict("records")
+    if sys_rows:
+        S = pd.DataFrame(sys_rows)
+        piv = S.pivot_table(index="src", columns="asset", values="sharpe")
+        st_ = S.groupby("src").agg(mean=("sharpe", "mean"), h1=("h1", "mean"), h2=("h2", "mean"),
+                                   pos=("sharpe", lambda s: int((s > 0).sum())), n=("sharpe", "size"))
+        st_["pos"] = st_["pos"].astype(int)
+        st_["n"] = st_["n"].astype(int)
+        st_ = st_.join(piv).sort_values("mean", key=lambda s: -s.abs())
+        res["system_signals"] = {"columns": list(piv.columns), "rows": [
+            dict(src=k, name=tr_name(k), **{c: (None if pd.isna(v) else round(float(v), 2)) for c, v in r.items()})
+            for k, r in st_.head(40).iterrows()]}
+    nA = len(res["assets"])
+    rob = [{"id": k, "label": rule_label(robust_meta[k]), "rule": robust_meta[k], "mean_sharpe": round(float(np.mean(v)), 2),
+            "pos_assets": int(sum(x > 0 for x in v)), "n_assets": len(v)}
+           for k, v in robust.items() if len(v) >= max(2, nA - 1) and "bench" not in robust_meta[k]["d"]]
+    res["robust"] = sorted(rob, key=lambda r: (-r["pos_assets"], -r["mean_sharpe"]))[:15]
+    if res["robust"]:
+        res["consensus"] = res["robust"][0]
+    return res
+
+
+def _idargs(m: dict) -> dict:
+    return {"cat": m["cat"], "d": m["d"], "f": m.get("f"), "mode": m["mode"], "ex": m["exit"]}
+
+
+def _enumerate_one(ctx: Ctx, rule: dict, w0: int, w1: int) -> np.ndarray:
+    return ctx.position(rule)[w0:w1]
+
+
+# ================================================================= live use
+def _jsonable(o):
+    return json.loads(json.dumps(o, default=lambda x: float(x) if isinstance(x, (np.floating, np.integer)) else str(x)))
+
+
+def playbook(res: dict) -> dict:
+    out = {"generated_at": res["generated_at"], "source": res["source"], "assets": {}}
+    for a, r in res["assets"].items():
+        out["assets"][a] = {"rule": r["candidate"]["rule"], "label": r["candidate"]["label"], "kind": r.get("kind"),
+                            "path": r.get("path"), "proven": bool(r.get("proven")), "beta_only": r.get("kind") == "beta",
+                            "wf_sharpe": r["wf"]["sharpe"], "wf_t": r["wf"]["t"], "dsr": r["best"]["dsr"],
+                            "signal": r["signal"]}
+    if res.get("consensus"):
+        out["consensus"] = {"rule": res["consensus"]["rule"], "label": res["consensus"]["label"],
+                            "mean_sharpe": res["consensus"]["mean_sharpe"], "pos_assets": res["consensus"]["pos_assets"]}
+    return _jsonable(out)
+
+
+def _norm_rule(r: dict) -> dict:
+    r = json.loads(json.dumps(r))
+
+    def fix(d):
+        if not d:
+            return d
+        if "ens" in d:
+            d["ens"] = [fix(x) for x in d["ens"]]
+        if d.get("op") == "agree":
+            d["d"] = fix(d["d"])
+        return d
+    r["d"] = fix(r["d"])
+    r["f"] = fix(r.get("f"))
+    return r
+
+
+def _rule_state(ctx: Ctx, rule: dict, cost: float) -> dict:
+    rule = _norm_rule(rule)
+    p = ctx.position(rule)
+    arr, _ = _slice_ctx(ctx, 0, ctx.T)
+    day_idx = np.zeros(ctx.T, dtype=int)
+    out = simulate_batch(p[None, :], [rule["exit"]], np.array([ATR_ROW.get(rule.get("atr", "4h"), 1)]), arr, cost, day_idx, 1)
+    st = out["state"]
+    side = int(np.sign(st["side"][0]))
+    f = lambda v: float(v) if side and np.isfinite(v) else None
+    return {"side": {1: "LONG", -1: "SHORT", 0: "FLAT"}[side], "entry": f(st["entry"][0]), "sl": f(st["sl"][0]),
+            "tp": f(st["tp"][0]), "as_of": str(ctx.idx[-1])}
+
+
+def load_live_system_history(root: str = ".") -> Optional[pd.DataFrame]:
+    """Live system outputs (signal_history.csv, written every engine cycle),
+    seeded with the replay's signal panel so z-scores have a past."""
+    parts = []
+    for p in (os.path.join(root, "validation_reports", "signal_panel.csv.gz"), os.path.join(root, "signal_history.csv")):
+        if os.path.exists(p):
+            try:
+                d = pd.read_csv(p, low_memory=False)
+                d["t"] = pd.to_datetime(d["t"], utc=True)
+                parts.append(d)
+            except Exception:
+                pass
+    if not parts:
+        return None
+    S = pd.concat(parts, ignore_index=True).sort_values("t").drop_duplicates(["asset", "t"], keep="last")
+    cut = S["t"].max() - pd.Timedelta(days=60)
+    return S[S["t"] >= cut]
+
+
+def live_signals(pb: dict, data: Optional[Dict[str, dict]] = None, sys_hist: Optional[pd.DataFrame] = None,
+                 now: Optional[datetime] = None) -> dict:
+    """Current position of every asset's candidate rule (and of the consensus
+    rule), recomputed on fresh closed bars + the live system outputs."""
     now = now or datetime.now(timezone.utc)
     if data is None:
         try:
             data = load_yahoo(now, hourly_period="180d", daily_period="3y")
-        except Exception as exc:          # no data source -> weekly snapshot, marked not fresh
+        except Exception as exc:
             print(f"[lab] canlı veri yok ({exc}); haftalık sinyal kullanılıyor", flush=True)
             data = {}
+    if sys_hist is None:
+        sys_hist = load_live_system_history()
+    cons = (pb.get("consensus") or {}).get("rule")
     out = {}
-    cons = pb.get("consensus") or {}
-    ccfg = dict(cons.get("cfg") or {})
-    for k in ("p", "stop"):
-        if isinstance(ccfg.get(k), list):
-            ccfg[k] = tuple(ccfg[k])
     for a, p in (pb.get("assets") or {}).items():
-        c = dict(p["cfg"])
-        if isinstance(c.get("p"), list):
-            c["p"] = tuple(c["p"])
-        if isinstance(c.get("stop"), list):
-            c["stop"] = tuple(c["stop"])
-        df = (data.get(a) or {}).get(c["tf"])
-        sig = dict(p.get("signal") or {})
-        fresh = False
-        if df is not None and len(df) > 50:
-            st = simulate(c, df, COST[a])["state"]
-            sig = {"side": {1: "LONG", -1: "SHORT", 0: "FLAT"}[int(np.sign(st["side"]))], "entry": st["entry"],
-                   "sl": st["sl"], "tp": st["tp"], "as_of": str(df.index[-1])}
-            fresh = True
-        c_side = None
-        if ccfg:
-            cdf = (data.get(a) or {}).get(ccfg.get("tf"))
-            if cdf is not None and len(cdf) > 50:
-                c_side = {1: "LONG", -1: "SHORT", 0: "FLAT"}[int(np.sign(simulate(ccfg, cdf, COST[a])["state"]["side"]))]
+        sig, fresh, c_side = dict(p.get("signal") or {}), False, None
+        fr = data.get(a) or {}
+        if fr.get("1h") is not None and len(fr["1h"]) > 200:
+            try:
+                sysp = sys_hist[sys_hist["asset"] == a] if sys_hist is not None else None
+                ctx = Ctx(fr["1h"], fr.get("1d"), sysp)
+                sig = _rule_state(ctx, p["rule"], COST[a])
+                fresh = True
+                if cons:
+                    c_side = _rule_state(ctx, cons, COST[a])["side"]
+            except Exception as exc:
+                print(f"[lab] {a}: canlı kural hesaplanamadı ({exc})", flush=True)
         out[a] = {"side": sig.get("side", "FLAT"), "sl": sig.get("sl"), "tp": sig.get("tp"), "entry": sig.get("entry"),
-                  "as_of": sig.get("as_of"), "fresh": fresh, "strategy": p["label"], "id": p["id"],
-                  "proven": bool(p["proven"]), "overlay": bool(p.get("overlay")), "kind": p.get("kind"),
-                  "wf_sharpe": p["wf_sharpe"], "dsr": p["dsr"], "tf": c["tf"],
-                  "consensus_side": c_side, "consensus": cons.get("label")}
+                  "as_of": sig.get("as_of"), "fresh": fresh, "strategy": p.get("label"), "kind": p.get("kind"),
+                  "proven": bool(p.get("proven")), "beta_only": bool(p.get("beta_only")), "path": p.get("path"),
+                  "wf_sharpe": p.get("wf_sharpe"), "dsr": p.get("dsr"),
+                  "consensus_side": c_side, "consensus": (pb.get("consensus") or {}).get("label")}
     return out
 
 
-# =============================================================== report
+# ================================================================= report
 def _pct(x, d=1):
     return "—" if x is None else f"%{x * 100:+.{d}f}"
 
 
 def report_md(res: dict) -> str:
-    L = ["# 🧪 Strateji Laboratuvarı — Sonuç Raporu", "",
-         f"_Üretim: {res['generated_at'][:16]} UTC · kaynak: {res['source']} · denenen konfigürasyon: "
-         f"**{res['n_configs']:,}** · tüm getiriler maliyet sonrası (net)_", ""]
+    c = res["costs"]
+    L = ["# 🧪 Strateji Laboratuvarı v5 — Kaldıraçlı Vadeli (Perp) Sonuç Raporu", "",
+         f"_Üretim: {res['generated_at'][:16]} UTC · fiyat: {res['source']} · sistem sinyalleri: {res.get('panel') or 'yok'} · "
+         f"denenen konfigürasyon: **{res['n_configs']:,}**_", "",
+         f"**Maliyetler:** işlem başına (giriş ve çıkışta ayrı ayrı) komisyon+kayma %{c['fee_slippage_per_side']['BTC'] * 100:.2f}; "
+         f"fonlama: long pozisyon 8 saatte %{c['funding_long_per_8h'] * 100:.3f} öder, short pozisyona fonlama geliri yazılmaz (tutucu). "
+         "Tüm getiriler 1x pozisyon büyüklüğünde ve maliyetler düşülmüş (net); kaldıraç tablosu ayrı.", ""]
     if res["source"] == "panel":
-        L += ["> ⚠️ ÖN İZLEME: bu sonuçlar 700 günlük walk-forward panelinden yeniden kurulan GÜNLÜK kapanışlarla "
-              "üretildi (yalnızca 1g zaman dilimi, stoplar kapanışla kontrol edildi). 1s/4s ve 10 yıllık günlük "
-              "test, GitHub Actions'taki ilk 'Strategy Lab' çalışmasında yapılır.", ""]
-    L += ["**Kanıt yolları** (biri yeterli):",
-          "- **A — 730 gün, tüm zaman dilimleri:** walk-forward OOS t ≥ 2 · 5 test diliminin ≥ 3'ü pozitif · "
-          "Deflated Sharpe ≥ 0.90 · ≥ 30 işlem",
-          "- **B — uzun günlük geçmiş (≥ 6 yıl), sadece 1g:** uzun walk-forward OOS t ≥ 2 · 7 dilimin ≥ 5'i pozitif · "
-          "Deflated Sharpe ≥ 0.90 · ≥ 30 işlem", "",
-          "## 1) Varlık bazında özet", "",
-          "| Varlık | Aday strateji | Sharpe | Getiri | Maks. DD | İşlem | Kazanma | WF-OOS Sharpe (t) | + dilim | DSR | "
-          "Al-tut'a karşı alfa t (730g) | Uzun dönem 1g: WF Sharpe (t) · + dilim | Uzun dönem alfa t · DD / al-tut DD | "
-          "Al-tut Sharpe / getiri | Durum | Şu anki sinyal |",
-          "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+        L += ["> ⚠️ ÇEVRİMDIŞI ÖN İZLEME: fiyat yolu panelden yeniden kuruldu (High/Low yok, stoplar kapanışla kontrol edildi). "
+              "Kesin sonuç GitHub Actions'taki çalışmadır.", ""]
+    L += ["**Kanıt** (biri yeterli) — **A:** sistem sinyalli pencerede seçim prosedürünün walk-forward OOS t ≥ 2, 5 dilimin ≥ 3'ü "
+          "pozitif, Deflated Sharpe ≥ 0.90, ≥ 30 işlem · **B:** 10 yıllık günlük veride aynı testler (7 dilimin ≥ 5'i). "
+          "Kanıtlı kural ayrıca 'sürekli long perp'e karşı **alfa t ≥ 2** veriyorsa **✅ KANITLI ALFA** (bot işlem yapabilir); "
+          "vermiyorsa **⚠️ β AĞIRLIKLI** (kazancı çoğunlukla piyasa yönünden; işlem sinyali sayılmaz).", "",
+          "## 1) Varlık bazında sonuç", "",
+          "| Varlık | Seçilen kural (pencerenin en iyisi) | Sharpe | 1. yarı / 2. yarı | Getiri | Maks. DD | İşlem | Kazanma | DSR | "
+          "WF-OOS Sharpe (t) · + dilim | Alfa t | Uzun dönem 1g: en iyi kural · WF Sharpe (t) · + dilim · alfa t | Sürekli long Sharpe / getiri | Durum | Sinyal |",
+          "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for a, r in res["assets"].items():
         b, w, bh, lg = r["best"], r["wf"], r["bh"], r.get("long")
-        kind, pth = r.get("kind"), r.get("path")
-        state = (f"✅ KANITLI ALFA ({pth})" if kind == "alpha" else
-                 f"🛡️ RİSK AZALTICI ({pth}) — alfa yok" if kind == "overlay" else "❌ kanıt yok")
-        sg = r["signal"]
-        sig = {"LONG": "🟢 AL", "SHORT": "🔴 SAT", "FLAT": "⚪ POZİSYON YOK"}[sg["side"]]
-        win = "—" if b["win"] is None else f"%{b['win'] * 100:.0f}"
-        lgs = "—" if not lg else f"{lg['wf_sharpe']:.2f} ({lg['wf_t']:+.1f}) · {lg['wf_pos_folds']}/{lg['wf_folds']} · {lg['years']} yıl"
-        lga = "—" if not lg else f"{lg['wf_alpha_t']:+.1f} · {_pct(-lg['wf_maxdd'], 0)} / {_pct(-lg['wf_bh_maxdd'], 0)}"
-        L.append(f"| {a} | {b['label']} | {b['sharpe']:.2f} | {_pct(b['ret'])} | {_pct(-b['maxdd'])} | {b['trades']} | "
-                 f"{win} | {w['sharpe']:.2f} ({w['t']:+.1f}) | {w['pos_folds']}/{w['n_folds']} | {b['dsr']:.2f} | "
-                 f"{w['alpha_t']:+.1f} | {lgs} | {lga} | "
-                 f"{bh['sharpe']:.2f} / {_pct(bh['ret'])} | {state} | {sig} |")
-    L += ["", "_Sharpe/getiri/DD/işlem: adayın son 730 gündeki net sonucu. WF-OOS: her dilimde YALNIZCA geçmişte en iyi "
-          "olanı seçip bir sonraki dilimde ölçen prosedürün dışı-örneklem sonucu — yüzlerce aday arasından seçim yapmanın "
-          "bedeli dahildir; t ≥ 2 istatistiksel anlamlılık eşiğidir. DSR: etkin deneme sayısına göre düzeltilmiş "
-          "'gerçek Sharpe > 0' olasılığı. **Alfa t:** dışı-örneklem getirinin al-tut'a göre fazlası (beta ayrıştırılmış); "
-          "≥ 2 olmadan strateji 'al ve tut'tan daha iyi' sayılmaz. 🛡️ Risk azaltıcı = al-tut'a yakın risk/getiri, "
-          "belirgin şekilde daha küçük düşüş (pozisyon büyüklüğü/koruma için; tek başına kazanç avantajı değil)._", ""]
-    cons = res.get("consensus")
-    if cons:
-        L += [f"**📈 Tüm varlıklarda en tutarlı tek kural:** {cons['label']} — ortalama Sharpe {cons['mean_sharpe']:.2f}, "
-              f"{cons['pos_assets']}/{cons['n_assets']} varlıkta pozitif. Varlık başına ayar yapılmadığı için aşırı uyuma "
-              f"en az açık aday budur; paper defterde ayrıca ileriye dönük sınanır.", ""]
-    L += ["## 2) Strateji aileleri (6 varlık ortalaması)", "",
-          "| Zaman dilimi | Aile | En iyi Sharpe | Medyan Sharpe | WF-OOS Sharpe | WF pozitif varlık |", "|---|---|---|---|---|---|"]
-    for f in res["families"]:
-        L.append(f"| {f['tf']} | {FAMILY_TR[f['fam']]} | {f['best']:.2f} | {f['median']:.2f} | {f['wf']:.2f} | {f['wf_pos']}/{f['n']} |")
-    L += ["", "## 3) En sağlam çok-varlıklı konfigürasyonlar (stopsuz, tüm varlıklarda aynı ayar)", "",
-          "| Konfigürasyon | Ort. Sharpe | Pozitif varlık |", "|---|---|---|"]
-    for r in res["robust"]:
-        L.append(f"| {r['id'].replace('|', ' · ')} | {r['mean_sharpe']:.2f} | {r['pos_assets']}/{r['n_assets']} |")
-    if res["assets"]:
-        bh_avg = float(np.mean([r["bh"]["sharpe"] for r in res["assets"].values()]))
-        L.append(f"\n_Kıyas: aynı dönemde al-tut ortalama Sharpe {bh_avg:.2f}. 'Sadece alış' (LO) stratejilerin pozitifliğinin "
-                 f"bir kısmı piyasanın genel yükselişinden gelir; asıl soru al-tut'tan daha iyi risk/getiri verip vermediğidir._")
-    L += ["", "## 4) Varlık bazında ilk 10 konfigürasyon (tam pencere — seçim yanlılığı İÇERİR, tek başına kanıt değildir)", ""]
+        state = {"alpha": f"✅ KANITLI ALFA ({r['path']})", "beta": f"⚠️ β AĞIRLIKLI ({r['path']})"}.get(r.get("kind"), "❌ kanıt yok")
+        sig = {"LONG": "🟢 LONG", "SHORT": "🔴 SHORT", "FLAT": "⚪ YOK"}[r["signal"]["side"]]
+        lgs = "—" if not lg else (f"{lg['label']} · {lg['wf_sharpe']:.2f} ({lg['wf_t']:+.1f}) · {lg['wf_pos_folds']}/{lg['wf_folds']} · "
+                                  f"{lg['alpha_t']:+.1f} · {lg['years']} yıl")
+        L.append(f"| {a} | {b['label']} | {b['sharpe']:.2f} | {b['h1']:.2f} / {b['h2']:.2f} | {_pct(b['ret'])} | {_pct(-b['maxdd'])} | "
+                 f"{b['trades']} | %{b['win'] * 100:.0f} | {b['dsr']:.2f} | {w['sharpe']:.2f} ({w['t']:+.1f}) · {w['pos_folds']}/{w['n_folds']} | "
+                 f"{r['wf_alpha_t']:+.1f} | {lgs} | {bh['sharpe']:.2f} / {_pct(bh['ret'])} | {state} | {sig} |")
+    L += ["", "_'1. yarı / 2. yarı': aynı kuralın pencerenin iki yarısındaki Sharpe'ı — biri pozitif biri negatifse kural kararsızdır. "
+          "WF-OOS: her dilimde YALNIZCA geçmişte en iyi olanı seçip bir sonraki dilimde ölçen prosedürün gerçek dışı-örneklem sonucu "
+          "(on binlerce aday arasından seçimin bedeli dahil)._", ""]
+    # leverage
+    L += ["## 2) Kaldıraç ve likidasyon (seçilen kural, 730 gün, saatlik High/Low ile)", "",
+          "| Varlık | 1x yıllık / DD | 2x | 3x | 5x | 10x | Vol hedefli (%40, maks 5x) | Likidasyon (1/2/3/5/10x) |",
+          "|---|---|---|---|---|---|---|---|"]
     for a, r in res["assets"].items():
-        L += [f"**{a} — {NAMES[a]}** · pencere {r['window'][0]} → {r['window'][1]} · {r['n_configs']} konfigürasyon", "",
-              "| # | Konfigürasyon | Sharpe | Getiri | Maks. DD | İşlem | Kazanma |", "|---|---|---|---|---|---|---|"]
+        lv = r.get("leverage")
+        if not lv:
+            L.append(f"| {a} | — | — | — | — | — | — | — |")
+            continue
+        cell = lambda x: f"{_pct(x['cagr'], 0)} / {_pct(-x['maxdd'], 0)}"
+        m = {str(x["lev"]): x for x in lv}
+        L.append(f"| {a} · seçilen kural (iyimser) | {cell(m['1'])} | {cell(m['2'])} | {cell(m['3'])} | {cell(m['5'])} | {cell(m['10'])} | "
+                 f"{cell(m['vol'])} | {'/'.join(str(m[k]['liquidations']) for k in ('1', '2', '3', '5', '10'))} |")
+        wl = {str(x["lev"]): x for x in (r.get("leverage_wf") or [])}
+        if wl:
+            L.append(f"| {a} · walk-forward OOS (gerçekçi) | {cell(wl['1'])} | {cell(wl['2'])} | {cell(wl['3'])} | {cell(wl['5'])} | "
+                     f"{cell(wl['10'])} | — | {'/'.join(str(wl[k]['liquidations']) for k in ('1', '2', '3', '5', '10'))} |")
+    L += ["", "_'Seçilen kural' satırı o kuralın geçmişteki en iyi hâlidir (seçim yanlılığı yüzünden iyimser). "
+          "'Walk-forward OOS' satırı, her dönemde o güne kadar en iyi olanı seçip uygulasaydınız ne olacağını gösterir "
+          "(günlük kapanışla; gün içi likidasyonları kaçırabilir). Kaldıraç Sharpe'ı değiştirmez; getiriyi de düşüşü de büyütür ve likidasyonla sermayeyi sıfırlayabilir. "
+          "Kanıtsız bir kurala kaldıraç eklemek beklenen kaybı büyütür._", ""]
+    # categories
+    L += ["## 3) Kombinasyon türlerine göre (6 varlık ortalaması)", "",
+          "| Tür | Konfigürasyon | En iyi Sharpe | Medyan Sharpe | WF-OOS Sharpe | WF pozitif varlık |", "|---|---|---|---|---|---|"]
+    for g in res["categories"]:
+        L.append(f"| {g['cat']} | {int(g['n']):,} | {g['best']:.2f} | {g['median']:.2f} | {g['wf']:.2f} | {g['wf_pos']}/{g['assets']} |")
+    # system signals
+    ss = res.get("system_signals") or {}
+    if ss.get("rows"):
+        cols = ss["columns"]
+        L += ["", "## 4) Sistemin kendi sinyalleri tek başına (long+short, sinyalle çıkış, sistemin yönünde)", "",
+              "| Sinyal | " + " | ".join(cols) + " | Ort. | 1. yarı / 2. yarı | Pozitif |", "|---" * (len(cols) + 4) + "|"]
+        for r in ss["rows"]:
+            L.append(f"| {r['name']} | " + " | ".join("—" if r.get(c) is None else f"{r[c]:.2f}" for c in cols) +
+                     f" | {r['mean']:.2f} | {r['h1']:.2f} / {r['h2']:.2f} | {int(r['pos'])}/{int(r['n'])} |")
+        L += ["", "_Negatif ortalama = sinyal TERS yönde kullanılırsa çalışıyor olabilir (TERS kurallar da ayrıca test edildi)._"]
+    # robust
+    if res.get("robust"):
+        L += ["", "## 5) Tüm varlıklarda aynı ayarla en tutarlı kurallar", "", "| Kural | Ort. Sharpe | Pozitif varlık |", "|---|---|---|"]
+        for r in res["robust"]:
+            L.append(f"| {r['label']} | {r['mean_sharpe']:.2f} | {r['pos_assets']}/{r['n_assets']} |")
+    # per asset top
+    L += ["", "## 6) Varlık bazında ilk 15 (tam pencere — seçim yanlılığı İÇERİR, tek başına kanıt değildir)", ""]
+    for a, r in res["assets"].items():
+        L += [f"**{a} — {NAMES[a]}** · {r['window'][0]} → {r['window'][1]} · {r['n_configs']:,} konfigürasyon "
+              f"(etkin bağımsız: {r['n_effective']:.0f})", "",
+              "| # | Kural | Tür | Sharpe | 1./2. yarı | Getiri | Maks. DD | İşlem | Kazanma | Pozisyonda |", "|---|---|---|---|---|---|---|---|---|---|"]
         for k, t in enumerate(r["top"], 1):
-            win = "—" if t["win"] is None else f"%{t['win'] * 100:.0f}"
-            L.append(f"| {k} | {t['label']} | {t['sharpe']:.2f} | {_pct(t['ret'])} | {_pct(-t['maxdd'])} | {t['trades']} | {win} |")
-        if r.get("long"):
-            lg = r["long"]
-            win = "—" if lg["win"] is None else f"%{lg['win'] * 100:.0f}"
-            L.append(f"\n_Uzun dönem ({lg['years']} yıl, 1g): en iyi {lg['best_label']} — Sharpe {lg['sharpe']:.2f}, "
-                     f"getiri {_pct(lg['ret'], 0)}, maks. DD {_pct(-lg['maxdd'], 0)}, {lg['trades']} işlem, kazanma {win}, "
-                     f"DSR {lg['dsr']:.2f} · WF-OOS Sharpe {lg['wf_sharpe']:.2f} (t {lg['wf_t']:+.1f}), "
-                     f"pozitif dilim {lg['wf_pos_folds']}/{lg['wf_folds']} · al-tut Sharpe {lg['bh_sharpe']:.2f}, "
-                     f"getiri {_pct(lg['bh_ret'], 0)}_")
-        L.append(f"\n_Walk-forward dilim getirileri: {', '.join(_pct(x) for x in r['wf']['fold_ret'])}_\n")
+            L.append(f"| {k} | {t['label']} | {t['cat']} | {t['sharpe']:.2f} | {t['h1']:.2f} / {t['h2']:.2f} | {_pct(t['ret'])} | "
+                     f"{_pct(-t['maxdd'])} | {t['trades']} | %{t['win'] * 100:.0f} | %{t['expo'] * 100:.0f} |")
+        L.append(f"\n_Walk-forward dilim getirileri: {', '.join(_pct(x) for x in r['wf']['fold_ret'])} · "
+                 f"seçilenler: {'; '.join(str(x) for x in r['wf_picks'] if x)[:600]}_\n")
+    L += ["_Tüm konfigürasyonların tek tek sonuçları: **lab_all_configs.csv.gz**._"]
     return "\n".join(L) + "\n"
+
+
+ALL_COLS = ["asset", "tur", "kural", "yon_modu", "cikis", "sharpe", "sharpe_1yari", "sharpe_2yari", "getiri", "maks_dd",
+            "islem", "kazanma", "pozisyonda"]
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--source", choices=["yahoo", "panel"], default="yahoo")
-    ap.add_argument("--panel", default="validation_reports/factor_panel.csv.gz")
+    ap.add_argument("--panel", default=None, help="signal_panel.csv.gz (veya factor_panel.csv.gz)")
     ap.add_argument("--out", default=".")
+    ap.add_argument("--assets", default=None, help="virgülle (test için)")
     args = ap.parse_args()
-    data = load_yahoo() if args.source == "yahoo" else load_panel(args.panel)
-    res = research(data, source=args.source)
+    panel = load_signal_panel(args.panel)
+    if args.source == "yahoo":
+        data = load_yahoo()
+    else:
+        data = panel_price_path(args.panel or "validation_reports/factor_panel.csv.gz")
+    if args.assets:
+        data = {k: v for k, v in data.items() if k in args.assets.split(",")}
+    rows: list = []
+    res = research(data, panel, source=args.source, all_rows=rows)
     os.makedirs(args.out, exist_ok=True)
-    slim = json.loads(json.dumps(res, default=str))
-    json.dump(slim, open(os.path.join(args.out, "lab_results.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
-    json.dump(json.loads(json.dumps(playbook(res), default=str)),
-              open(os.path.join(args.out, "lab_playbook.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    json.dump(_jsonable(res), open(os.path.join(args.out, "lab_results.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    json.dump(playbook(res), open(os.path.join(args.out, "lab_playbook.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     open(os.path.join(args.out, "lab_report.md"), "w", encoding="utf-8").write(report_md(res))
-    print(f"[lab] {res['n_configs']} konfigürasyon · kanıtlı: "
-          f"{[a for a, r in res['assets'].items() if r['proven']] or 'yok'}", flush=True)
+    pd.DataFrame(rows, columns=ALL_COLS).sort_values(["asset", "sharpe"], ascending=[True, False]).to_csv(
+        os.path.join(args.out, "lab_all_configs.csv.gz"), index=False, compression="gzip")
+    print(f"[lab] {res['n_configs']:,} konfigürasyon · kanıtlı alfa: "
+          f"{[a for a, r in res['assets'].items() if r['kind'] == 'alpha'] or 'yok'} · β ağırlıklı: "
+          f"{[a for a, r in res['assets'].items() if r['kind'] == 'beta'] or 'yok'}", flush=True)
 
 
 if __name__ == "__main__":

@@ -121,7 +121,10 @@ def publish(branch: str, paths: List[str], root: str = ".", message: str = "") -
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-STATE_PUBLISH_PATHS = STATE_FILES + STATE_DIRS + ["state_backups", BUNDLE]
+# v5.0: needed by the engine only (published on the `state` branch, NOT in the
+# app's download bundle, so the page stays fast)
+ENGINE_ONLY_FILES = ["signal_history.csv"]
+STATE_PUBLISH_PATHS = STATE_FILES + ENGINE_ONLY_FILES + STATE_DIRS + ["state_backups", BUNDLE]
 
 
 def build_bundle(root: str = ".", out: Optional[str] = None) -> str:

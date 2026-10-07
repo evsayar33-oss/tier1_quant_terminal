@@ -139,6 +139,11 @@ def main() -> None:
         try:
             state_sync.prune()
             state = json.load(open("terminal_state.json", encoding="utf-8"))
+            try:   # v5.0: every system output of this cycle -> live history (the lab's rules read it)
+                import signal_panel
+                signal_panel.append_history(state, t0)
+            except Exception as exc:
+                print(f"[signal_panel] {exc}", flush=True)
             sig = build_signals(state, t0, lab_signals())
             json.dump(sig, open("signals.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
             try:   # v3.9: paper trading on real closed bars (evidence collection)
