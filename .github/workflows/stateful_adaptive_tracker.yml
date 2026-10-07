@@ -3,7 +3,9 @@ name: Tier-1 Motoru Şimdi Yeniden Başlat (manuel)
 # v4.0: replaces the old "Stateful Adaptive Quant Tracker". The engine loop
 # already runs that exact tracker cycle every hour, so a separate manual
 # tracker only ever waited in the queue behind it (the reported problem).
-# v3.8 Aşama 2: one long job runs the production cycle 90 s after EVERY
+# v5.1: ONE SHORT job per hour (3-5 min), within GitHub's fair-use rules.
+# (v3.8-v5.0 kept one ~6h job running 24/7 -> the account's Actions were restricted.)
+# v3.8 Aşama 2 (old): one long job runs the production cycle 90 s after EVERY
 # hourly bar closes, for ~5h40m. The hourly schedule queues the next job
 # (concurrency, no cancel), so when one ends the next starts -> continuous.
 # Same concurrency group as the manual restart workflow -> a single writer of state.
@@ -19,7 +21,7 @@ on:
 # "Tier-1 Engine Loop" then continues behind it as usual.
 concurrency:
   group: tier1-quant-stateful-adaptive
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -27,7 +29,7 @@ permissions:
 jobs:
   restart-engine:
     runs-on: ubuntu-latest
-    timeout-minutes: 355
+    timeout-minutes: 25
     steps:
       - name: Repository Checkout (code)
         uses: actions/checkout@v6
@@ -59,4 +61,4 @@ jobs:
           CHAT_ID: ${{ secrets.CHAT_ID }}
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python bot_loop.py --max-minutes 340
+        run: python bot_loop.py --once
