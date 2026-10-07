@@ -35,14 +35,16 @@ import pandas as pd
 
 LEDGER = "paper_ledger.json"
 REPORT = "paper_report.md"
-STRATEGIES = ("gate", "model", "short_term")
+STRATEGIES = ("gate", "model", "short_term", "lab")
+SIGNAL_EXIT = {"lab"}             # these exit when their signal goes FLAT and have no time stop
 SL_ATR, TP_ATR = 1.5, 2.5          # provisional; Aşama 4 learns them
 MAX_HOLD_H = 24
 STALE_FILL_H = 3                   # cancel an order if the market had no bar this soon after the signal
 MAX_CLOSED = 3000
 # one-way cost in fraction of price (fee + slippage)
-COST = {"BTC": 0.0010 + 0.0003, "ETH": 0.0010 + 0.0003}
-DEFAULT_COST = 0.0002 + 0.0002     # futures-like for SPX/NQ/XAU/XAG
+# v4.0: same one-way cost table as strategy_lab (perp-exchange level, conservative)
+COST = {"BTC": 0.0010, "ETH": 0.0010, "SPX": 0.0008, "NQ": 0.0008, "XAU": 0.0008, "XAG": 0.0010}
+DEFAULT_COST = 0.0010
 MIN_TRADES, MIN_T = 30, 2.0
 SYMBOLS = {"SPX": "ES=F", "NQ": "NQ=F", "XAU": "GC=F", "XAG": "SI=F", "BTC": "BTC-USD", "ETH": "ETH-USD"}
 
@@ -69,6 +71,8 @@ def _atr(d: pd.DataFrame, upto_idx: int, n: int = 14) -> Optional[float]:
 
 
 def side_for(strategy: str, a: dict) -> str:
+    if strategy == "lab":
+        return str((a.get("lab") or {}).get("side") or "FLAT")
     if strategy == "short_term":
         txt = str(a.get("short_term") or "")
         return "LONG" if "🟢" in txt else ("SHORT" if "🔴" in txt else "FLAT")
@@ -108,17 +112,19 @@ def _walk(led: dict, key: str, d: pd.DataFrame) -> None:
     last = pd.Timestamp(pos["last_bar"])
     for _, b in d[d["ts"] > last].iterrows():
         hi, lo = float(b["High"]), float(b["Low"])
+        sl, tp = pos.get("sl"), pos.get("tp")
         if pos["side"] == "LONG":
-            hit_sl, hit_tp = lo <= pos["sl"], hi >= pos["tp"]
+            hit_sl, hit_tp = sl is not None and lo <= sl, tp is not None and hi >= tp
         else:
-            hit_sl, hit_tp = hi >= pos["sl"], lo <= pos["tp"]
+            hit_sl, hit_tp = sl is not None and hi >= sl, tp is not None and lo <= tp
         if hit_sl:                       # both touched -> stop first (conservative)
             fill = min(float(b["Open"]), pos["sl"]) if pos["side"] == "LONG" else max(float(b["Open"]), pos["sl"])
             return _close(led, key, pos, b["ts"], fill, "SL")
         if hit_tp:
             return _close(led, key, pos, b["ts"], pos["tp"], "TP")
         pos["last_bar"] = str(b["ts"])
-        if (b["ts"] - pd.Timestamp(pos["entry_ts"])) >= pd.Timedelta(hours=MAX_HOLD_H - 1):
+        if pos["strategy"] not in SIGNAL_EXIT and \
+                (b["ts"] - pd.Timestamp(pos["entry_ts"])) >= pd.Timedelta(hours=MAX_HOLD_H - 1):
             return _close(led, key, pos, b["ts"], float(b["Close"]), "TIME")
 
 
@@ -145,9 +151,14 @@ def _fill(led: dict, key: str, d: pd.DataFrame) -> None:
     if not atr:
         return
     sgn = 1 if o["side"] == "LONG" else -1
+    if "sl_dist" in o:          # lab strategy: its own tested exit rule (None = exit on signal only)
+        sl = px - sgn * o["sl_dist"] if o.get("sl_dist") else None
+        tp = px + sgn * o["tp_dist"] if o.get("tp_dist") else None
+    else:
+        sl, tp = px - sgn * SL_ATR * atr, px + sgn * TP_ATR * atr
     led["positions"][key] = {
         "strategy": o["strategy"], "asset": o["asset"], "side": o["side"], "entry_ts": str(b["ts"]),
-        "entry": px, "atr": atr, "sl": px - sgn * SL_ATR * atr, "tp": px + sgn * TP_ATR * atr,
+        "entry": px, "atr": atr, "sl": sl, "tp": tp,
         "last_bar": str(after.iloc[0]["ts"] - pd.Timedelta(seconds=1)),   # entry bar itself is checked too
     }
 
@@ -176,9 +187,15 @@ def step(signals: dict, root: str = ".") -> dict:
             if want == have or (want == "FLAT" and not pos):
                 led["orders"].pop(key, None)
                 continue
-            if want == "FLAT":
+            if want == "FLAT" and s not in SIGNAL_EXIT:
                 continue          # no fresh signal: let SL/TP/time manage the open trade
-            led["orders"][key] = {"strategy": s, "asset": asset, "side": want, "signal_bar": sig_bar}
+            order = {"strategy": s, "asset": asset, "side": want, "signal_bar": sig_bar}
+            if s == "lab":
+                lab = a.get("lab") or {}
+                e, sl, tp = lab.get("entry"), lab.get("sl"), lab.get("tp")
+                order["sl_dist"] = abs(e - sl) if e and sl else None
+                order["tp_dist"] = abs(tp - e) if e and tp else None
+            led["orders"][key] = order
     led["closed"] = led["closed"][-MAX_CLOSED:]
     led["updated_at"] = datetime.now(timezone.utc).isoformat()
     json.dump(led, open(os.path.join(root, LEDGER), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
@@ -217,7 +234,8 @@ def scorecard(led: dict) -> dict:
     return out
 
 
-NAMES = {"gate": "Model + giriş kapısı", "model": "Sadece model yönü", "short_term": "Kısa Vade Yön (1-4s)"}
+NAMES = {"gate": "Model + giriş kapısı", "model": "Sadece model yönü", "short_term": "Kısa Vade Yön (1-4s)",
+         "lab": "🧪 Strateji Lab adayı"}
 
 
 def report_md(led: dict, sc: dict) -> str:
@@ -235,7 +253,8 @@ def report_md(led: dict, sc: dict) -> str:
                  f"{st['t']:+.2f} | {pf} | %{st['buy_hold']*100:+.1f} | {state} |")
     L += ["", f"Açık pozisyon: {len(led['positions'])} · bekleyen emir: {len(led['orders'])}", ""]
     for k, p in sorted(led["positions"].items()):
-        L.append(f"- `{k}` {p['side']} @ {p['entry']:.4g} · SL {p['sl']:.4g} · TP {p['tp']:.4g} · giriş {p['entry_ts'][:16]}")
+        _f = lambda v: "—" if v is None else f"{v:.4g}"
+        L.append(f"- `{k}` {p['side']} @ {p['entry']:.4g} · SL {_f(p.get('sl'))} · TP {_f(p.get('tp'))} · giriş {p['entry_ts'][:16]}")
     last = led["closed"][-10:]
     if last:
         L += ["", "**Son kapanan işlemler**", ""]

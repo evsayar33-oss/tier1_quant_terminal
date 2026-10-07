@@ -22,6 +22,7 @@ import subprocess
 import sys
 import time
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -56,9 +57,24 @@ def _atr_abs(symbol: str, n: int = 14):
         return None, None
 
 
-def build_signals(state: dict, now: datetime) -> dict:
-    """The bot contract. `tradeable` is True only when BOTH the model has
-    out-of-sample proof (walk-forward deploy) AND the entry gate is open."""
+def lab_signals() -> dict:
+    """v4.0: live signal of each asset's Strategy-Lab candidate (fresh closed bars)."""
+    try:
+        import strategy_lab
+        pb = json.load(open("lab_playbook.json", encoding="utf-8"))
+        return strategy_lab.live_signals(pb)
+    except FileNotFoundError:
+        return {}
+    except Exception as exc:
+        print(f"[lab] canlı sinyal hatası: {exc}", flush=True)
+        return {}
+
+
+def build_signals(state: dict, now: datetime, lab: Optional[dict] = None) -> dict:
+    """The bot contract. `tradeable` is True only when a strategy has
+    out-of-sample proof: either the Strategy-Lab candidate (v4.0) is proven and
+    not flat, or the learned model is ACTIVE and the entry gate is open."""
+    lab = lab or {}
     out = {"generated_at": now.isoformat(), "valid_until": (now.replace(minute=0, second=0, microsecond=0)
                                                              + timedelta(hours=SIGNAL_VALID_H + 1)).isoformat(),
            "schema": "tier1.signals.v1", "risk_note": f"SL={SL_ATR}xATR, TP={TP_ATR}xATR (geçici; Aşama 4'te kanıtla güncellenecek)",
@@ -67,7 +83,10 @@ def build_signals(state: dict, now: datetime) -> dict:
         verdict = str(v.get("verdict", "NÖTR (BEKLE)"))
         side = "LONG" if ("AL" in verdict.replace("SAT", "")) else ("SHORT" if "SAT" in verdict else "FLAT")
         proven = v.get("learned_model_status") == "ACTIVE"
-        tradeable = bool(proven and v.get("entry_allowed") and side != "FLAT")
+        lb = lab.get(k) or {}
+        lab_ok = bool(lb.get("proven") and lb.get("side") in ("LONG", "SHORT"))
+        model_ok = bool(proven and v.get("entry_allowed") and side != "FLAT")
+        tradeable = lab_ok or model_ok
         atr, last = _atr_abs(SYMBOLS.get(k, k))
         sl = tp = None
         if atr and last and side != "FLAT":
@@ -80,6 +99,9 @@ def build_signals(state: dict, now: datetime) -> dict:
             "entry_grade": v.get("entry_grade"), "evidence": v.get("learned_model_status", "NO_MODEL"),
             "tradeable": tradeable, "last_close": last, "atr_1h": atr, "stop_loss": sl, "take_profit": tp,
             "yahoo_symbol": SYMBOLS.get(k), "okx_inst": OKX_INST.get(k),
+            "lab": lb or None,
+            "trade_side": (lb.get("side") if lab_ok else side) if tradeable else "FLAT",
+            "trade_source": ("lab" if lab_ok else "model") if tradeable else None,
         }
     return out
 
@@ -117,7 +139,7 @@ def main() -> None:
         try:
             state_sync.prune()
             state = json.load(open("terminal_state.json", encoding="utf-8"))
-            sig = build_signals(state, t0)
+            sig = build_signals(state, t0, lab_signals())
             json.dump(sig, open("signals.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
             try:   # v3.9: paper trading on real closed bars (evidence collection)
                 sc = paper_broker.step(sig)

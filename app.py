@@ -318,6 +318,16 @@ for code, desc in CLUSTERS.items():
 # LOAD PERSISTED STATE
 # =============================================================================
 
+# v4.0: fetch the engine's latest published state FIRST (before reading it).
+# v3.7-v3.9 read terminal_state.json before syncing, so a freshly woken app
+# showed the stale copy that ships with the code until "Yenile" was pressed.
+try:
+    import state_sync as _ss
+    _sync = _ss.ensure_local_state(_os.path.dirname(_os.path.abspath(__file__)))
+    st.session_state["state_sync_msg"] = _sync.get("msg", "")
+except Exception as _e:
+    st.session_state["state_sync_msg"] = f"state senkronu atlandı: {_e}"
+
 persisted = load_persisted_state()
 
 effective_fred_key = (
@@ -367,13 +377,6 @@ if not hasattr(gk, "reconcile_pairs_post_adaptive"):
     gk = st.session_state.gatekeeper
 
 
-# v3.7: the live state is published on the `state` branch, not in the code.
-try:
-    import state_sync as _ss
-    _sync = _ss.ensure_local_state(_os.path.dirname(_os.path.abspath(__file__)))
-    st.session_state["state_sync_msg"] = _sync.get("msg", "")
-except Exception as _e:
-    st.session_state["state_sync_msg"] = f"state senkronu atlandı: {_e}"
 
 # v3.6.1 STALE-CODE GUARD: Streamlit re-runs app.py after an upload but keeps the
 # other modules in memory until a reboot -> new screen, old calculations.
@@ -442,7 +445,35 @@ with col_btn:
         "⚡ Canlı Verileri Yenile",
         use_container_width=True,
         type="primary",
+        help="Motorun en son saatlik döngüsünü indirir (birkaç saniye).",
     )
+
+with st.expander("🔬 Gelişmiş: uygulamada baştan hesapla (yavaş, 1-3 dk)", expanded=False):
+    st.caption("Normalde gerek yok: motor her saat kapanışından 90 sn sonra aynı hesabı yapıp yayınlıyor. "
+               "Bu düğme tüm piyasa verisini bu sayfada yeniden indirip hesaplar.")
+    deep_refresh = st.button("🔬 Şimdi baştan hesapla", use_container_width=True)
+
+
+# v4.0: the page SHOWS the engine's published state (fast, identical for every
+# viewer). "Yenile" = download the newest published cycle.
+if live_refresh:
+    try:
+        import state_sync as _ss3
+        st.session_state["state_sync_msg"] = _ss3.ensure_local_state(
+            _os.path.dirname(_os.path.abspath(__file__)), force=True).get("msg", "")
+    except Exception:
+        pass
+if not deep_refresh and not st.session_state.get("deep_state_active"):
+    _pub = load_persisted_state()
+    if _pub.get("asset_verdicts"):
+        st.session_state.state_data = _pub
+        st.session_state.last_sync_time = _pub.get("last_updated")
+if live_refresh:
+    st.session_state["deep_state_active"] = False
+    _pub = load_persisted_state()
+    if _pub.get("asset_verdicts"):
+        st.session_state.state_data = _pub
+        st.session_state.last_sync_time = _pub.get("last_updated")
 
 
 # =============================================================================
@@ -450,7 +481,7 @@ with col_btn:
 # =============================================================================
 
 if (
-    live_refresh
+    deep_refresh
     or not st.session_state.state_data
     or st.session_state.state_data.get("status") == "NOT_INITIALIZED"
     or "asset_verdicts" not in st.session_state.state_data
@@ -786,6 +817,7 @@ if (
             st.session_state.state_data = (
                 new_state
             )
+            st.session_state["deep_state_active"] = True
 
             st.session_state.last_sync_time = (
                 current_time_iso
@@ -860,6 +892,15 @@ st.info(
     f"🌐 **Aktif Makro Rejim:** {regime}"
 )
 
+try:
+    _lu = pd.Timestamp(active_data.get("last_updated"))
+    _age = (pd.Timestamp.now(tz="UTC") - _lu).total_seconds() / 60
+    _src = "bu sayfada baştan hesaplandı" if st.session_state.get("deep_state_active") else "motorun yayınladığı döngü"
+    st.caption(f"📡 Gösterilen veri: {_lu.tz_convert('Europe/Istanbul'):%d.%m %H:%M} TSİ ({_src}, {_age:.0f} dk önce) · "
+               f"{st.session_state.get('state_sync_msg', '')}")
+except Exception:
+    pass
+
 
 # =============================================================================
 # STATEFUL ADAPTIVE SUMMARY
@@ -905,6 +946,12 @@ if stateful_diag:
     if os.path.exists("paper_report.md"):
         with st.expander("📒 Paper Trading Karnesi (kanıt toplama)", expanded=False):
             st.markdown(open("paper_report.md", encoding="utf-8").read())
+    # v4.0: strategy research tables
+    if os.path.exists("lab_report.md"):
+        with st.expander("🧪 Strateji Laboratuvarı — test ve getiri tabloları", expanded=False):
+            st.markdown(open("lab_report.md", encoding="utf-8").read())
+    else:
+        st.caption("🧪 Strateji Laboratuvarı henüz çalışmadı: Actions → 'Tier-1 Strategy Lab (strateji testi)' → Run workflow.")
 
 
     stateful_cols = st.columns(5)
@@ -1054,6 +1101,29 @@ st.subheader(
 
 summary_rows = []
 
+# v4.0: Strategy-Lab candidate per asset (live, from the engine's signals.json)
+try:
+    _lab_live = {k: (v.get("lab") or {}) for k, v in
+                 (json.load(open("signals.json", encoding="utf-8")).get("assets") or {}).items()}
+except Exception:
+    _lab_live = {}
+if not any(_lab_live.values()):
+    try:   # before the engine's first v4.0 cycle: weekly playbook snapshot
+        _pbk = json.load(open("lab_playbook.json", encoding="utf-8"))
+        _lab_live = {k: dict(v.get("signal") or {}, proven=v.get("proven"), strategy=v.get("label"))
+                     for k, v in (_pbk.get("assets") or {}).items()}
+    except Exception:
+        _lab_live = {}
+
+
+def _lab_cell(k):
+    lb = _lab_live.get(k) or {}
+    if not lb:
+        return "— (lab henüz çalışmadı)"
+    side = {"LONG": "🟢 AL", "SHORT": "🔴 SAT"}.get(lb.get("side"), "⚪ POZİSYON YOK")
+    proof = "✅ KANITLI" if lb.get("proven") else "⚠️ aday · kanıtsız"
+    return f"{side} · {proof} · {lb.get('strategy', '')}"
+
 
 for k in ASSET_MATRICES.keys():
 
@@ -1128,6 +1198,9 @@ for k in ASSET_MATRICES.keys():
 
             "🔮 Model Sinyali (24 Saat-1 Hafta)":
                 fore_dir,
+
+            "🎯 Strateji Lab Sinyali":
+                _lab_cell(k),
 
             "Yön Aşaması":
                 direction_stage,

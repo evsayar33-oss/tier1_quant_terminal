@@ -107,3 +107,37 @@ def test_scorecard_requires_proof():
     sc = pb.scorecard(led)
     assert sc["model"]["n"] == 10 and not sc["model"]["proven"]
     assert "Paper Trading" in pb.report_md(led, sc)
+
+
+def _lab(side, entry=None, sl=None, tp=None):
+    return {"assets": {"BTC": {"side": "FLAT", "entry_allowed": False, "short_term": "⚪",
+                               "lab": {"side": side, "entry": entry, "sl": sl, "tp": tp}}}}
+
+
+def test_lab_strategy_holds_past_24h_and_exits_on_flat_signal():
+    rows = _flat_rows(30)
+    root = _setup(rows)
+    pb.step(_lab("LONG"), root)
+    rows += _flat_rows(40, start="2026-10-02 06:00")           # 40h later, still LONG
+    _write_bars(root, "BTC-USD", rows)
+    pb.step(_lab("LONG"), root)
+    led = json.load(open(os.path.join(root, pb.LEDGER)))
+    assert "lab:BTC" in led["positions"] and led["positions"]["lab:BTC"]["sl"] is None
+    pb.step(_lab("FLAT"), root)                                 # signal goes flat -> exit order
+    rows.append(["2026-10-03 22:00:00+00:00", 100.5, 100.6, 100.4, 100.5, 0])
+    _write_bars(root, "BTC-USD", rows)
+    pb.step(_lab("FLAT"), root)
+    led = json.load(open(os.path.join(root, pb.LEDGER)))
+    t = [x for x in led["closed"] if x["strategy"] == "lab"][0]
+    assert t["reason"] == "EXIT" and t["exit"] == 100.5 and "lab:BTC" not in led["positions"]
+
+
+def test_lab_strategy_uses_its_own_stop_distance():
+    rows = _flat_rows(30)
+    root = _setup(rows)
+    pb.step(_lab("LONG", entry=100.0, sl=97.0, tp=106.0), root)
+    rows.append(["2026-10-02 06:00:00+00:00", 101.0, 101.2, 100.8, 101.0, 0])
+    _write_bars(root, "BTC-USD", rows)
+    pb.step(_lab("LONG", entry=100.0, sl=97.0, tp=106.0), root)
+    p = json.load(open(os.path.join(root, pb.LEDGER)))["positions"]["lab:BTC"]
+    assert abs(p["sl"] - 98.0) < 1e-9 and abs(p["tp"] - 107.0) < 1e-9

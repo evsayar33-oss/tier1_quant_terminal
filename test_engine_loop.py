@@ -19,3 +19,15 @@ def test_signal_is_tradeable_only_with_proof_and_open_gate():
     s = bot_loop.build_signals(st, now)["assets"]
     assert s["SPX"]["tradeable"] is False and s["NQ"]["tradeable"] is True and s["XAU"]["tradeable"] is False
     assert s["NQ"]["side"] == "SHORT"
+
+
+def test_proven_lab_strategy_makes_asset_tradeable():
+    now = datetime(2026, 10, 7, 13, 2, tzinfo=timezone.utc)
+    st = {"asset_verdicts": {"XAU": {"verdict": "NÖTR (BEKLE)", "learned_model_status": "NOT_PROVEN_ADVISORY"},
+                             "BTC": {"verdict": "NÖTR (BEKLE)", "learned_model_status": "NOT_PROVEN_ADVISORY"}}}
+    lab = {"XAU": {"side": "LONG", "proven": True, "sl": 1.0, "tp": 2.0},
+           "BTC": {"side": "LONG", "proven": False}}
+    s = bot_loop.build_signals(st, now, lab)["assets"]
+    assert s["XAU"]["tradeable"] and s["XAU"]["trade_side"] == "LONG" and s["XAU"]["trade_source"] == "lab"
+    assert not s["BTC"]["tradeable"] and s["BTC"]["trade_side"] == "FLAT"
+    assert s["BTC"]["lab"]["side"] == "LONG"            # unproven candidate still visible (paper only)

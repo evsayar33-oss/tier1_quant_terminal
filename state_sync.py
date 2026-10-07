@@ -41,6 +41,9 @@ STATE_FILES = [
     "signals.json",          # v3.8: bot contract
     "paper_ledger.json",     # v3.9: paper trading
     "paper_report.md",
+    "lab_playbook.json",     # v4.0: strategy lab (weekly research -> live candidate)
+    "lab_report.md",
+    "lab_results.json",
     "bot_status.json",       # v3.8: engine heartbeat
 ]
 STATE_DIRS = ["ohlcv_history"]
