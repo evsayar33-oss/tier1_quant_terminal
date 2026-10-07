@@ -102,3 +102,19 @@ def test_long_daily_history_path_b():
     res = L.research({"XAU": {"1h": h, "4h": L._resample_4h(h), "1d": d}}, source="test")
     r = res["assets"]["XAU"]
     assert r["path"] == "B" and r["best"]["cfg"]["tf"] == "1d" and r["proven"]
+
+
+def test_long_only_beta_in_bull_market_is_not_alpha():
+    """Strong drift, no predictability: long-only rules beat cash but not holding."""
+    h = _ohlc(17000, seed=31)
+    d = _ohlc(3650, freq="1D", seed=32, vol=0.012, drift=0.0012, end=str(h.index[-1].date()))
+    res = L.research({"SPX": {"1h": h, "4h": L._resample_4h(h), "1d": d}}, source="test")
+    r = res["assets"]["SPX"]
+    assert not r["proven"], (r["kind"], r["checks_b"], r["long"])
+
+
+def test_alpha_t_detects_excess_over_benchmark():
+    rng = np.random.default_rng(3)
+    b = rng.normal(0.0005, 0.01, 2000)
+    assert abs(L.alpha_t(0.8 * b + rng.normal(0, 0.005, 2000), b)[2]) < 2.5   # pure beta -> no alpha
+    assert L.alpha_t(0.5 * b + rng.normal(0.002, 0.005, 2000), b)[2] > 5

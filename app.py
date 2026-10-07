@@ -949,7 +949,17 @@ if stateful_diag:
     # v4.0: strategy research tables
     if os.path.exists("lab_report.md"):
         with st.expander("🧪 Strateji Laboratuvarı — test ve getiri tabloları", expanded=False):
-            st.markdown(open("lab_report.md", encoding="utf-8").read())
+            _lab_md = open("lab_report.md", encoding="utf-8").read()
+            _dc = st.columns(3)
+            _dc[0].download_button("⬇️ Rapor (.md)", _lab_md, file_name="lab_report.md", mime="text/markdown",
+                                   use_container_width=True)
+            if os.path.exists("lab_results.json"):
+                _dc[1].download_button("⬇️ Tüm sonuçlar (.json)", open("lab_results.json", encoding="utf-8").read(),
+                                       file_name="lab_results.json", mime="application/json", use_container_width=True)
+            if os.path.exists("paper_ledger.json"):
+                _dc[2].download_button("⬇️ Paper defter (.json)", open("paper_ledger.json", encoding="utf-8").read(),
+                                       file_name="paper_ledger.json", mime="application/json", use_container_width=True)
+            st.markdown(_lab_md)
     else:
         st.caption("🧪 Strateji Laboratuvarı henüz çalışmadı: Actions → 'Tier-1 Strategy Lab (strateji testi)' → Run workflow.")
 
@@ -1110,8 +1120,8 @@ except Exception:
 if not any(_lab_live.values()):
     try:   # before the engine's first v4.0 cycle: weekly playbook snapshot
         _pbk = json.load(open("lab_playbook.json", encoding="utf-8"))
-        _lab_live = {k: dict(v.get("signal") or {}, proven=v.get("proven"), strategy=v.get("label"))
-                     for k, v in (_pbk.get("assets") or {}).items()}
+        _lab_live = {k: dict(v.get("signal") or {}, proven=v.get("proven"), overlay=v.get("overlay"),
+                             strategy=v.get("label")) for k, v in (_pbk.get("assets") or {}).items()}
     except Exception:
         _lab_live = {}
 
@@ -1121,8 +1131,11 @@ def _lab_cell(k):
     if not lb:
         return "— (lab henüz çalışmadı)"
     side = {"LONG": "🟢 AL", "SHORT": "🔴 SAT"}.get(lb.get("side"), "⚪ POZİSYON YOK")
-    proof = "✅ KANITLI" if lb.get("proven") else "⚠️ aday · kanıtsız"
-    return f"{side} · {proof} · {lb.get('strategy', '')}"
+    proof = ("✅ KANITLI ALFA" if lb.get("proven") else
+             "🛡️ risk azaltıcı (alfa yok)" if lb.get("overlay") else "⚠️ aday · kanıtsız")
+    cons = {"LONG": " · 📈 trend kuralı: AL", "SHORT": " · 📈 trend kuralı: SAT",
+            "FLAT": " · 📈 trend kuralı: YOK"}.get(lb.get("consensus_side"), "")
+    return f"{side} · {proof} · {lb.get('strategy', '')}{cons}"
 
 
 for k in ASSET_MATRICES.keys():

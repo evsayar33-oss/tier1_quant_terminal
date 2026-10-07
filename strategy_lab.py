@@ -65,7 +65,12 @@ MIN_SELECT_TRADES = 15          # fewer trades in the window -> not eligible as 
 #  B) long daily history (>= 6 years), daily configs only: long walk-forward
 #     OOS t >= 2, >= 5/7 positive folds, DSR >= 0.90, >= 30 trades
 CRIT = {"wf_t": 2.0, "pos_folds": 3, "dsr": 0.90, "trades": 30,
-        "long_t": 2.0, "long_pos_folds": 5, "long_years": 6.0}
+        "long_t": 2.0, "long_pos_folds": 5, "long_years": 6.0,
+        # v4.1: beating cash is not enough -> the OOS result must also beat HOLDING the asset
+        "alpha_t": 2.0,
+        # ...otherwise, a rule with similar risk-adjusted return but much smaller drawdowns is
+        # reported as a "risk overlay" (useful for exposure management, NOT an edge)
+        "overlay_sharpe_ratio": 0.8, "overlay_dd_ratio": 0.6}
 
 FAMILY_TR = {"tsmom": "Momentum (zaman serisi)", "ema_trend": "EMA trend filtresi", "ema_cross": "EMA kesişimi",
              "donchian": "Donchian kırılımı", "boll_mr": "Bollinger ortalamaya dönüş",
@@ -327,6 +332,22 @@ def n_effective(R: np.ndarray) -> float:
     return float(max(1.0, ev.sum() ** 2 / (ev ** 2).sum()))
 
 
+def alpha_t(x: np.ndarray, b: np.ndarray) -> Tuple[float, float, float]:
+    """OLS x = alpha + beta*b. Returns (annualised alpha, beta, t-stat of alpha).
+    A long-only trend rule in a rising market beats CASH easily; the question
+    that matters is whether it beats simply HOLDING the asset."""
+    x, b = np.asarray(x, float), np.asarray(b, float)
+    n = len(x)
+    if n < 30 or b.std() == 0:
+        return 0.0, 0.0, 0.0
+    beta = float(np.cov(x, b, ddof=1)[0, 1] / b.var(ddof=1))
+    e = x - beta * b
+    a = e.mean()
+    resid = e - a
+    se = math.sqrt((resid ** 2).sum() / (n - 2)) * math.sqrt(1.0 / n + b.mean() ** 2 / ((b - b.mean()) ** 2).sum())
+    return float(a * 365), beta, float(a / se) if se > 0 else 0.0
+
+
 def t_stat(x: np.ndarray) -> float:
     x = np.asarray(x, dtype=float)
     sd = x.std(ddof=1) if len(x) > 2 else 0.0
@@ -432,7 +453,8 @@ def _wf(R: np.ndarray, E: np.ndarray, folds: int, min_tr: int = 5) -> dict:
     x = np.concatenate(oos) if oos else np.zeros(0)
     return {"sharpe": sharpe(x), "t": t_stat(x), "ret": float(math.exp(x.sum()) - 1) if len(x) else 0.0,
             "pos_folds": int(sum(1 for f in fold_ret if f > 0)), "n_folds": folds - 1,
-            "fold_ret": [round(math.exp(f) - 1, 4) for f in fold_ret], "picks": picks, "oos": x}
+            "fold_ret": [round(math.exp(f) - 1, 4) for f in fold_ret], "picks": picks, "oos": x,
+            "oos_start": int(edges[1])}
 
 
 def research(data: Dict[str, dict], now: Optional[datetime] = None, source: str = "yahoo") -> dict:
@@ -441,6 +463,7 @@ def research(data: Dict[str, dict], now: Optional[datetime] = None, source: str 
            "robust": [], "n_configs": 0}
     fam_rows = []
     robust: Dict[str, List[float]] = {}
+    robust_cfg: Dict[str, dict] = {}
     for a, frames in data.items():
         cost = COST[a]
         tfs = [tf for tf in ("1h", "4h", "1d") if tf in frames and frames[tf] is not None and len(frames[tf]) > 300]
@@ -492,16 +515,23 @@ def research(data: Dict[str, dict], now: Optional[datetime] = None, source: str 
             return _memo[i]
 
         ts_best = trade_stats(sims(best), _lo(best))
-        checks_a = {"wf_t": wf["t"] >= CRIT["wf_t"], "pos_folds": wf["pos_folds"] >= CRIT["pos_folds"],
-                    "dsr": dsr >= CRIT["dsr"], "trades": ts_best["trades"] >= CRIT["trades"]}
-        proven_a = all(checks_a.values())
         # buy & hold over the same window (daily grid, from the finest frame)
         fdf = frames[tfs[0]]
         bh_sim = {"r": np.concatenate([[0.0], np.diff(np.log(fdf["Close"].values))]),
                   "entries": np.zeros(len(fdf))}
         bh, _ = _daily(bh_sim, fdf, days)
+        bh_oos = bh[wf["oos_start"]:]
+        al_a, be_a, at_a = alpha_t(wf["oos"], bh_oos)
+        wf["alpha"], wf["beta"], wf["alpha_t"] = al_a, be_a, at_a
+        wf["maxdd"], wf["bh_sharpe"], wf["bh_maxdd"] = max_dd(wf["oos"]), sharpe(bh_oos), max_dd(bh_oos)
+        base_a = {"wf_t": wf["t"] >= CRIT["wf_t"], "pos_folds": wf["pos_folds"] >= CRIT["pos_folds"],
+                  "dsr": dsr >= CRIT["dsr"], "trades": ts_best["trades"] >= CRIT["trades"]}
+        checks_a = dict(base_a, alpha=at_a >= CRIT["alpha_t"])
+        proven_a = all(checks_a.values())
+        overlay_a = all(base_a.values()) and not proven_a and \
+            wf["sharpe"] >= CRIT["overlay_sharpe_ratio"] * wf["bh_sharpe"] and wf["maxdd"] <= CRIT["overlay_dd_ratio"] * wf["bh_maxdd"]
         # B) long daily history: an independent, much longer test for 1d configs
-        long, proven_b, checks_b, lbest = None, False, {}, None
+        long, proven_b, checks_b, lbest, overlay_b = None, False, {}, None, False
         if long_on and li:
             LR, LE = np.vstack(LR), np.vstack(LE)
             lsrs = np.array([sharpe(x) for x in LR])
@@ -514,21 +544,33 @@ def research(data: Dict[str, dict], now: Optional[datetime] = None, source: str 
             years = len(ldays) / 365.25
             bh_l = np.bincount(ldays.get_indexer(d1.index.normalize()),
                                weights=np.concatenate([[0.0], np.diff(np.log(d1["Close"].values))]), minlength=len(ldays))
-            checks_b = {"long_years": years >= CRIT["long_years"], "long_t": lwf["t"] >= CRIT["long_t"],
-                        "long_pos_folds": lwf["pos_folds"] >= CRIT["long_pos_folds"], "dsr": ldsr >= CRIT["dsr"],
-                        "trades": lts["trades"] >= CRIT["trades"]}
+            lbh_oos = bh_l[lwf["oos_start"]:]
+            al_b, be_b, at_b = alpha_t(lwf["oos"], lbh_oos)
+            l_dd, l_bh_sr, l_bh_dd = max_dd(lwf["oos"]), sharpe(lbh_oos), max_dd(lbh_oos)
+            base_b = {"long_years": years >= CRIT["long_years"], "long_t": lwf["t"] >= CRIT["long_t"],
+                      "long_pos_folds": lwf["pos_folds"] >= CRIT["long_pos_folds"], "dsr": ldsr >= CRIT["dsr"],
+                      "trades": lts["trades"] >= CRIT["trades"]}
+            checks_b = dict(base_b, alpha=at_b >= CRIT["alpha_t"])
             proven_b = all(checks_b.values())
+            overlay_b = all(base_b.values()) and not proven_b and \
+                lwf["sharpe"] >= CRIT["overlay_sharpe_ratio"] * l_bh_sr and l_dd <= CRIT["overlay_dd_ratio"] * l_bh_dd
             long = {"years": round(years, 1), "best_id": cfg_id(cfgs[lbest]), "best_label": cfg_label(cfgs[lbest]),
                     "sharpe": round(float(lsrs[k]), 2), "ret": round(float(math.exp(LR[k].sum()) - 1), 4),
                     "maxdd": round(max_dd(LR[k]), 4), "trades": lts["trades"], "win": lts["win"], "dsr": round(ldsr, 3),
                     "wf_sharpe": lwf["sharpe"], "wf_t": lwf["t"], "wf_ret": lwf["ret"], "wf_pos_folds": lwf["pos_folds"],
-                    "wf_folds": lwf["n_folds"], "bh_sharpe": sharpe(bh_l), "bh_ret": float(math.exp(bh_l.sum()) - 1)}
+                    "wf_folds": lwf["n_folds"], "bh_sharpe": sharpe(bh_l), "bh_ret": float(math.exp(bh_l.sum()) - 1),
+                    "wf_alpha": al_b, "wf_beta": be_b, "wf_alpha_t": at_b, "wf_maxdd": l_dd,
+                    "wf_bh_sharpe": l_bh_sr, "wf_bh_maxdd": l_bh_dd}
         if proven_a:
-            cand, path = best, "A"
+            cand, path, kind = best, "A", "alpha"
         elif proven_b:
-            cand, path = lbest, "B"
+            cand, path, kind = lbest, "B", "alpha"
+        elif overlay_a:
+            cand, path, kind = best, "A", "overlay"
+        elif overlay_b:
+            cand, path, kind = lbest, "B", "overlay"
         else:
-            cand, path = best, None
+            cand, path, kind = best, None, None
         c_best = cfgs[cand]
         tfdf = frames[c_best["tf"]]
         ts = trade_stats(sims(cand), _lo(cand))
@@ -548,10 +590,11 @@ def research(data: Dict[str, dict], now: Optional[datetime] = None, source: str 
                      "ret": round(float(math.exp(R[cand].sum()) - 1), 4), "maxdd": round(max_dd(R[cand]), 4),
                      "trades": ts["trades"], "win": ts["win"], "avg_trade": ts["avg_trade"],
                      "dsr": round(dsr if path != "B" else long["dsr"], 3)},
-            "wf": {k: v for k, v in wf.items() if k not in ("oos", "picks")},
+            "wf": {k: v for k, v in wf.items() if k not in ("oos", "picks", "oos_start")},
             "wf_picks": [cfg_id(cfgs[j]) if j is not None else None for j in wf["picks"]],
             "bh": {"sharpe": round(sharpe(bh), 2), "ret": round(float(math.exp(bh.sum()) - 1), 4), "maxdd": round(max_dd(bh), 4)},
-            "long": long, "checks_a": checks_a, "checks_b": checks_b, "path": path, "proven": path is not None,
+            "long": long, "checks_a": checks_a, "checks_b": checks_b, "path": path, "kind": kind,
+            "proven": kind == "alpha", "overlay": kind == "overlay",
             "signal": {"side": {1: "LONG", -1: "SHORT", 0: "FLAT"}[int(np.sign(st["side"]))],
                        "entry": st["entry"], "sl": st["sl"], "tp": st["tp"],
                        "as_of": str(tfdf.index[-1])},
@@ -570,6 +613,7 @@ def research(data: Dict[str, dict], now: Optional[datetime] = None, source: str 
         for i, c in enumerate(cfgs):
             if not c.get("stop"):
                 robust.setdefault(cfg_id(c), []).append(float(srs[i]))
+                robust_cfg[cfg_id(c)] = c
     fam_df = pd.DataFrame(fam_rows)
     if not fam_df.empty:
         g = fam_df.groupby(["tf", "fam"]).agg(best=("best", "mean"), median=("median", "mean"), wf=("wf", "mean"),
@@ -578,6 +622,11 @@ def research(data: Dict[str, dict], now: Optional[datetime] = None, source: str 
     rob = [{"id": k, "mean_sharpe": round(float(np.mean(v)), 2), "pos_assets": int(sum(x > 0 for x in v)),
             "n_assets": len(v)} for k, v in robust.items() if len(v) >= max(2, len(res["assets"]) - 1)]
     res["robust"] = sorted(rob, key=lambda r: (-r["pos_assets"], -r["mean_sharpe"]))[:12]
+    if res["robust"]:
+        top = res["robust"][0]
+        # one PRE-REGISTERED rule for every asset: chosen for consistency across assets,
+        # not per-asset fit -> the least over-fitted candidate; forward-tested in paper
+        res["consensus"] = dict(top, cfg=robust_cfg[top["id"]], label=cfg_label(robust_cfg[top["id"]]))
     return res
 
 
@@ -588,7 +637,9 @@ def playbook(res: dict) -> dict:
         b = r["best"]
         out["assets"][a] = {"cfg": b["cfg"], "id": b["id"], "label": b["label"], "proven": r["proven"], "path": r.get("path"),
                             "wf_sharpe": r["wf"]["sharpe"], "dsr": b["dsr"], "trades": b["trades"],
-                            "signal": r["signal"]}
+                            "signal": r["signal"], "kind": r.get("kind"), "overlay": bool(r.get("overlay"))}
+    if res.get("consensus"):
+        out["consensus"] = res["consensus"]
     return out
 
 
@@ -602,6 +653,11 @@ def live_signals(pb: dict, data: Optional[Dict[str, dict]] = None, now: Optional
             print(f"[lab] canlı veri yok ({exc}); haftalık sinyal kullanılıyor", flush=True)
             data = {}
     out = {}
+    cons = pb.get("consensus") or {}
+    ccfg = dict(cons.get("cfg") or {})
+    for k in ("p", "stop"):
+        if isinstance(ccfg.get(k), list):
+            ccfg[k] = tuple(ccfg[k])
     for a, p in (pb.get("assets") or {}).items():
         c = dict(p["cfg"])
         if isinstance(c.get("p"), list):
@@ -616,9 +672,16 @@ def live_signals(pb: dict, data: Optional[Dict[str, dict]] = None, now: Optional
             sig = {"side": {1: "LONG", -1: "SHORT", 0: "FLAT"}[int(np.sign(st["side"]))], "entry": st["entry"],
                    "sl": st["sl"], "tp": st["tp"], "as_of": str(df.index[-1])}
             fresh = True
+        c_side = None
+        if ccfg:
+            cdf = (data.get(a) or {}).get(ccfg.get("tf"))
+            if cdf is not None and len(cdf) > 50:
+                c_side = {1: "LONG", -1: "SHORT", 0: "FLAT"}[int(np.sign(simulate(ccfg, cdf, COST[a])["state"]["side"]))]
         out[a] = {"side": sig.get("side", "FLAT"), "sl": sig.get("sl"), "tp": sig.get("tp"), "entry": sig.get("entry"),
                   "as_of": sig.get("as_of"), "fresh": fresh, "strategy": p["label"], "id": p["id"],
-                  "proven": bool(p["proven"]), "wf_sharpe": p["wf_sharpe"], "dsr": p["dsr"], "tf": c["tf"]}
+                  "proven": bool(p["proven"]), "overlay": bool(p.get("overlay")), "kind": p.get("kind"),
+                  "wf_sharpe": p["wf_sharpe"], "dsr": p["dsr"], "tf": c["tf"],
+                  "consensus_side": c_side, "consensus": cons.get("label")}
     return out
 
 
@@ -642,22 +705,34 @@ def report_md(res: dict) -> str:
           "Deflated Sharpe ≥ 0.90 · ≥ 30 işlem", "",
           "## 1) Varlık bazında özet", "",
           "| Varlık | Aday strateji | Sharpe | Getiri | Maks. DD | İşlem | Kazanma | WF-OOS Sharpe (t) | + dilim | DSR | "
-          "Uzun dönem 1g: WF Sharpe (t) · + dilim | Al-tut Sharpe / getiri | Durum | Şu anki sinyal |",
-          "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+          "Al-tut'a karşı alfa t (730g) | Uzun dönem 1g: WF Sharpe (t) · + dilim | Uzun dönem alfa t · DD / al-tut DD | "
+          "Al-tut Sharpe / getiri | Durum | Şu anki sinyal |",
+          "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for a, r in res["assets"].items():
         b, w, bh, lg = r["best"], r["wf"], r["bh"], r.get("long")
-        state = {"A": "✅ KANITLI (A)", "B": "✅ KANITLI (B)"}.get(r.get("path"), "❌ kanıt yok")
+        kind, pth = r.get("kind"), r.get("path")
+        state = (f"✅ KANITLI ALFA ({pth})" if kind == "alpha" else
+                 f"🛡️ RİSK AZALTICI ({pth}) — alfa yok" if kind == "overlay" else "❌ kanıt yok")
         sg = r["signal"]
         sig = {"LONG": "🟢 AL", "SHORT": "🔴 SAT", "FLAT": "⚪ POZİSYON YOK"}[sg["side"]]
         win = "—" if b["win"] is None else f"%{b['win'] * 100:.0f}"
         lgs = "—" if not lg else f"{lg['wf_sharpe']:.2f} ({lg['wf_t']:+.1f}) · {lg['wf_pos_folds']}/{lg['wf_folds']} · {lg['years']} yıl"
+        lga = "—" if not lg else f"{lg['wf_alpha_t']:+.1f} · {_pct(-lg['wf_maxdd'], 0)} / {_pct(-lg['wf_bh_maxdd'], 0)}"
         L.append(f"| {a} | {b['label']} | {b['sharpe']:.2f} | {_pct(b['ret'])} | {_pct(-b['maxdd'])} | {b['trades']} | "
-                 f"{win} | {w['sharpe']:.2f} ({w['t']:+.1f}) | {w['pos_folds']}/{w['n_folds']} | {b['dsr']:.2f} | {lgs} | "
+                 f"{win} | {w['sharpe']:.2f} ({w['t']:+.1f}) | {w['pos_folds']}/{w['n_folds']} | {b['dsr']:.2f} | "
+                 f"{w['alpha_t']:+.1f} | {lgs} | {lga} | "
                  f"{bh['sharpe']:.2f} / {_pct(bh['ret'])} | {state} | {sig} |")
     L += ["", "_Sharpe/getiri/DD/işlem: adayın son 730 gündeki net sonucu. WF-OOS: her dilimde YALNIZCA geçmişte en iyi "
           "olanı seçip bir sonraki dilimde ölçen prosedürün dışı-örneklem sonucu — yüzlerce aday arasından seçim yapmanın "
           "bedeli dahildir; t ≥ 2 istatistiksel anlamlılık eşiğidir. DSR: etkin deneme sayısına göre düzeltilmiş "
-          "'gerçek Sharpe > 0' olasılığı._", ""]
+          "'gerçek Sharpe > 0' olasılığı. **Alfa t:** dışı-örneklem getirinin al-tut'a göre fazlası (beta ayrıştırılmış); "
+          "≥ 2 olmadan strateji 'al ve tut'tan daha iyi' sayılmaz. 🛡️ Risk azaltıcı = al-tut'a yakın risk/getiri, "
+          "belirgin şekilde daha küçük düşüş (pozisyon büyüklüğü/koruma için; tek başına kazanç avantajı değil)._", ""]
+    cons = res.get("consensus")
+    if cons:
+        L += [f"**📈 Tüm varlıklarda en tutarlı tek kural:** {cons['label']} — ortalama Sharpe {cons['mean_sharpe']:.2f}, "
+              f"{cons['pos_assets']}/{cons['n_assets']} varlıkta pozitif. Varlık başına ayar yapılmadığı için aşırı uyuma "
+              f"en az açık aday budur; paper defterde ayrıca ileriye dönük sınanır.", ""]
     L += ["## 2) Strateji aileleri (6 varlık ortalaması)", "",
           "| Zaman dilimi | Aile | En iyi Sharpe | Medyan Sharpe | WF-OOS Sharpe | WF pozitif varlık |", "|---|---|---|---|---|---|"]
     for f in res["families"]:

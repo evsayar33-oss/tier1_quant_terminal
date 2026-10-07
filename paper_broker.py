@@ -35,8 +35,8 @@ import pandas as pd
 
 LEDGER = "paper_ledger.json"
 REPORT = "paper_report.md"
-STRATEGIES = ("gate", "model", "short_term", "lab")
-SIGNAL_EXIT = {"lab"}             # these exit when their signal goes FLAT and have no time stop
+STRATEGIES = ("gate", "model", "short_term", "lab", "trend")
+SIGNAL_EXIT = {"lab", "trend"}             # these exit when their signal goes FLAT and have no time stop
 SL_ATR, TP_ATR = 1.5, 2.5          # provisional; Aşama 4 learns them
 MAX_HOLD_H = 24
 STALE_FILL_H = 3                   # cancel an order if the market had no bar this soon after the signal
@@ -73,6 +73,8 @@ def _atr(d: pd.DataFrame, upto_idx: int, n: int = 14) -> Optional[float]:
 def side_for(strategy: str, a: dict) -> str:
     if strategy == "lab":
         return str((a.get("lab") or {}).get("side") or "FLAT")
+    if strategy == "trend":    # v4.1: the single cross-asset consensus rule (pre-registered)
+        return str((a.get("lab") or {}).get("consensus_side") or "FLAT")
     if strategy == "short_term":
         txt = str(a.get("short_term") or "")
         return "LONG" if "🟢" in txt else ("SHORT" if "🔴" in txt else "FLAT")
@@ -235,7 +237,7 @@ def scorecard(led: dict) -> dict:
 
 
 NAMES = {"gate": "Model + giriş kapısı", "model": "Sadece model yönü", "short_term": "Kısa Vade Yön (1-4s)",
-         "lab": "🧪 Strateji Lab adayı"}
+         "lab": "🧪 Strateji Lab adayı", "trend": "📈 Tutarlı trend kuralı (tüm varlıklar)"}
 
 
 def report_md(led: dict, sc: dict) -> str:

@@ -141,3 +141,12 @@ def test_lab_strategy_uses_its_own_stop_distance():
     pb.step(_lab("LONG", entry=100.0, sl=97.0, tp=106.0), root)
     p = json.load(open(os.path.join(root, pb.LEDGER)))["positions"]["lab:BTC"]
     assert abs(p["sl"] - 98.0) < 1e-9 and abs(p["tp"] - 107.0) < 1e-9
+
+
+def test_consensus_trend_strategy_trades_from_lab_block():
+    rows = _flat_rows(30)
+    root = _setup(rows)
+    sig = {"assets": {"BTC": {"side": "FLAT", "short_term": "⚪", "lab": {"side": "FLAT", "consensus_side": "LONG"}}}}
+    pb.step(sig, root)
+    led = json.load(open(os.path.join(root, pb.LEDGER)))
+    assert "trend:BTC" in led["orders"] and "lab:BTC" not in led["orders"]
