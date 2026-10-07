@@ -60,7 +60,18 @@ jobs:
           done
           echo "lab push başarısız" && exit 1
 
-      - name: Show the summary in the run page
+      - name: Show the FULL report in the run page
         if: always()
         run: |
-          if [ -f lab_out/lab_report.md ]; then head -40 lab_out/lab_report.md >> "$GITHUB_STEP_SUMMARY"; fi
+          if [ -f lab_out/lab_report.md ]; then cat lab_out/lab_report.md >> "$GITHUB_STEP_SUMMARY"; fi
+
+      - name: Downloadable result files (run page -> Artifacts -> strategy-lab-results)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: strategy-lab-results
+          path: |
+            lab_out/lab_report.md
+            lab_out/lab_results.json
+            lab_out/lab_playbook.json
+          retention-days: 30
