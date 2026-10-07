@@ -3,7 +3,9 @@ name: Tier-1 Engine Loop (sürekli motor)
 # v3.8 Aşama 2: one long job runs the production cycle 90 s after EVERY
 # hourly bar closes, for ~5h40m. The hourly schedule queues the next job
 # (concurrency, no cancel), so when one ends the next starts -> continuous.
-# Same concurrency group as the manual tracker -> a single writer of state.
+# Same concurrency group as the manual restart workflow -> a single writer of state.
+# A queued ("Queued"/"Pending") run in the list is NORMAL: it is the next job
+# waiting for the current one to finish.
 
 on:
   schedule:
@@ -31,6 +33,8 @@ jobs:
         run: |
           if git fetch --depth 1 origin state 2>/dev/null; then git archive FETCH_HEAD | tar -x; echo "state geri yüklendi"; fi
           if git fetch --depth 1 origin reports 2>/dev/null; then git archive FETCH_HEAD validation_reports | tar -x || true; fi
+          # v4.0: newest weekly Strategy Lab results (overrides the copy inside the state bundle)
+          if git fetch --depth 1 origin lab 2>/dev/null; then git archive FETCH_HEAD | tar -x; echo "lab sonuçları alındı"; fi
           rm -f state_bundle.tar.gz
 
       - name: Python 3.11

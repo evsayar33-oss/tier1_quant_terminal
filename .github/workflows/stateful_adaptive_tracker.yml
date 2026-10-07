@@ -1,25 +1,33 @@
-name: Tier-1 Stateful Adaptive Quant Tracker v3.7
+name: Tier-1 Motoru Şimdi Yeniden Başlat (manuel)
 
-# v3.7: state lives on the `state` branch (ONE commit, force-pushed every run)
-# instead of a new commit on `main` every 30 min. `main` = code only, so the
-# repository no longer grows and Streamlit no longer reloads 16x a day.
+# v4.0: replaces the old "Stateful Adaptive Quant Tracker". The engine loop
+# already runs that exact tracker cycle every hour, so a separate manual
+# tracker only ever waited in the queue behind it (the reported problem).
+# v3.8 Aşama 2: one long job runs the production cycle 90 s after EVERY
+# hourly bar closes, for ~5h40m. The hourly schedule queues the next job
+# (concurrency, no cancel), so when one ends the next starts -> continuous.
+# Same concurrency group as the manual restart workflow -> a single writer of state.
+# A queued ("Queued"/"Pending") run in the list is NORMAL: it is the next job
+# waiting for the current one to finish.
 
-# v3.8: the schedule moved to tier1_engine_loop.yml (continuous engine).
-# This workflow stays as a MANUAL fallback (Run workflow).
 on:
   workflow_dispatch:
 
+# cancel-in-progress: TRUE -> this run does NOT wait in the queue: it stops the
+# running engine job (its last hourly cycle is already published) and starts
+# a fresh engine immediately with the newest code. The hourly schedule of
+# "Tier-1 Engine Loop" then continues behind it as usual.
 concurrency:
   group: tier1-quant-stateful-adaptive
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: write
 
 jobs:
-  stateful-track:
+  restart-engine:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 355
     steps:
       - name: Repository Checkout (code)
         uses: actions/checkout@v6
@@ -28,17 +36,10 @@ jobs:
 
       - name: Restore published state + learned model
         run: |
-          # First run: the branches do not exist yet -> the seed files in main are used.
-          if git fetch --depth 1 origin state 2>/dev/null; then
-            git archive FETCH_HEAD | tar -x
-            echo "state dalı geri yüklendi"
-          else
-            echo "state dalı yok: main içindeki başlangıç dosyaları kullanılıyor"
-          fi
-          if git fetch --depth 1 origin reports 2>/dev/null; then
-            git archive FETCH_HEAD validation_reports | tar -x || true
-            echo "reports dalından öğrenilmiş model alındı"
-          fi
+          if git fetch --depth 1 origin state 2>/dev/null; then git archive FETCH_HEAD | tar -x; echo "state geri yüklendi"; fi
+          if git fetch --depth 1 origin reports 2>/dev/null; then git archive FETCH_HEAD validation_reports | tar -x || true; fi
+          # v4.0: newest weekly Strategy Lab results (overrides the copy inside the state bundle)
+          if git fetch --depth 1 origin lab 2>/dev/null; then git archive FETCH_HEAD | tar -x; echo "lab sonuçları alındı"; fi
           rm -f state_bundle.tar.gz
 
       - name: Python 3.11
@@ -52,39 +53,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Stateful Adaptive Cycle
+      - name: Engine loop
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
-        run: python stateful_background_tracker.py
-
-      - name: Cap growing files + build bundle
-        run: |
-          python state_sync.py prune
-          python state_sync.py bundle
-
-      - name: Publish to the state branch (single commit, no history growth)
-        env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          OUT="$RUNNER_TEMP/state_pub"
-          rm -rf "$OUT" && mkdir -p "$OUT"
-          for f in state_bundle.tar.gz terminal_state.json stateful_adaptive_memory.json \
-                   adaptive_regime_thresholds_state.json data_freshness_state.json \
-                   timeframe_confluence_state.json performance_ledger.json performance_report.md \
-                   terminal_history_stateful.csv ohlcv_history state_backups; do
-            if [ -e "$f" ]; then cp -r "$f" "$OUT/"; fi
-          done
-          cd "$OUT"
-          git init -q
-          git checkout -q -b state
-          git config user.email "quantbot@github.com"
-          git config user.name "QuantBot Tier-1"
-          git add -A
-          git commit -q -m "🤖 state $(date -u +%Y-%m-%dT%H:%MZ)"
-          for i in 1 2 3; do
-            git push -q -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" state && exit 0
-            sleep 5
-          done
-          echo "state push başarısız" && exit 1
+        run: python bot_loop.py --max-minutes 340
