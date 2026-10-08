@@ -1,0 +1,71 @@
+name: Tier-1 Karma Lab v13 (karma portföy + uç VIX katmanı)
+
+# v13.0: karma portfolio (risk parity SPX/NQ/gold/silver + crypto L/S ensemble) with and without
+# the extreme-VIX equity boost; 24 pre-registered overlay variants, all reported.
+# RESULTS: run page -> Summary, Artifacts -> karma-lab-results, `karmalab` branch.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: tier1-karma-lab
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  lab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+      - name: Crypto panel (xsdata branch)
+        run: |
+          mkdir -p xs_data
+          git fetch --depth 1 origin xsdata && git archive FETCH_HEAD | tar -x -C xs_data || echo "xsdata yok"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt numba "scikit-learn>=1.5"
+      - name: Download data (Yahoo 1990-today + FRED, point-in-time)
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: python shock_data.py --out shock_data
+      - name: Karma portfolio + overlay test
+        run: python karma_lab.py --data shock_data --xs xs_data/xs_panel.csv.gz --out karma_out
+      - name: Report on the run page
+        if: always()
+        run: |
+          {
+            echo "## ⬇️ Sonuç dosyaları"
+            echo ""
+            echo "- **Tek tıkla hepsi (zip):** https://github.com/${GITHUB_REPOSITORY}/archive/refs/heads/karmalab.zip"
+            echo "- Bu sayfanın en altında **Artifacts → karma-lab-results**"
+            echo ""
+            if [ -f karma_out/karma_report.md ]; then head -c 900000 karma_out/shock_report.md; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: karma-lab-results
+          path: |
+            karma_out/
+            shock_data/
+          retention-days: 30
+      - name: Publish to the karmalab branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          true
+          cd karma_out
+          git init -q && git checkout -q -b karmalab
+          git config user.email "quantbot@github.com" && git config user.name "QuantBot Tier-1"
+          git add -A && git commit -q -m "🧯 shock lab $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -q -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" karmalab
