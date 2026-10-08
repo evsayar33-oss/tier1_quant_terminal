@@ -1,0 +1,69 @@
+name: Tier-1 Shock Lab (S&P / Nasdaq panikleri, 1990-bugün)
+
+# v12.0: every shock definition x entry timing x exit (TP/SL, trailing, time,
+# VIX, trend) x technical/fundamental filter (alone and in pairs) on the
+# S&P 500 and Nasdaq-100 since 1990, free data (Yahoo + FRED), selection on
+# 1990-2016 and a sealed exam from 2017. ML gate, leverage/financing, intraday.
+# RESULTS: run page -> Summary, Artifacts -> shock-lab-results, `shocklab` branch.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: tier1-shock-lab
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  lab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt numba scikit-learn
+      - name: Download data (Yahoo 1990-today + FRED, point-in-time)
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: python shock_data.py --out shock_data
+      - name: Shock research (sealed exam from 2017)
+        run: python shock_lab.py --data shock_data --out shock_out
+      - name: Report on the run page
+        if: always()
+        run: |
+          {
+            echo "## ⬇️ Sonuç dosyaları"
+            echo ""
+            echo "- **Tek tıkla hepsi (zip):** https://github.com/${GITHUB_REPOSITORY}/archive/refs/heads/shocklab.zip"
+            echo "- Bu sayfanın en altında **Artifacts → shock-lab-results**"
+            echo ""
+            if [ -f shock_out/shock_report.md ]; then head -c 900000 shock_out/shock_report.md; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: shock-lab-results
+          path: |
+            shock_out/
+            shock_data/
+          retention-days: 30
+      - name: Publish to the shocklab branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cp -r shock_data shock_out/data
+          cd shock_out
+          git init -q && git checkout -q -b shocklab
+          git config user.email "quantbot@github.com" && git config user.name "QuantBot Tier-1"
+          git add -A && git commit -q -m "🧯 shock lab $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -q -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" shocklab
