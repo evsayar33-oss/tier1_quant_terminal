@@ -158,7 +158,93 @@ def features(px: Dict[str, pd.DataFrame], fred, asset: str) -> pd.DataFrame:
     cpi = _asof(fred, "CPIAUCSL", cal)
     F["cpi_yoy"] = cpi / cpi.shift(252) - 1
     F["tbill"] = _asof(fred, "DGS3MO", cal) / 100.0
+    # ---- v12.1 DYNAMIC (self-relative) measures: each value is ranked only against ITS OWN PAST
+    dvol = np.log(c / c.shift()).rolling(60, min_periods=40).std().shift(1)        # yesterday's known daily vol
+    F["ret1_sig"] = F["ret1"] / dvol                                                 # today's move in sigma units
+    F["ret5_sig"] = F["ret5"] / (dvol * math.sqrt(5))
+    F["dd52_sig"] = F["dd52"] / (dvol * math.sqrt(252))                              # drawdown in annual-vol units
+    F["vix_pct3y"] = _rpct(vix, 756)                                                 # VIX vs its last 3 years
+    F["vix_pct1y"] = _rpct(vix, 252)
+    F["vix_ma200"] = vix / vix.rolling(200, min_periods=120).mean()
+    F["vvix_pct3y"] = _rpct(F["vvix"], 756)
+    F["hy_chg20_pct"] = _rpct(F["hy_chg20"], 1260)
+    F["y10_chg20_pct"] = _rpct(F["y10_chg20"], 1260)
+    F["oil_chg20_pct"] = _rpct(F["oil_chg20"], 1260)
+    F["breakeven_xpct"] = _xpct(be)                                                  # expanding: all history known so far
+    F["hy_xpct"] = _xpct(hy)
+    F["claims_xpct"] = _xpct(F["claims_ratio"])
+    F["realy_xpct"] = _xpct(ry)
+    F["cpi_xpct"] = _xpct(F["cpi_yoy"])
+    F["nfci_xpct"] = _xpct(F["nfci"])
     return F
+
+
+def _rpct(x: pd.Series, n: int) -> pd.Series:
+    """Percentile of today's value inside its own trailing n-day window (today included, future never)."""
+    return x.rolling(n, min_periods=n // 3).rank(pct=True)
+
+
+def _xpct(x: pd.Series, min_n: int = 500) -> pd.Series:
+    """Percentile of today's value among ALL values known up to today (expanding window)."""
+    v = x.values.astype(float)
+    out = np.full(len(v), np.nan)
+    hist = []
+    import bisect
+    for i, z in enumerate(v):
+        if not np.isfinite(z):
+            continue
+        bisect.insort(hist, z)
+        if len(hist) >= min_n:
+            out[i] = bisect.bisect_right(hist, z) / len(hist)
+    return pd.Series(out, index=x.index).ffill(limit=5)
+
+
+WF_FAMILIES = {   # candidate thresholds, chosen anew each January using ONLY trades already closed
+    "VIX 3y yüzdeliği": ("vix_pct3y", (0.90, 0.95, 0.98, 0.99), True),
+    "günlük düşüş σ": ("ret1_sig", (-2.0, -2.5, -3.0, -4.0), False),
+    "zirveden düşüş (yıllık-σ)": ("dd52_sig", (-0.5, -0.75, -1.0, -1.5), False),
+}
+WF_H = 40
+
+
+def wf_shocks(F: pd.DataFrame) -> Dict[str, np.ndarray]:
+    """Walk-forward thresholds: the RULE for picking a threshold is tested, not a threshold."""
+    px = (1 + F["ret1"].fillna(0)).cumprod().values
+    fwd = np.r_[px[WF_H:] / px[:-WF_H] - 1, np.full(WF_H, np.nan)]
+    yrs = F.index.year.values
+    out = {}
+    for name, (col, grid, up) in WF_FAMILIES.items():
+        x = F[col].values
+        trig = {}
+        for t in grid:
+            m = (x > t) if up else (x < t)
+            m = np.nan_to_num(m.astype(float)).astype(bool)
+            trig[t] = decluster(m)
+        mask = np.zeros(len(F), bool)
+        chosen = {}
+        for y in sorted(set(yrs)):
+            idx = np.where(yrs == y)[0]
+            y0 = idx[0]
+            best, bs = None, -np.inf
+            for t, ev in trig.items():
+                done = ev[ev + WF_H < y0]                      # trade fully closed before this year starts
+                if len(done) < 8:
+                    continue
+                sc = np.nanmean(fwd[done]) / (np.nanstd(fwd[done]) + 0.02) * math.sqrt(len(done))
+                if sc > bs:
+                    best, bs = t, sc
+            if best is None:
+                continue
+            chosen[int(y)] = best
+            ev = trig[best]
+            ev = ev[(ev >= idx[0]) & (ev <= idx[-1])]
+            mask[ev] = True
+        out[f"[WF] {name} — eşik her yıl yeniden seçilir"] = mask
+        WF_CHOICES[name] = chosen
+    return out
+
+
+WF_CHOICES: Dict[str, dict] = {}
 
 
 # ================================================================= shocks / entries / exits / filters
@@ -193,8 +279,32 @@ def shocks(F: pd.DataFrame) -> Dict[str, np.ndarray]:
     S["petrol şoku (20g +%25)"] = F.oil_chg20 > 0.25
     S["finansal stres (STLFSI>1)"] = cross(F.stlfsi, 1.0)
     S["finansal koşullar sıkı (NFCI>0)"] = cross(F.nfci, 0.0)
+    if "vix_pct3y" in F:                                   # ---- v12.1 dynamic family, prefixed [D]
+        for q in (0.90, 0.95, 0.98, 0.99):
+            S[f"[D] VIX son 3 yılın %{int(q * 100)} yüzdeliği üstüne çıktı"] = cross(F.vix_pct3y, q)
+        for q in (0.95, 0.99):
+            S[f"[D] VIX son 1 yılın %{int(q * 100)} yüzdeliği üstüne çıktı"] = cross(F.vix_pct1y, q)
+        for k in (1.5, 1.8, 2.2):
+            S[f"[D] VIX 200g ortalamasının {k}x üstü"] = cross(F.vix_ma200, k)
+        S["[D] VVIX son 3 yılın %98 yüzdeliği"] = cross(F.vvix_pct3y, 0.98)
+        for k in (2.0, 2.5, 3.0, 4.0):
+            S[f"[D] günlük düşüş −{k}σ (60g oynaklığa göre)"] = F.ret1_sig <= -k
+        for k in (2.0, 3.0):
+            S[f"[D] 5 günlük düşüş −{k}σ"] = F.ret5_sig <= -k
+        for k in (0.5, 0.75, 1.0, 1.5):
+            S[f"[D] zirveden düşüş −{k} yıllık σ"] = cross(F.dd52_sig, -k, up=False)
+        S["[D] kredi spread artışı 5y'nin %98 yüzdeliği"] = cross(F.hy_chg20_pct, 0.98)
+        S["[D] faiz artışı 5y'nin %98 yüzdeliği"] = cross(F.y10_chg20_pct, 0.98)
+        S["[D] petrol artışı 5y'nin %98 yüzdeliği"] = cross(F.oil_chg20_pct, 0.98)
+        S["[D] kredi spreadi tüm tarihin %90 yüzdeliği"] = cross(F.hy_xpct, 0.90)
     out = {k: v.fillna(False).values for k, v in S.items()}
-    out["HERHANGİ bir panik (birleşim)"] = np.any(np.vstack([out[k] for k in out if not k.startswith(("faiz", "reel", "dolar", "petrol", "finansal koşullar"))]), axis=0)
+    base = [k for k in out if not k.startswith(("faiz", "reel", "dolar", "petrol", "finansal koşullar", "[D]"))]
+    out["HERHANGİ bir panik (birleşim)"] = np.any(np.vstack([out[k] for k in base]), axis=0)
+    dyn = [k for k in out if k.startswith("[D]") and not any(w in k for w in ("faiz", "petrol"))]
+    if dyn:
+        out["[D] HERHANGİ bir dinamik panik (birleşim)"] = np.any(np.vstack([out[k] for k in dyn]), axis=0)
+    if "vix_pct3y" in F:
+        out.update(wf_shocks(F))
     return out
 
 
@@ -324,6 +434,17 @@ def filters(F: pd.DataFrame) -> Dict[str, np.ndarray]:
         "dolar sakin": F.dxy_z20.abs() < 1.5, "petrol sakin": F.oil_chg20.abs() < 0.2,
         "enflasyon (TÜFE yıllık) < %3": F.cpi_yoy < 0.03, "enflasyon (TÜFE yıllık) ≥ %3": F.cpi_yoy >= 0.03,
     }
+    if "breakeven_xpct" in F:                       # ---- v12.1 dynamic filters: rank vs own history so far
+        G.update({
+            "[D] enflasyon beklentisi tarihin alt yarısı": F.breakeven_xpct < 0.5, "[D] enflasyon beklentisi tarihin üst %30'u": F.breakeven_xpct >= 0.7,
+            "[D] kredi spreadi tarihin alt yarısı": F.hy_xpct < 0.5, "[D] kredi spreadi tarihin üst %20'si": F.hy_xpct >= 0.8,
+            "[D] işsizlik başvuru artışı tarihin alt %70'i": F.claims_xpct < 0.7, "[D] işsizlik başvuru artışı tarihin üst %30'u": F.claims_xpct >= 0.7,
+            "[D] reel faiz tarihin alt yarısı": F.realy_xpct < 0.5, "[D] reel faiz tarihin üst yarısı": F.realy_xpct >= 0.5,
+            "[D] TÜFE tarihin alt yarısı": F.cpi_xpct < 0.5, "[D] TÜFE tarihin üst %30'u": F.cpi_xpct >= 0.7,
+            "[D] NFCI tarihin alt yarısı": F.nfci_xpct < 0.5,
+            "[D] VIX son 3 yılın %98 üstü": F.vix_pct3y >= 0.98, "[D] VIX son 3 yılın %90 altı": F.vix_pct3y < 0.90,
+            "[D] zirveden −1 yıllık σ'dan derin": F.dd52_sig <= -1.0,
+        })
     return {k: v.fillna(False).values.astype(bool) for k, v in G.items()}
 
 
@@ -475,6 +596,33 @@ def analyse(asset, T, store, F, P, G, xspecs, ex_i, ev_count, hourly) -> dict:
     if len(C2):
         out["chosen_nofilter"] = _rowdict(C2.iloc[0])
     out["n_tests"] = int(len(T))
+    # v12.1: fixed vs dynamic vs walk-forward thresholds, side by side
+    if len(T):
+        D = T[T.tek_filtre & (T.n_sınav >= 3)].copy()
+        D["eşik_türü"] = np.where(D.şok.str.startswith("[WF]"), "walk-forward (her yıl yeniden seçilen)",
+                          np.where(D.şok.str.startswith("[D]"), "dinamik (kendi geçmişine göre)", "sabit"))
+        D["filtre_türü"] = np.where(D.filtre == "(filtresiz)", "filtresiz",
+                            np.where(D.filtre.str.startswith("[D]"), "dinamik filtre", "sabit filtre"))
+        agg = dict(kural=("ort_eğitim", "size"), eğitim=("ort_eğitim", "mean"), sınav=("ort_sınav", "mean"),
+                   fazla_eğitim=("fazla_eğitim", "mean"), fazla_sınav=("fazla_sınav", "mean"),
+                   sınav_pozitif=("fazla_sınav", lambda x: float((x > 0).mean())),
+                   bozulma=("fazla_sınav", "size"))
+        cmp_ = []
+        for col in ("eşik_türü", "filtre_türü"):
+            g = D.groupby(col).agg(**agg).reset_index().rename(columns={col: "grup"})
+            # decay: how much of the train excess survives in the exam (1 = fully, <0 = reversed)
+            g["bozulma"] = g.fazla_sınav / g.fazla_eğitim.where(g.fazla_eğitim.abs() > 1e-4)
+            g["boyut"] = col
+            cmp_ += g.round(4).to_dict("records")
+        out["fixed_vs_dynamic"] = cmp_
+        sel = {}
+        for lab, m in (("sabit", ~T.şok.str.startswith(("[D]", "[WF]"))), ("dinamik", T.şok.str.startswith("[D]")),
+                       ("walk-forward", T.şok.str.startswith("[WF]"))):
+            Cx = T[m & (T.n_eğitim >= 20) & (T.filtre == "(filtresiz)")].sort_values("t_eğitim", ascending=False)
+            if len(Cx):
+                sel[lab] = _rowdict(Cx.iloc[0])
+        out["best_by_threshold_type"] = sel
+    out["wf_choices"] = {k: v for k, v in WF_CHOICES.items()}
     # pre-registered hypothesis: low vs high inflation expectations (found on 2016-26) on unseen 2003-2016 data
     hyp = []
     for (sname, emode), (ev, en, R, HD) in store.items():
@@ -496,7 +644,11 @@ def analyse(asset, T, store, F, P, G, xspecs, ex_i, ev_count, hourly) -> dict:
     out["portfolio"] = portfolio(asset, out.get("chosen"), store, F, P, G, xspecs)
     out["portfolio_nofilter"] = portfolio(asset, out.get("chosen_nofilter"), store, F, P, G, xspecs)
     out["ml_gate"] = ml_gate(out.get("chosen_nofilter"), store, F, P, xspecs, ex_i)
-    out["intraday"] = intraday(asset, hourly, F, P)
+    try:
+        out["intraday"] = intraday(asset, hourly, F, P)
+    except Exception as e:
+        print(f"[shock] gün içi bölüm atlandı: {e}", flush=True)
+        out["intraday"] = None
     return out
 
 
@@ -544,7 +696,32 @@ def portfolio(asset, ch, store, F, P, G, xspecs) -> Optional[dict]:
     return out
 
 
+def _gb_fit_predict(Xa, ya, Xb):
+    """Fit on columns that actually carry information in THIS training slice (newer scikit-learn
+    versions crash when binning a column that is all-NaN / has <2 distinct values)."""
+    from sklearn.ensemble import HistGradientBoostingRegressor
+    ok = []
+    for j in range(Xa.shape[1]):
+        v = Xa[:, j][np.isfinite(Xa[:, j])]
+        ok.append(len(v) >= 10 and len(np.unique(v)) >= 3)
+    ok = np.array(ok)
+    yy = np.nan_to_num(ya)
+    if ok.sum() == 0:
+        return np.full(len(Xb), float(np.mean(yy)))
+    m = HistGradientBoostingRegressor(max_depth=2, max_iter=150, learning_rate=0.05, min_samples_leaf=5)
+    m.fit(Xa[:, ok], yy)
+    return m.predict(Xb[:, ok])
+
+
 def ml_gate(ch, store, F, P, xspecs, ex_i) -> Optional[dict]:
+    try:
+        return _ml_gate(ch, store, F, P, xspecs, ex_i)
+    except Exception as e:                       # a broken optional section must never kill the whole run
+        print(f"[shock] ML kapısı atlandı: {type(e).__name__}: {e}", flush=True)
+        return None
+
+
+def _ml_gate(ch, store, F, P, xspecs, ex_i) -> Optional[dict]:
     """Gradient boosting on the event-day state decides which events of the chosen
     (unfiltered) rule to take. Yearly walk-forward in training, trained once for the exam."""
     if not ch:
@@ -556,7 +733,7 @@ def ml_gate(ch, store, F, P, xspecs, ex_i) -> Optional[dict]:
     ev, en, R, HD = store[(ch["şok"], ch["giriş"])]
     xi = [i for i, x in enumerate(xspecs) if exit_label(x) == ch["çıkış"]][0]
     y = R[xi]
-    cols = [c for c in F.columns if c not in ("tbill",)]
+    cols = [c for c in F.columns if c not in ("tbill",)]   # incl. v12.1 percentile features
     X = F[cols].values[ev]
     years = P.index[ev].year
     pred = np.full(len(ev), np.nan)
@@ -566,11 +743,9 @@ def ml_gate(ch, store, F, P, xspecs, ex_i) -> Optional[dict]:
         cur = (years == yr) & tr
         if past.sum() < 15 or not cur.any():
             continue
-        m = HistGradientBoostingRegressor(max_depth=2, max_iter=150, learning_rate=0.05, min_samples_leaf=5).fit(X[past], y[past])
-        pred[cur] = m.predict(X[cur])
+        pred[cur] = _gb_fit_predict(X[past], y[past], X[cur])
     if tr.sum() >= 15 and (~tr).any():
-        m = HistGradientBoostingRegressor(max_depth=2, max_iter=150, learning_rate=0.05, min_samples_leaf=5).fit(X[tr], y[tr])
-        pred[~tr] = m.predict(X[~tr])
+        pred[~tr] = _gb_fit_predict(X[tr], y[tr], X[~tr])
     take = pred > 0
     f = lambda s: {"n": int(s.sum()), "ort": float(np.nanmean(y[s])) if s.any() else None,
                    "kazanma": float(np.mean(y[s] > 0)) if s.any() else None}
@@ -613,12 +788,31 @@ def _p(x, d=1):
 
 
 def report_md(res: dict) -> str:
-    L = ["# 🧯 Şok Laboratuvarı v12 — S&P 500 ve Nasdaq-100 panikleri (1990 → bugün)", "",
+    L = ["# 🧯 Şok Laboratuvarı v12.1 (sabit + dinamik eşikler) — S&P 500 ve Nasdaq-100 panikleri (1990 → bugün)", "",
          f"_Üretim: {res['generated_at'][:16]} UTC · tüm seçimler 1990–2016 verisiyle yapıldı · **{res['exam_start']} sonrası mühürlü sınav**. "
          "İşlem getirileri 1x, komisyon+kayma dahil; günlük OHLC, mum içinde önce stop varsayılır._", ""]
     for asset, r in res["assets"].items():
         L += [f"## {asset}", "", f"Denenen kural sayısı: **{r['n_tests']:,}** (şok × giriş × çıkış × filtre/ikili filtre)", ""]
         b = r["baseline"]
+        fv = r.get("fixed_vs_dynamic")
+        if fv:
+            L += ["### 0) SABİT eşik mi, DİNAMİK eşik mi? (v12.1 — aynı mühürlü sınav)", "",
+                  "| Boyut | Grup | Kural | Eğitim fazlası | **Sınav fazlası** | Sınavda fazlası + | Kalıcılık (sınav/eğitim) |", "|---|---|---|---|---|---|---|"]
+            for f in fv:
+                kal = "—" if f.get("bozulma") is None or not np.isfinite(f["bozulma"]) else f"{f['bozulma']:.2f}"
+                L.append(f"| {f['boyut']} | {f['grup']} | {f['kural']} | {_p(f['fazla_eğitim'])} | **{_p(f['fazla_sınav'])}** | %{f['sınav_pozitif'] * 100:.0f} | {kal} |")
+            L += ["", "_Kalıcılık ≈1: eğitimdeki üstünlük sınavda korunmuş; ≈0 veya negatif: eşik geçmişe uydurulmuş._", ""]
+            bb = r.get("best_by_threshold_type", {})
+            if bb:
+                L += ["| Eşik türü | Eğitimin en iyi filtresiz kuralı | Eğitim n / ort / t | **Sınav n / ort / fazla** |", "|---|---|---|---|"]
+                for lab, t in bb.items():
+                    L.append(f"| {lab} | {t['şok']} · {t['giriş']} · {t['çıkış']} | {t['n_eğitim']} / {_p(t['ort_eğitim'])} / {t['t_eğitim']:.1f} | "
+                             f"**{t['n_sınav']} / {_p(t['ort_sınav'])} / {_p(t['fazla_sınav'])}** |")
+            wc = r.get("wf_choices") or {}
+            for nm, ch in wc.items():
+                if ch:
+                    L += ["", f"Walk-forward seçilen eşikler — {nm}: " + ", ".join(f"{y}: {v:g}" for y, v in sorted(ch.items()) if y >= 1995)]
+            L.append("")
         L += ["**Karşılaştırma tabanı — rastgele bir günde alıp aynı süre tutmak:** " +
               " · ".join(f"{H}g: eğitim {_p(v[0])} / sınav {_p(v[1])}" for H, v in b.items()), ""]
         L += ["_*Sınav fazlası: işlemin getirisi eksi, aynı gün sayısı boyunca sadece endeksi tutmanın normal getirisi. Pozitifse şok gerçekten bir şey katıyor._", "",

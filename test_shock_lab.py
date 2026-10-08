@@ -89,3 +89,20 @@ def test_planted_regime_is_found_and_noise_is_not():
     r0 = S.research(px0, fred0, None, assets=("SPX",), fast=True)["assets"]["SPX"]
     shock_avg = np.mean([f["sınav"] for f in r0["fam_shock"]])
     assert shock_avg < 0.03, shock_avg
+
+
+def test_dynamic_thresholds_point_in_time():
+    """v12.1: percentile features and walk-forward thresholds never use the future."""
+    px, fred = _market(seed=4, end="2012-12-31")
+    F1 = S.features(px, fred, "SPX")
+    cut = pd.Timestamp("2008-06-30")
+    px2 = {k: v[v.index <= cut] for k, v in px.items()}
+    F2 = S.features(px2, fred[fred.avail <= cut], "SPX")
+    S1, S2 = S.shocks(F1), S.shocks(F2)
+    n = len(F2)
+    for k in S2:
+        if k.startswith(("[D]", "[WF]")):
+            assert (S1[k][:n] == S2[k]).all(), k
+    assert any(k.startswith("[WF]") and S1[k].any() for k in S1)
+    s = pd.Series(np.arange(1000.0)[::-1])
+    assert S._xpct(s).dropna().max() <= 1 / 500 + 1e-9          # falling series: each new value is the lowest so far
