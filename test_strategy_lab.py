@@ -253,3 +253,64 @@ def test_stops_create_no_profit_on_a_random_walk():
     for wick, d in diffs.items():
         for k, v in d.items():
             assert np.mean(v) < 0.5, (wick, L.EXITS[k], np.round(v, 2))
+
+
+def _small(fn):
+    old_e, old_c, old_k = L.EXITS, L.CADENCES, L.DISC_K
+    L.EXITS, L.CADENCES, L.DISC_K = old_e[:2], (1, 24, 168), 12
+    try:
+        return fn()
+    finally:
+        L.EXITS, L.CADENCES, L.DISC_K = old_e, old_c, old_k
+
+
+def test_cadence_holds_position_between_rebalances_and_no_lookahead():
+    h = _ohlc(3000, seed=1)
+    ctx = L.Ctx(h)
+    for cad in (4, 24, 168):
+        d = {"src": "tech:1h:ema_trend:50", "op": "z", "thr": 0.5, "cad": cad, "smooth": True}
+        x = ctx.direction(d)
+        b = ctx.close_h // cad
+        assert all(x[i] == x[i - 1] for i in range(1, len(x)) if b[i] == b[i - 1])
+        assert np.array_equal(L.Ctx(h.iloc[:2200]).direction(d), x[:2200])
+
+
+def test_slow_macro_signal_is_found_at_the_weekly_horizon():
+    """A signal that predicts the NEXT WEEKS (noisy hour to hour) must be found
+    at the weekly horizon even though it is useless at 1h."""
+    rng = np.random.default_rng(4)
+    n = 12000
+    regime = np.repeat(rng.choice([-1.0, 1.0], n // 336 + 1), 336)[:n]          # 2-week regimes
+    r = np.concatenate([[0.0], 0.0009 * regime[:-1] + rng.normal(0, 0.006, n - 1)])
+    c = 100 * np.exp(np.cumsum(r)); o = np.concatenate([[c[0]], c[:-1]])
+    idx = pd.date_range("2024-11-01", periods=n, freq="h", tz="UTC")
+    h = pd.DataFrame({"Open": o, "High": np.maximum(o, c) * 1.001, "Low": np.minimum(o, c) * 0.999, "Close": c}, index=idx)
+    noisy = regime + rng.normal(0, 3.0, n)                                    # hourly value is mostly noise
+    P = _panel_from(h, {"sys::legacy_score": noisy}, "XAU", step_h=1)
+    res = _small(lambda: L.research({"XAU": {"1h": h}}, P, source="test"))
+    hz = {r["src"]: r for r in res["horizon"]["rows"]}["sys::legacy_score"]
+    assert hz["168"] > hz["1"] + 1.0, hz
+    assert res["assets"]["XAU"]["kind"] == "alpha", (res["assets"]["XAU"]["path"], res["assets"]["XAU"]["wf"])
+
+
+def test_combination_discovery_finds_a_pair_and_respects_holdout():
+    """Two signals that only work TOGETHER; plus pure-noise data must not pass the holdout."""
+    rng = np.random.default_rng(8)
+    n = 12000
+    a = np.repeat(rng.choice([-1.0, 1.0], n // 24 + 1), 24)[:n]
+    b = np.repeat(rng.choice([-1.0, 1.0], n // 24 + 1), 24)[:n]
+    edge = np.where(a == b, a, 0.0)                                             # moves only when both agree
+    r = np.concatenate([[0.0], 0.0015 * edge[:-1] + rng.normal(0, 0.005, n - 1)])
+    c = 100 * np.exp(np.cumsum(r)); o = np.concatenate([[c[0]], c[:-1]])
+    idx = pd.date_range("2024-11-01", periods=n, freq="h", tz="UTC")
+    h = pd.DataFrame({"Open": o, "High": np.maximum(o, c) * 1.001, "Low": np.minimum(o, c) * 0.999, "Close": c}, index=idx)
+    P = _panel_from(h, {"sys::score": a + rng.normal(0, 0.05, n), "sys::live_score": b + rng.normal(0, 0.05, n)}, "BTC", step_h=1)
+    res = _small(lambda: L.research({"BTC": {"1h": h}}, P, source="test"))
+    combo = res["assets"]["BTC"]["combo"]
+    assert combo and combo["chosen"]["d3"] > 1.0, combo and combo["chosen"]
+    # noise
+    rng = np.random.default_rng(9)
+    h2 = _ohlc(12000, seed=9)
+    P2 = _panel_from(h2, {"sys::score": rng.normal(0, 1, 12000), "sys::live_score": rng.normal(0, 1, 12000)}, "SPX")
+    res2 = _small(lambda: L.research({"SPX": {"1h": h2}}, P2, source="test"))
+    assert not res2["assets"]["SPX"]["combo"]["passed"] and res2["assets"]["SPX"]["kind"] is None

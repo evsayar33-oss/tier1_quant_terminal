@@ -74,6 +74,11 @@ EXITS = [{"type": "sig"},
          {"type": "trail", "k1": 2.0}, {"type": "trail", "k1": 3.0},
          {"type": "time", "h": 4}, {"type": "time", "h": 24}]
 MODES = ("LS", "LO", "SO")
+# v6: holding horizons (rebalance cadence in hours) and their Turkish labels
+CADENCES = (1, 4, 24, 168, 720)
+CAD_TR = {1: "1 saat", 4: "4 saat", 24: "1 gün", 168: "1 hafta", 720: "1 ay"}
+CAD_ADJ = {1: "1 saatlik", 4: "4 saatlik", 24: "1 günlük", 168: "1 haftalık", 720: "1 aylık"}
+SLOW_EXITS = [{"type": "sig"}, {"type": "sltp", "k1": 3.0, "k2": 6.0}, {"type": "trail", "k1": 3.0}]
 EX_CODE = {"sig": 0, "sltp": 1, "trail": 2, "time": 3}
 TF_H = {"1h": 1, "4h": 4, "1d": 24}
 
@@ -310,6 +315,9 @@ class Ctx:
         # bars whose High/Low are just max/min(Open, Close) carry no intrabar information
         self.no_wicks = bool(np.allclose(self.H, np.maximum(self.O, self.C)) and np.allclose(self.L, np.minimum(self.O, self.C)))
         close_t = h1.index + pd.Timedelta(hours=1)
+        # v6: hour counter of each bar's close (for rebalance cadences; weeks start Monday 00:00 UTC)
+        self.close_h = ((close_t - pd.Timestamp("1970-01-05", tz="UTC")) // pd.Timedelta(hours=1)).astype(np.int64).values
+        self._dmemo: Dict[str, np.ndarray] = {}
         self.feat: Dict[str, np.ndarray] = {}
         frames = {"1h": h1, "4h": _resample(h1, "4h")}
         frames["1d"] = d1 if d1 is not None and len(d1) > 30 else _resample(h1, "1D")
@@ -358,6 +366,14 @@ class Ctx:
                 return np.where(np.all(M == M[0], axis=0), M[0], 0.0)
             need = math.ceil(len(parts) / 2.0)
             return np.where(np.abs(vote) >= need, np.sign(vote), 0.0) if len(parts) > 2 else np.sign(vote) * (np.abs(vote) == len(parts))
+        if "cad" in d:
+            key = json.dumps(d, sort_keys=True)
+            out = self._dmemo.get(key)
+            if out is None:
+                out = self._transform(d)
+                if len(self._dmemo) < 20000:
+                    self._dmemo[key] = out
+            return out
         x = self.feat.get(d["src"])
         if x is None:
             return np.zeros(self.T)
@@ -368,6 +384,37 @@ class Ctx:
         else:
             out = np.sign(x)
         return -out if d.get("inv") else out
+
+    def _transform(self, d: dict) -> np.ndarray:
+        """v6 multi-horizon transform of ONE signal:
+        cad    = rebalance every `cad` hours (1, 4, 24, 168 = weekly, 720 = ~monthly);
+                 the position is decided at the first bar of each period and held
+        smooth = use the mean of the signal over the last `cad` hours instead of its last value
+        op     = 'sign' or 'z' (|z| > thr against the signal's own trailing history)
+        inv    = contrarian"""
+        x = self.feat.get(d["src"])
+        if x is None:
+            return np.zeros(self.T)
+        cad = int(d.get("cad", 1))
+        s = pd.Series(x, dtype=float)
+        if d.get("smooth") and cad > 1:
+            s = s.rolling(cad, min_periods=1).mean()
+        if d.get("op") == "z":
+            w = max(720, 6 * cad)
+            z = (s - s.rolling(w, min_periods=w // 4).mean()) / s.rolling(w, min_periods=w // 4).std()
+            thr = float(d.get("thr", 1.0))
+            v = z.values
+            out = np.where(v > thr, 1.0, np.where(v < -thr, -1.0, 0.0))
+        else:
+            out = np.sign(np.nan_to_num(s.values))
+        if d.get("inv"):
+            out = -out
+        if cad > 1:
+            b = self.close_h // cad
+            first = np.r_[True, b[1:] != b[:-1]]
+            src = np.maximum.accumulate(np.where(first, np.arange(self.T), 0))
+            out = out[src]
+        return out
 
     def mask(self, f: Optional[dict], d_arr: np.ndarray) -> np.ndarray:
         if not f:
@@ -481,15 +528,30 @@ def direction_rules(ctx: Ctx) -> List[Tuple[str, dict, Optional[dict]]]:
     if core and agree_tech:
         out.append(("oylama", {"ens": [{"src": core[0], "op": "sign"}] + [{"src": k, "op": "sign"} for k in agree_tech[:2]],
                                "need": "all"}, None))
-    # 7) benchmarks
-    out.append(("referans", {"bench": "long"}, None))
-    out.append(("referans", {"bench": "short"}, None))
-    return out
+    # 8) v6: EVERY signal alone at every holding horizon (raw / smoothed, sign / |z|>0.5 / |z|>1, normal / TERS)
+    for c in sys_dir + [k for k in core if k not in sys_dir]:
+        for cad in CADENCES:
+            for sm in ((False,) if cad == 1 else (False, True)):
+                for op, thr in (("sign", None), ("z", 0.5), ("z", 1.0)):
+                    for inv in (False, True):
+                        d = {"src": c, "op": op, "inv": inv, "cad": cad, "smooth": sm}
+                        if thr is not None:
+                            d["thr"] = thr
+                        out.append((f"tek·{CAD_TR[cad]}", d, None))
+    for k in tech:
+        for cad in CADENCES[1:]:
+            for sm in (False, True):
+                for inv in (False, True):
+                    out.append((f"tek·{CAD_TR[cad]}", {"src": k, "op": "sign", "inv": inv, "cad": cad, "smooth": sm}, None))
+    # 7) benchmarks FIRST, so de-duplication never drops them (an always-positive signal equals "hold long")
+    return [("referans", {"bench": "long"}, None), ("referans", {"bench": "short"}, None)] + out
 
 
 def _dir_tf(d: dict) -> str:
     """Which ATR scale the stops of this rule use."""
     src = d.get("src") or ""
+    if int(d.get("cad", 1)) >= 24:
+        return "1d"
     if src.startswith("tech:"):
         return src.split(":")[1]
     if "ens" in d:
@@ -505,6 +567,8 @@ def rule_id(cat: str, d: dict, f: Optional[dict], mode: str, ex: dict) -> str:
         if "ens" in x:
             return ("ALL(" if x.get("need") == "all" else "MAJ(") + ",".join(ds(e) for e in x["ens"]) + ")"
         s = x["src"] + (f">{x.get('thr', 1.0)}σ" if x.get("op") == "z" else "")
+        if "cad" in x:
+            s += f"@{x['cad']}h" + ("~" if x.get("smooth") else "")
         return ("-" if x.get("inv") else "") + s
     fs = ""
     if f:
@@ -521,8 +585,12 @@ def rule_label(r: dict) -> str:
             return "Sürekli " + ("LONG" if x["bench"] == "long" else "SHORT") + " (referans)"
         if "ens" in x:
             return ("Hepsi aynı yönde: " if x.get("need") == "all" else "Çoğunluk oyu: ") + \
-                   (", ".join(tr_name(e["src"]) for e in x["ens"]) if len(x["ens"]) <= 4 else f"{len(x['ens'])} sinyal")
-        s = tr_name(x["src"]) + (" (güçlü, |z|>1)" if x.get("op") == "z" else "")
+                   (" & ".join(f"[{ds(e)}]" for e in x["ens"]) if len(x["ens"]) <= 7 else f"{len(x['ens'])} sinyal")
+        s = tr_name(x["src"])
+        if x.get("op") == "z":
+            s += f" (güçlü, |z|>{x.get('thr', 1.0):g})"
+        if "cad" in x and int(x["cad"]) > 1:
+            s += f" · {CAD_ADJ.get(int(x['cad']), str(x['cad']) + ' saatlik')}" + (" ortalama" if x.get("smooth") else "")
         return ("TERS " if x.get("inv") else "") + s
     txt = ds(d)
     if f:
@@ -888,7 +956,7 @@ def _enumerate(ctx: Ctx, w0: int, w1: int, with_modes=MODES, exits=EXITS):
                 continue
             seen.add(key)
             p8 = p.astype(np.int8)
-            for ex in exits:
+            for ex in (SLOW_EXITS if int(d.get("cad", 1)) >= 24 and exits is EXITS else exits):
                 if "bench" in d and ex["type"] != "sig":
                     continue
                 yield {"cat": cat, "d": d, "f": f, "mode": mode, "exit": ex, "atr": _dir_tf(d)}, p8
@@ -997,6 +1065,100 @@ def long_daily(d1: pd.DataFrame, cost: float, crypto: bool) -> Optional[dict]:
                       "sl": float(out["state"]["sl"][k]), "tp": float(out["state"]["tp"][k])}}
 
 
+DISC_K = 40            # best singles (by discovery period) that enter the combination search
+GREEDY_MAX = 7         # largest majority-vote ensemble built greedily
+
+
+def discover_combos(ctx: Ctx, metas: list, R: np.ndarray, E: np.ndarray, w0: int, w1: int, arr: dict, cost: float,
+                    days: pd.DatetimeIndex, day_idx: np.ndarray, bh: np.ndarray) -> dict:
+    """Data-driven combinations with an UNTOUCHED holdout.
+    Discovery = first 50% of the window: rank every single, build all pairs
+    (both must agree) of the best 40 and greedy majority-vote ensembles of
+    2..7 signals. Validation = next 25%: pick the winner. Holdout = last 25%:
+    never seen by any choice above -> the honest verdict."""
+    D = R.shape[1]
+    e1, e2 = int(D * 0.50), int(D * 0.75)
+    elig = [i for i, m in enumerate(metas) if m.get("f") is None and "bench" not in m["d"] and "ens" not in m["d"]
+            and (m["cat"].startswith("tek") or m["cat"] in ("sys", "teknik"))]
+    if not elig:
+        return {}
+    el = np.array(elig)
+    s1 = _rows_sharpe(R[el, :e1])
+    s1[E[el, :e1].sum(1) < 8] = -np.inf
+    order = el[np.argsort(-s1)]
+    seen, top = set(), []
+    for i in order:
+        if not np.isfinite(_rows_sharpe(R[[i], :e1])[0]):
+            break
+        key = json.dumps(metas[i]["d"], sort_keys=True)
+        if key in seen:
+            continue
+        seen.add(key)
+        top.append(i)
+        if len(top) >= DISC_K:
+            break
+    if len(top) < 2:
+        return {}
+    rules = []
+    for a in range(len(top)):
+        for b in range(a + 1, len(top)):
+            ma, mb = metas[top[a]], metas[top[b]]
+            for ex in ([ma["exit"]] if ma["exit"]["type"] == "sig" else [ma["exit"], {"type": "sig"}]):
+                rules.append({"cat": "kombi·ikili", "d": {"ens": [ma["d"], mb["d"]], "need": "all"}, "f": None,
+                              "mode": ma["mode"], "exit": ex, "atr": ma["atr"]})
+
+    def _sim(rule_list):
+        if not rule_list:
+            return np.zeros((0, D), dtype=np.float32), np.zeros((0, D), dtype=np.int16)
+        outR, outE = [], []
+        for k in range(0, len(rule_list), BATCH):
+            chunk = rule_list[k:k + BATCH]
+            P = np.vstack([ctx.position(r)[w0:w1] for r in chunk])
+            o = simulate_batch(P, [r["exit"] for r in chunk], np.array([ATR_ROW[r["atr"]] for r in chunk]), arr, cost,
+                               day_idx, len(days))
+            outR.append(o["R"]); outE.append(o["E"])
+        return np.vstack(outR), np.vstack(outE)
+
+    Rp, Ep = _sim(rules)
+    # greedy majority-vote ensembles (each step chooses on the DISCOVERY period only)
+    members = [top[0]]
+    greedy_rules = []
+    for step in range(2, GREEDY_MAX + 1):
+        cand = [i for i in top if i not in members]
+        if not cand:
+            break
+        trial = [{"cat": "kombi·oylama", "d": {"ens": [metas[j]["d"] for j in members + [c]], "need": "maj"}, "f": None,
+                  "mode": metas[top[0]]["mode"], "exit": {"type": "sig"}, "atr": metas[top[0]]["atr"]} for c in cand]
+        Rt, _ = _sim(trial)
+        sc = _rows_sharpe(Rt[:, :e1])
+        k = int(np.argmax(sc))
+        members.append(cand[k])
+        greedy_rules.append(trial[k])
+    Rg, Eg = _sim(greedy_rules)
+    cand_rules = [metas[i] for i in top] + rules + greedy_rules
+    CR = np.vstack([R[top], Rp, Rg]).astype(np.float64)
+    CE = np.vstack([E[top], Ep, Eg])
+    sd1, sd2, sd3 = _rows_sharpe(CR[:, :e1]), _rows_sharpe(CR[:, e1:e2]), _rows_sharpe(CR[:, e2:])
+    n2 = CE[:, e1:e2].sum(1)
+    ok = (sd1 > 0) & (n2 >= 5)
+    rank = np.where(ok, sd2, -np.inf)
+    rows = []
+    for i in [j for j in np.argsort(-rank)[:15] if np.isfinite(rank[j])]:
+        x3 = CR[i, e2:]
+        al, be, at = alpha_t(x3, bh[e2:])
+        rows.append({"label": rule_label(cand_rules[i]), "cat": cand_rules[i]["cat"], "rule": cand_rules[i],
+                     "d1": round(float(sd1[i]), 2), "d2": round(float(sd2[i]), 2), "d3": round(float(sd3[i]), 2),
+                     "ret3": round(float(math.expm1(x3.sum())), 4), "t3": round(t_stat(x3), 2), "alpha_t3": round(at, 2),
+                     "beta3": round(be, 2), "trades": int(CE[i].sum())})
+    chosen = rows[0] if rows else None
+    passed = bool(chosen and chosen["t3"] >= CRIT["wf_t"] and chosen["alpha_t3"] >= CRIT["alpha_t"] and chosen["d2"] > 0)
+    split = [str(days[0].date()), str(days[e1].date()), str(days[e2].date()), str(days[-1].date())]
+    return {"split": split, "n_candidates": int(len(cand_rules)), "n_pairs": len(rules), "n_greedy": len(greedy_rules),
+            "top": rows, "chosen": chosen, "passed": passed,
+            "greedy_path": [rule_label(r) for r in greedy_rules],
+            "_extra": (cand_rules[len(top):], CR[len(top):], sd1[len(top):], sd2[len(top):], sd3[len(top):])}
+
+
 def research(data: Dict[str, dict], panel: Optional[pd.DataFrame] = None, now: Optional[datetime] = None,
              source: str = "yahoo", all_rows: Optional[list] = None) -> dict:
     now = now or datetime.now(timezone.utc)
@@ -1004,7 +1166,7 @@ def research(data: Dict[str, dict], panel: Optional[pd.DataFrame] = None, now: O
            "criteria": CRIT, "costs": {"fee_slippage_per_side": COST, "funding_long_per_8h": FUND_LONG_H * 8,
                                        "funding_short_per_8h": FUND_SHORT_H * 8},
            "assets": {}, "categories": [], "system_signals": {}, "robust": [], "n_configs": 0}
-    cat_rows, sys_rows = [], []
+    cat_rows, sys_rows, hz_rows = [], [], []
     robust: Dict[str, list] = {}
     robust_meta: Dict[str, dict] = {}
     for a, frames in data.items():
@@ -1040,23 +1202,33 @@ def research(data: Dict[str, dict], panel: Optional[pd.DataFrame] = None, now: O
         bh = R[long_i].astype(float)
         al, be, at = alpha_t(wf["oos"], bh[wf["oos_start"]:])
         base_a = {"wf_t": wf["t"] >= CRIT["wf_t"], "pos_folds": wf["pos_folds"] >= CRIT["pos_folds"],
-                  "dsr": dsr >= CRIT["dsr"], "trades": ntr[best] >= CRIT["trades"]}
+                  "dsr": bool(dsr >= CRIT["dsr"]), "trades": bool(ntr[best] >= CRIT["trades"])}
         lg = long_daily(frames.get("1d"), cost, a in ("BTC", "ETH"))
+        combo = {}
+        try:
+            combo = discover_combos(ctx, metas, R, E, w0, w1, arr, cost, days, day_idx, bh)
+        except Exception as exc:                       # never lose the whole run for the combo stage
+            print(f"[lab] {a}: kombinasyon aşaması atlandı ({exc})", flush=True)
         if all(base_a.values()):
             path, kind = "A", ("alpha" if at >= CRIT["alpha_t"] else "beta")
             rule = metas[best]; st = states[best]
         elif lg and lg["base_ok"]:
             path, kind = "B", ("alpha" if lg["alpha_t"] >= CRIT["alpha_t"] else "beta")
             rule = lg["rule"]; st = lg["state"]
+        elif combo.get("passed"):
+            path, kind = "C", "alpha"
+            rule = combo["chosen"]["rule"]
+            o1 = simulate_batch(ctx.position(rule)[w0:w1][None, :], [rule["exit"]], np.array([ATR_ROW[rule["atr"]]]),
+                                arr, cost, day_idx, len(days))
+            st = {k: float(v[0]) for k, v in o1["state"].items()}
         else:
             path, kind = None, None
             rule = metas[best]; st = states[best]
-        # leverage tables for the candidate (window A, hourly) and the long-path rule
-        cand_i = best if path != "B" else None
+        # leverage table for the candidate (window A, hourly)
         lev_rows = None
-        if cand_i is not None:
-            one = simulate_batch(_enumerate_one(ctx, metas[cand_i], w0, w1)[None, :], [metas[cand_i]["exit"]],
-                                 np.array([ATR_ROW[metas[cand_i]["atr"]]]), arr, cost, day_idx, len(days), keep_hourly=True)
+        if path != "B":
+            one = simulate_batch(ctx.position(rule)[w0:w1][None, :], [rule["exit"]],
+                                 np.array([ATR_ROW[rule["atr"]]]), arr, cost, day_idx, len(days), keep_hourly=True)
             lev_rows = leverage_table(one["hourly"][0], one["pos"][0], one["ent"][0], arr["H"], arr["L"], arr["C"],
                                       _bars_per_year(widx), len(days) / 365.25)
         top = []
@@ -1082,6 +1254,7 @@ def research(data: Dict[str, dict], panel: Optional[pd.DataFrame] = None, now: O
                        "entry": st["entry"] if st["side"] else None, "sl": st["sl"] if st["side"] and np.isfinite(st["sl"]) else None,
                        "tp": st["tp"] if st["side"] and np.isfinite(st["tp"]) else None, "as_of": str(widx[-1])},
             "leverage": lev_rows, "top": top,
+            "combo": {k: v for k, v in combo.items() if k != "_extra"} if combo else None,
             "leverage_wf": leverage_daily(wf["oos"], len(wf["oos"]) / 365.25),
         }
         # category table input
@@ -1092,6 +1265,15 @@ def research(data: Dict[str, dict], panel: Optional[pd.DataFrame] = None, now: O
             ok = np.isfinite(rank[ii])
             cat_rows.append({"asset": a, "cat": c, "n": len(ii), "best": float(np.max(srs[ii][ok])) if ok.any() else float(np.max(srs[ii])),
                              "median": float(np.median(srs[ii])), "wf": fwf["sharpe"]})
+        # v6 horizon matrix: each signal, system orientation, sign, smoothed, signal exit, long+short, per horizon
+        for i, m in enumerate(metas):
+            d = m["d"]
+            if (m["cat"].startswith("tek") or (m["cat"] == "sys" and "cad" not in d)) and m["f"] is None \
+                    and m["mode"] == "LS" and m["exit"]["type"] == "sig" and d.get("op") == "sign" \
+                    and not d.get("inv") and bool(d.get("smooth")) == (int(d.get("cad", 1)) > 1) \
+                    and not str(d.get("src", "")).startswith("z::"):
+                hz_rows.append({"asset": a, "src": d["src"], "cad": int(d.get("cad", 1)), "sharpe": float(srs[i]),
+                                "h1": float(s1[i]), "h2": float(s2[i])})
         # every system signal alone (LS, sign, signal exit): which outputs of the system carry information?
         for i, m in enumerate(metas):
             d = m["d"]
@@ -1102,6 +1284,12 @@ def research(data: Dict[str, dict], panel: Optional[pd.DataFrame] = None, now: O
                 key = rule_id(**_idargs(m))
                 robust.setdefault(key, []).append(float(srs[i]))
                 robust_meta[key] = m
+        if all_rows is not None and combo.get("_extra"):
+            cr, CRx, c1, c2, c3 = combo["_extra"]
+            for k, m in enumerate(cr):
+                all_rows.append((a, m["cat"], rule_label(m), m["mode"], m["exit"]["type"], round(float(_rows_sharpe(CRx[[k]])[0]), 3),
+                                 round(float(c1[k]), 3), round(float(c3[k]), 3), round(float(math.expm1(CRx[k].sum())), 4),
+                                 round(max_dd(CRx[k]), 4), -1, None, None))
         if all_rows is not None:
             for i, m in enumerate(metas):
                 all_rows.append((a, m["cat"], rule_label(m), m["mode"], m["exit"]["type"], round(float(srs[i]), 3),
@@ -1125,6 +1313,21 @@ def research(data: Dict[str, dict], panel: Optional[pd.DataFrame] = None, now: O
         res["system_signals"] = {"columns": list(piv.columns), "rows": [
             dict(src=k, name=tr_name(k), **{c: (None if pd.isna(v) else round(float(v), 2)) for c, v in r.items()})
             for k, r in st_.head(40).iterrows()]}
+    if hz_rows:
+        H = pd.DataFrame(hz_rows)
+        piv = H.pivot_table(index="src", columns="cad", values="sharpe", aggfunc="mean")
+        pos = H.assign(p=H["sharpe"] > 0).pivot_table(index="src", columns="cad", values="p", aggfunc="sum")
+        piv = piv.reindex(columns=[c for c in CADENCES if c in piv.columns])
+        best_abs = piv.abs().max(axis=1).sort_values(ascending=False)
+        res["horizon"] = {"cads": [int(c) for c in piv.columns], "rows": [
+            {"src": k, "name": tr_name(k), **{str(int(c)): (None if pd.isna(piv.loc[k, c]) else round(float(piv.loc[k, c]), 2))
+                                             for c in piv.columns},
+             **{f"pos{int(c)}": (None if pd.isna(pos.loc[k, c]) else int(pos.loc[k, c])) for c in piv.columns},
+             "n": int((H["src"] == k).sum() / max(len(piv.columns), 1))}
+            for k in best_abs.index[:45]]}
+        cad_avg = H.groupby("cad")["sharpe"].agg(["mean", "median", lambda s: float((s > 0).mean())])
+        res["horizon_summary"] = [{"cad": int(c), "mean": round(float(r["mean"]), 2), "median": round(float(r["median"]), 2),
+                                   "pos_share": round(float(r.iloc[2]), 2)} for c, r in cad_avg.iterrows()]
     nA = len(res["assets"])
     rob = [{"id": k, "label": rule_label(robust_meta[k]), "rule": robust_meta[k], "mean_sharpe": round(float(np.mean(v)), 2),
             "pos_assets": int(sum(x > 0 for x in v)), "n_assets": len(v)}
@@ -1261,7 +1464,10 @@ def report_md(res: dict) -> str:
     if res["source"] == "panel":
         L += ["> ⚠️ ÇEVRİMDIŞI ÖN İZLEME: fiyat yolu panelden yeniden kuruldu (High/Low yok, stoplar kapanışla kontrol edildi). "
               "Kesin sonuç GitHub Actions'taki çalışmadır.", ""]
-    L += ["**Kanıt** (biri yeterli) — **A:** sistem sinyalli pencerede seçim prosedürünün walk-forward OOS t ≥ 2, 5 dilimin ≥ 3'ü "
+    L += ["**v6:** her sinyal 5 tutma ufkunda (1 saat · 4 saat · 1 gün · 1 hafta · 1 ay), son değer ya da ufuk ortalaması, "
+          "işaret / güçlü (|z|>0.5, |z|>1), sistem yönünde ve TERS, long+short / sadece long / sadece short, 3-8 çıkış kuralıyla "
+          "TEK TEK; sonra hazır kombinasyonlar ve veriden keşfedilen kombinasyonlar test edildi.", "",
+          "**Kanıt** (biri yeterli; **C:** kombinasyon keşfinde hiç görülmemiş son dönemde t ≥ 2) — **A:** sistem sinyalli pencerede seçim prosedürünün walk-forward OOS t ≥ 2, 5 dilimin ≥ 3'ü "
           "pozitif, Deflated Sharpe ≥ 0.90, ≥ 30 işlem · **B:** 10 yıllık günlük veride aynı testler (7 dilimin ≥ 5'i). "
           "Kanıtlı kural ayrıca 'sürekli long perp'e karşı **alfa t ≥ 2** veriyorsa **✅ KANITLI ALFA** (bot işlem yapabilir); "
           "vermiyorsa **⚠️ β AĞIRLIKLI** (kazancı çoğunlukla piyasa yönünden; işlem sinyali sayılmaz).", "",
@@ -1272,6 +1478,8 @@ def report_md(res: dict) -> str:
     for a, r in res["assets"].items():
         b, w, bh, lg = r["best"], r["wf"], r["bh"], r.get("long")
         state = {"alpha": f"✅ KANITLI ALFA ({r['path']})", "beta": f"⚠️ β AĞIRLIKLI ({r['path']})"}.get(r.get("kind"), "❌ kanıt yok")
+        if r.get("path") == "C":
+            b = dict(b, label=r["candidate"]["label"])
         sig = {"LONG": "🟢 LONG", "SHORT": "🔴 SHORT", "FLAT": "⚪ YOK"}[r["signal"]["side"]]
         lgs = "—" if not lg else (f"{lg['label']} · {lg['wf_sharpe']:.2f} ({lg['wf_t']:+.1f}) · {lg['wf_pos_folds']}/{lg['wf_folds']} · "
                                   f"{lg['alpha_t']:+.1f} · {lg['years']} yıl")
@@ -1281,8 +1489,45 @@ def report_md(res: dict) -> str:
     L += ["", "_'1. yarı / 2. yarı': aynı kuralın pencerenin iki yarısındaki Sharpe'ı — biri pozitif biri negatifse kural kararsızdır. "
           "WF-OOS: her dilimde YALNIZCA geçmişte en iyi olanı seçip bir sonraki dilimde ölçen prosedürün gerçek dışı-örneklem sonucu "
           "(on binlerce aday arasından seçimin bedeli dahil)._", ""]
+    # v6: horizon effect
+    if res.get("horizon_summary"):
+        L += ["## 2) Tutma ufku etkisi — sistem sinyalleri tek tek (sistem yönünde, işaret, ufuk boyunca ortalama, long+short)", "",
+              "| Ufuk | Ortalama Sharpe | Medyan Sharpe | Pozitif oran |", "|---|---|---|---|"]
+        for h in res["horizon_summary"]:
+            L.append(f"| {CAD_TR.get(h['cad'], h['cad'])} | {h['mean']:.2f} | {h['median']:.2f} | %{h['pos_share'] * 100:.0f} |")
+        hz = res.get("horizon") or {}
+        cads = hz.get("cads", [])
+        L += ["", "**Sinyal × ufuk matrisi** (6 varlık ortalaması Sharpe · parantezde pozitif varlık sayısı)", "",
+              "| Sinyal | " + " | ".join(CAD_TR.get(c, str(c)) for c in cads) + " |", "|---" * (len(cads) + 1) + "|"]
+        for r in hz.get("rows", []):
+            cells = []
+            for c in cads:
+                v, p = r.get(str(c)), r.get(f"pos{c}")
+                cells.append("—" if v is None else f"{v:.2f} ({p})")
+            L.append(f"| {r['name']} | " + " | ".join(cells) + " |")
+        L += ["", "_Makro sinyallerin değeri uzun ufukta (hafta/ay) görünmeli; kısa ufukta sık yön değişimi maliyetle eriyor. "
+              "Ay ufku 700 günde ~23 karar demek: istatistiksel gücü düşüktür._", ""]
+    # v6: combination discovery
+    if any(r.get("combo") for r in res["assets"].values()):
+        L += ["## 3) Kombinasyon keşfi (keşif → doğrulama → hiç görülmemiş dönem)", "",
+              "_Keşif döneminde her sinyal tek tek sıralandı; en iyi 40'ın tüm ikili kombinasyonları (ikisi aynı yönü "
+              "gösterdiğinde işlem) ve 2-7 sinyallik açgözlü çoğunluk oyları kuruldu. Seçim doğrulama döneminde yapıldı; "
+              "son dönem hiçbir seçimde kullanılmadı. Kanıt: son dönemde t ≥ 2 ve sürekli long'a karşı alfa t ≥ 2._", ""]
+        for a, r in res["assets"].items():
+            c = r.get("combo")
+            if not c:
+                continue
+            sp = c["split"]
+            L += [f"**{a}** · keşif {sp[0]}→{sp[1]} · doğrulama →{sp[2]} · son dönem →{sp[3]} · {c['n_candidates']:,} aday "
+                  f"({c['n_pairs']:,} ikili, {c['n_greedy']} oylama) · {'✅ SON DÖNEMDE GEÇTİ' if c['passed'] else '❌ son dönemde geçmedi'}", "",
+                  "| # | Kombinasyon | Tür | Keşif Sharpe | Doğrulama | **Son dönem** | Son dönem getiri | t | Alfa t | İşlem |",
+                  "|---|---|---|---|---|---|---|---|---|---|"]
+            for k, t in enumerate(c["top"][:10], 1):
+                L.append(f"| {k} | {t['label']} | {t['cat']} | {t['d1']:.2f} | {t['d2']:.2f} | **{t['d3']:.2f}** | {_pct(t['ret3'])} | "
+                         f"{t['t3']:+.1f} | {t['alpha_t3']:+.1f} | {t['trades']} |")
+            L.append("")
     # leverage
-    L += ["## 2) Kaldıraç ve likidasyon (seçilen kural, 730 gün, saatlik High/Low ile)", "",
+    L += ["## 4) Kaldıraç ve likidasyon (seçilen kural, 730 gün, saatlik High/Low ile)", "",
           "| Varlık | 1x yıllık / DD | 2x | 3x | 5x | 10x | Vol hedefli (%40, maks 5x) | Likidasyon (1/2/3/5/10x) |",
           "|---|---|---|---|---|---|---|---|"]
     for a, r in res["assets"].items():
@@ -1303,7 +1548,7 @@ def report_md(res: dict) -> str:
           "(günlük kapanışla; gün içi likidasyonları kaçırabilir). Kaldıraç Sharpe'ı değiştirmez; getiriyi de düşüşü de büyütür ve likidasyonla sermayeyi sıfırlayabilir. "
           "Kanıtsız bir kurala kaldıraç eklemek beklenen kaybı büyütür._", ""]
     # categories
-    L += ["## 3) Kombinasyon türlerine göre (6 varlık ortalaması)", "",
+    L += ["## 5) Kombinasyon türlerine göre (6 varlık ortalaması)", "",
           "| Tür | Konfigürasyon | En iyi Sharpe | Medyan Sharpe | WF-OOS Sharpe | WF pozitif varlık |", "|---|---|---|---|---|---|"]
     for g in res["categories"]:
         L.append(f"| {g['cat']} | {int(g['n']):,} | {g['best']:.2f} | {g['median']:.2f} | {g['wf']:.2f} | {g['wf_pos']}/{g['assets']} |")
@@ -1311,7 +1556,7 @@ def report_md(res: dict) -> str:
     ss = res.get("system_signals") or {}
     if ss.get("rows"):
         cols = ss["columns"]
-        L += ["", "## 4) Sistemin kendi sinyalleri tek başına (long+short, sinyalle çıkış, sistemin yönünde)", "",
+        L += ["", "## 6) Sistemin kendi sinyalleri tek başına (long+short, sinyalle çıkış, sistemin yönünde)", "",
               "| Sinyal | " + " | ".join(cols) + " | Ort. | 1. yarı / 2. yarı | Pozitif |", "|---" * (len(cols) + 4) + "|"]
         for r in ss["rows"]:
             L.append(f"| {r['name']} | " + " | ".join("—" if r.get(c) is None else f"{r[c]:.2f}" for c in cols) +
@@ -1319,11 +1564,11 @@ def report_md(res: dict) -> str:
         L += ["", "_Negatif ortalama = sinyal TERS yönde kullanılırsa çalışıyor olabilir (TERS kurallar da ayrıca test edildi)._"]
     # robust
     if res.get("robust"):
-        L += ["", "## 5) Tüm varlıklarda aynı ayarla en tutarlı kurallar", "", "| Kural | Ort. Sharpe | Pozitif varlık |", "|---|---|---|"]
+        L += ["", "## 7) Tüm varlıklarda aynı ayarla en tutarlı kurallar", "", "| Kural | Ort. Sharpe | Pozitif varlık |", "|---|---|---|"]
         for r in res["robust"]:
             L.append(f"| {r['label']} | {r['mean_sharpe']:.2f} | {r['pos_assets']}/{r['n_assets']} |")
     # per asset top
-    L += ["", "## 6) Varlık bazında ilk 15 (tam pencere — seçim yanlılığı İÇERİR, tek başına kanıt değildir)", ""]
+    L += ["", "## 8) Varlık bazında ilk 15 (tam pencere — seçim yanlılığı İÇERİR, tek başına kanıt değildir)", ""]
     for a, r in res["assets"].items():
         L += [f"**{a} — {NAMES[a]}** · {r['window'][0]} → {r['window'][1]} · {r['n_configs']:,} konfigürasyon "
               f"(etkin bağımsız: {r['n_effective']:.0f})", "",
