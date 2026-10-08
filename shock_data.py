@@ -27,7 +27,7 @@ from typing import Dict
 
 import pandas as pd
 
-DAILY = ["^GSPC", "^NDX", "^VIX", "^VIX3M", "^VVIX", "^SKEW", "DX-Y.NYB", "^TNX", "CL=F", "GC=F",
+DAILY = ["^GSPC", "^NDX", "^VIX", "^VIX3M", "^VVIX", "^SKEW", "DX-Y.NYB", "^TNX", "CL=F", "GC=F", "SI=F",
          "HYG", "LQD", "TLT", "RSP", "SPY"]
 HOURLY = ["^GSPC", "^NDX", "^VIX"]
 FRED = {  # series: publication lag in days
