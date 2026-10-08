@@ -33,33 +33,59 @@ def _panel_from(h, col_values, asset="BTC", step_h=2):
 
 
 # ---------------------------------------------------------------- reference simulator
-def _ref_sim(p, ex, atr, O, H, Lw, C, cost, fund):
-    """Plain scalar implementation of the same rules (for cross-checking)."""
+def _ref_sim(p, ex, atr, O, H, Lw, C, cost, fund, atrm=None):
+    """Plain scalar implementation of the same exit rules (for cross-checking)."""
     T = len(C)
     r = np.zeros(T)
-    cur = 0.0; blocked = 0.0; sl = tp = np.nan; ext = 0.0; ae = 0.0; held = 0
+    cur = 0.0; blocked = 0.0; sl = tp = np.nan; ext = 0.0; ae = 0.0; held = 0; entry = 0.0
+    part_done = be_done = False
     et = ex["type"]
+    k1, k2, k3, bk = ex.get("k1", 0), ex.get("k2", 0), ex.get("k3", 0), ex.get("b", 0)
     for t in range(1, T):
         ps = cur
+        side = np.sign(ps); size = abs(ps)
         f = fund * ps if ps > 0 else 0.0
-        rt = ps * math.log(C[t] / C[t - 1]) - f
-        if ps != 0 and et in ("sltp", "trail", "time"):
-            hit_sl = et in ("sltp", "trail") and ((ps > 0 and Lw[t] <= sl) or (ps < 0 and H[t] >= sl))
-            hit_tp = et == "sltp" and not hit_sl and ((ps > 0 and H[t] >= tp) or (ps < 0 and Lw[t] <= tp))
-            if hit_sl or hit_tp:
+        lr = math.log(C[t] / C[t - 1])
+        rt = ps * lr - f
+        if ps != 0 and et != "sig":
+            has_sl = et in ("sltp", "trail", "be", "part", "vol")
+            has_tp = et in ("sltp", "be", "part", "vol")
+            hit_sl = has_sl and ((ps > 0 and Lw[t] <= sl) or (ps < 0 and H[t] >= sl))
+            hit_tp = has_tp and not hit_sl and ((ps > 0 and H[t] >= tp) or (ps < 0 and Lw[t] <= tp))
+            closed = False
+            half = hit_tp and et == "part" and not part_done
+            if hit_sl or (hit_tp and not half):
                 px = (min(O[t], sl) if ps > 0 else max(O[t], sl)) if hit_sl else tp
-                rt = ps * math.log(px / C[t - 1]) - cost * abs(ps) - f
-                blocked, cur = ps, 0.0
-            else:
-                if et == "trail":
+                rt = ps * math.log(px / C[t - 1]) - cost * size - f
+                closed = True
+            elif half:
+                tpx = max(O[t], tp) if ps > 0 else min(O[t], tp)
+                if (ps > 0 and Lw[t] <= entry) or (ps < 0 and H[t] >= entry):
+                    rt = 0.5 * side * math.log(tpx / C[t - 1]) + 0.5 * side * math.log(entry / C[t - 1]) - cost - f
+                    closed = True
+                else:
+                    rt = 0.5 * side * math.log(tpx / C[t - 1]) + 0.5 * side * lr - 0.5 * cost - f
+                    part_done = True
+                    cur = side * 0.5
+                    sl = entry
+                    ext = H[t] if ps > 0 else Lw[t]
+                    tp = np.nan
+            if not closed:
+                if et == "be" and not be_done and ((ps > 0 and H[t] >= entry + bk * ae) or (ps < 0 and Lw[t] <= entry - bk * ae)):
+                    be_done = True
+                    sl = max(sl, entry) if ps > 0 else min(sl, entry)
+                if (et == "trail" or (et == "part" and part_done)) and not half:
+                    kt = k1 if et == "trail" else k3
                     if ps > 0:
-                        ext = max(ext, H[t]); sl = max(sl, ext - ex["k1"] * ae)
+                        ext = max(ext, H[t]); sl = max(sl, ext - kt * ae)
                     else:
-                        ext = min(ext, Lw[t]); sl = min(sl, ext + ex["k1"] * ae)
+                        ext = min(ext, Lw[t]); sl = min(sl, ext + kt * ae)
                 held += 1
                 if et == "time" and held >= ex["h"]:
-                    rt -= cost * abs(ps)
-                    blocked, cur = ps, 0.0
+                    rt -= cost * size
+                    closed = True
+            if closed:
+                blocked, cur = side, 0.0
         raw = float(p[t])
         want = raw
         if blocked != 0:
@@ -67,13 +93,15 @@ def _ref_sim(p, ex, atr, O, H, Lw, C, cost, fund):
                 want = 0.0
             else:
                 blocked = 0.0
-        if want != cur:
+        if want != np.sign(cur):
             rt -= cost * abs(cur) + cost * abs(want)
             if want != 0:
                 a = atr[t]
-                sl = C[t] - want * ex.get("k1", 0) * a if et in ("sltp", "trail") else np.nan
-                tp = C[t] + want * ex.get("k2", 0) * a if et == "sltp" else np.nan
-                ext, ae, held = C[t], a, 0
+                k2e = k2 * min(max(a / atrm[t], 0.5), 2.0) if (et == "vol" and atrm is not None and atrm[t] > 0) else k2
+                sl = C[t] - want * k1 * a if et in ("sltp", "trail", "be", "part", "vol") else np.nan
+                tp = C[t] + want * k2e * a if et in ("sltp", "be", "part", "vol") else np.nan
+                ext, ae, held, entry = C[t], a, 0, C[t]
+            part_done = be_done = False
             cur = want
         r[t] = rt
     return r
@@ -93,7 +121,7 @@ def test_vectorised_simulator_matches_reference():
     day_idx = np.arange(ctx.T)                       # one "day" per bar -> R == hourly returns
     out = L.simulate_batch(P, ex, np.full(len(P), 0), arr, 0.001, day_idx, ctx.T, fund_long=1e-5)
     for i in range(len(P)):
-        ref = _ref_sim(P[i], ex[i], arr["ATR"][0], arr["O"], arr["H"], arr["L"], arr["C"], 0.001, 1e-5)
+        ref = _ref_sim(P[i], ex[i], arr["ATR"][0], arr["O"], arr["H"], arr["L"], arr["C"], 0.001, 1e-5, arr["ATRM"][0])
         assert np.allclose(out["R"][i], ref, atol=1e-6), (i, ex[i])
 
 
@@ -314,3 +342,39 @@ def test_combination_discovery_finds_a_pair_and_respects_holdout():
     P2 = _panel_from(h2, {"sys::score": rng.normal(0, 1, 12000), "sys::live_score": rng.normal(0, 1, 12000)}, "SPX")
     res2 = _small(lambda: L.research({"SPX": {"1h": h2}}, P2, source="test"))
     assert not res2["assets"]["SPX"]["combo"]["passed"] and res2["assets"]["SPX"]["kind"] is None
+
+
+def _flat_bars(n=40, px=100.0):
+    """Flat at 100 (ATR = 1) until bar 20 (entry at its close), then drifting just above the entry price."""
+    idx = pd.date_range("2025-01-01", periods=n, freq="1h", tz="UTC")
+    c = np.where(np.arange(n) <= 20, px, px + 0.6)
+    o = np.concatenate([[c[0]], c[:-1]])
+    hi = np.where(np.arange(n) <= 20, c + 0.5, np.maximum(o, c) + 0.2)
+    lo = np.where(np.arange(n) <= 20, c - 0.5, np.minimum(o, c) - 0.2)
+    return pd.DataFrame({"Open": o, "High": hi, "Low": lo, "Close": c}, index=idx)
+
+
+def _run_one(df, sig, ex):
+    ctx = L.Ctx(df)
+    arr, _ = L._slice_ctx(ctx, 0, ctx.T)
+    return L.simulate_batch(sig[None, :].astype(np.int8), [ex], np.array([0]), arr, 0.0, np.arange(ctx.T), ctx.T,
+                            fund_long=0.0, keep_hourly=True)
+
+
+def test_partial_take_profit_closes_half_then_trails():
+    df = _flat_bars()
+    df.iloc[25, df.columns.get_loc("High")] = 102.5          # entry 100, ATR 1 -> TP1 at 102 is hit at bar 25
+    sig = np.zeros(len(df)); sig[20:] = 1
+    o = _run_one(df, sig, {"type": "part", "k1": 2.0, "k2": 2.0, "k3": 3.0})
+    assert o["pos"][0][24] == 1 and o["pos"][0][25] == 0.5            # half closed at the target
+    assert o["state"]["sl"][0] >= 100.0                                 # rest protected at breakeven or better
+
+
+def test_breakeven_moves_stop_to_entry():
+    df = _flat_bars()
+    df.iloc[24, df.columns.get_loc("High")] = 101.2           # +1.2 ATR -> breakeven armed (b = 1)
+    df.iloc[27, df.columns.get_loc("Low")] = 99.8             # back below entry -> stopped at entry, not at -2 ATR
+    sig = np.zeros(len(df)); sig[20:] = 1
+    o = _run_one(df, sig, {"type": "be", "k1": 2.0, "k2": 4.0, "b": 1.0})
+    assert o["pos"][0][26] == 1 and o["pos"][0][27] == 0
+    assert abs(o["hourly"][0][27] - math.log(100.0 / 100.6)) < 1e-9   # filled at the entry price, not at -2 ATR

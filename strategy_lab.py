@@ -72,14 +72,20 @@ CRIT = {"wf_t": 2.0, "pos_folds": 3, "dsr": 0.90, "trades": 30,
 EXITS = [{"type": "sig"},
          {"type": "sltp", "k1": 1.5, "k2": 3.0}, {"type": "sltp", "k1": 2.0, "k2": 4.0}, {"type": "sltp", "k1": 3.0, "k2": 6.0},
          {"type": "trail", "k1": 2.0}, {"type": "trail", "k1": 3.0},
-         {"type": "time", "h": 4}, {"type": "time", "h": 24}]
+         {"type": "time", "h": 4}, {"type": "time", "h": 24},
+         # v6.1: breakeven stop, partial take-profit (half at TP1, rest trails), volatility-adaptive target
+         {"type": "be", "k1": 2.0, "k2": 4.0, "b": 1.0}, {"type": "be", "k1": 3.0, "k2": 6.0, "b": 1.5},
+         {"type": "part", "k1": 2.0, "k2": 2.0, "k3": 3.0}, {"type": "part", "k1": 3.0, "k2": 3.0, "k3": 3.0},
+         {"type": "vol", "k1": 2.0, "k2": 4.0}, {"type": "vol", "k1": 3.0, "k2": 6.0}]
 MODES = ("LS", "LO", "SO")
 # v6: holding horizons (rebalance cadence in hours) and their Turkish labels
 CADENCES = (1, 4, 24, 168, 720)
 CAD_TR = {1: "1 saat", 4: "4 saat", 24: "1 gün", 168: "1 hafta", 720: "1 ay"}
 CAD_ADJ = {1: "1 saatlik", 4: "4 saatlik", 24: "1 günlük", 168: "1 haftalık", 720: "1 aylık"}
-SLOW_EXITS = [{"type": "sig"}, {"type": "sltp", "k1": 3.0, "k2": 6.0}, {"type": "trail", "k1": 3.0}]
-EX_CODE = {"sig": 0, "sltp": 1, "trail": 2, "time": 3}
+SLOW_EXITS = [{"type": "sig"}, {"type": "sltp", "k1": 3.0, "k2": 6.0}, {"type": "trail", "k1": 3.0},
+              {"type": "be", "k1": 3.0, "k2": 6.0, "b": 1.5}, {"type": "part", "k1": 3.0, "k2": 3.0, "k3": 3.0},
+              {"type": "vol", "k1": 3.0, "k2": 6.0}]
+EX_CODE = {"sig": 0, "sltp": 1, "trail": 2, "time": 3, "be": 4, "part": 5, "vol": 6}
 TF_H = {"1h": 1, "4h": 4, "1d": 24}
 
 # ---------------------------------------------------------------- technical rules
@@ -573,7 +579,7 @@ def rule_id(cat: str, d: dict, f: Optional[dict], mode: str, ex: dict) -> str:
     fs = ""
     if f:
         fs = " & agree(" + ds(f["d"]) + ")" if f.get("op") == "agree" else f" & {f['src']} {f['op']} {f.get('val')}"
-    es = ex["type"] + ("" if ex["type"] == "sig" else f"{ex.get('k1', '')}/{ex.get('k2', '')}" if ex["type"] != "time" else f"{ex['h']}h")
+    es = ex["type"] + "".join(f"{k}{ex[k]:g}" for k in ("k1", "k2", "k3", "b", "h") if k in ex)
     return f"{ds(d)}{fs} | {mode} | {es}"
 
 
@@ -601,7 +607,10 @@ def rule_label(r: dict) -> str:
             txt += f" + filtre: {tr_name(f['src'])} {sym} {f.get('val'):g}"
     ex = r["exit"]
     exs = {"sig": "sinyalle çıkış", "sltp": f"SL {ex.get('k1')}×ATR / TP {ex.get('k2')}×ATR",
-           "trail": f"iz süren stop {ex.get('k1')}×ATR", "time": f"{ex.get('h')} saat tut"}[ex["type"]]
+           "trail": f"iz süren stop {ex.get('k1')}×ATR", "time": f"{ex.get('h')} saat tut",
+           "be": f"SL {ex.get('k1')} / TP {ex.get('k2')}×ATR, {ex.get('b')}×ATR kârda stop girişe (başa baş)",
+           "part": f"SL {ex.get('k1')}×ATR, yarısı {ex.get('k2')}×ATR'de kâr al, kalanı başa baş + iz süren {ex.get('k3')}×ATR",
+           "vol": f"SL {ex.get('k1')} / TP {ex.get('k2')}×ATR × volatilite oranı"}[ex["type"]]
     mode = {"LS": "long+short", "LO": "sadece long", "SO": "sadece short"}[r["mode"]]
     return f"{txt} · {mode} · {exs}"
 
@@ -611,22 +620,38 @@ def simulate_batch(P: np.ndarray, ex: List[dict], atr_sel: np.ndarray, ctx_array
                    day_idx: np.ndarray, n_days: int, fund_long: float = FUND_LONG_H, fund_short: float = FUND_SHORT_H,
                    keep_hourly: bool = False) -> dict:
     """Simulate n configurations at once along time. P: int8 [n, T] target
-    positions decided at each bar's close. Returns daily net log returns etc."""
+    positions decided at each bar's close (earned from the next bar).
+
+    Exit types (ATR fixed at entry):
+      sig    signal only
+      sltp   stop k1*ATR, target k2*ATR
+      trail  trailing stop k1*ATR behind the best price
+      time   close after h bars
+      be     stop k1, target k2; once price moved b*ATR in favour the stop goes to entry (breakeven)
+      part   stop k1; HALF closed at k2*ATR, then the stop goes to entry and the rest trails at k3*ATR
+      vol    stop k1; target k2*ATR*(ATR / its 30-day median, clipped 0.5..2) -> wider targets when volatility expands
+    Same bar touches stop and target -> stop. Gaps through a level fill at the open."""
     O, H, L, C, ATR = (ctx_arrays[k] for k in ("O", "H", "L", "C", "ATR"))
+    ATRM = ctx_arrays.get("ATRM", ATR)
     close_fill = bool(ctx_arrays.get("close_fill", False))
     n, T = P.shape
     et = np.array([EX_CODE[e["type"]] for e in ex])
     k1 = np.array([float(e.get("k1", 0.0)) for e in ex])
     k2 = np.array([float(e.get("k2", 0.0)) for e in ex])
+    k3 = np.array([float(e.get("k3", 0.0)) for e in ex])
+    bk = np.array([float(e.get("b", 0.0)) for e in ex])
     hmax = np.array([float(e.get("h", 1e9)) for e in ex])
-    has_sl = (et == 1) | (et == 2)
-    has_tp = et == 1
+    has_sl = np.isin(et, (1, 2, 4, 5, 6))
+    has_tp = np.isin(et, (1, 4, 5, 6))
     is_trail = et == 2
     is_time = et == 3
+    is_be = et == 4
+    is_part = et == 5
+    is_vol = et == 6
     cur = np.zeros(n)
     blocked = np.zeros(n)
     entry = np.zeros(n); sl = np.full(n, np.nan); tp = np.full(n, np.nan); ext = np.zeros(n); atr_e = np.zeros(n)
-    held = np.zeros(n); tpnl = np.zeros(n)
+    held = np.zeros(n); tpnl = np.zeros(n); part_done = np.zeros(n, dtype=bool); be_done = np.zeros(n, dtype=bool)
     ntr = np.zeros(n); nwin = np.zeros(n); inpos = np.zeros(n)
     R = np.zeros((n, n_days), dtype=np.float32)
     E = np.zeros((n, n_days), dtype=np.int16)
@@ -634,11 +659,12 @@ def simulate_batch(P: np.ndarray, ex: List[dict], atr_sel: np.ndarray, ctx_array
     pos_h = np.zeros((n, T)) if keep_hourly else None
     ent_h = np.zeros((n, T)) if keep_hourly else None
     any_stop = bool((has_sl | is_time).any())
-    rows = np.arange(n)
     for t in range(1, T):
         pc = C[t - 1]
         lr = math.log(C[t] / pc) if pc > 0 and C[t] > 0 else 0.0
         ps = cur
+        side = np.sign(ps)
+        size = np.abs(ps)
         fund = np.where(ps > 0, fund_long * ps, np.where(ps < 0, -fund_short * ps, 0.0))
         ret = ps * lr - fund
         if any_stop:
@@ -649,46 +675,81 @@ def simulate_batch(P: np.ndarray, ex: List[dict], atr_sel: np.ndarray, ctx_array
                 with np.errstate(invalid="ignore"):
                     hit_sl = has_sl & live & ((lng & (L[t] <= sl)) | (sht & (H[t] >= sl)))
                     hit_tp = has_tp & live & ~hit_sl & ((lng & (H[t] >= tp)) | (sht & (L[t] <= tp)))
-                stop_exit = hit_sl | hit_tp
+                full_tp = hit_tp & ~(is_part & ~part_done)
+                half_tp = hit_tp & is_part & ~part_done
+                stop_exit = hit_sl | full_tp
                 if stop_exit.any():
-                    if close_fill:      # no real High/Low: a stop seen only at the close is filled AT the close
+                    if close_fill:      # no real High/Low: a level seen only at the close is filled AT the close
                         px = np.full(n, C[t])
                     else:
                         px = np.where(hit_sl, np.where(lng, np.minimum(O[t], sl), np.maximum(O[t], sl)), tp)
                     px = np.where(px > 0, px, C[t])
-                    ret = np.where(stop_exit, ps * np.log(px / pc) - cost * np.abs(ps) - fund, ret)
-                tr_upd = is_trail & live & ~stop_exit
+                    ret = np.where(stop_exit, ps * np.log(px / pc) - cost * size - fund, ret)
+                if half_tp.any():
+                    # half closed at the target, the rest marked to the close; stop -> entry, rest trails
+                    tpx = np.full(n, C[t]) if close_fill else np.where(lng, np.maximum(O[t], tp), np.minimum(O[t], tp))
+                    tpx = np.where(tpx > 0, tpx, C[t])
+                    r_half = 0.5 * side * np.log(tpx / pc) + 0.5 * side * lr - cost * 0.5 - fund
+                    # the remaining half is stopped at entry in the same bar if the bar also came back there
+                    with np.errstate(invalid="ignore"):
+                        back = half_tp & ((lng & (L[t] <= entry)) | (sht & (H[t] >= entry)))
+                    r_back = 0.5 * side * np.log(tpx / pc) + 0.5 * side * np.log(np.where(entry > 0, entry, pc) / pc) \
+                        - cost * 1.0 - fund
+                    ret = np.where(half_tp & ~back, r_half, np.where(back, r_back, ret))
+                    stop_exit = stop_exit | back
+                    keep = half_tp & ~back
+                    part_done = part_done | keep
+                    cur = np.where(keep, side * 0.5, ps)
+                    sl = np.where(keep, entry, sl)
+                    ext = np.where(keep, np.where(lng, H[t], L[t]), ext)
+                    tp = np.where(keep, np.nan, tp)
+                    ps_after = cur
+                else:
+                    ps_after = ps
+                # breakeven trigger (applies from the next bar)
+                trig = is_be & live & ~stop_exit & ~be_done & (
+                    (lng & (H[t] >= entry + bk * atr_e)) | (sht & (L[t] <= entry - bk * atr_e)))
+                if trig.any():
+                    be_done = be_done | trig
+                    sl = np.where(trig & lng, np.maximum(sl, entry), np.where(trig & sht, np.minimum(sl, entry), sl))
+                # trailing (plain trail, and the remainder after a partial target)
+                tr_upd = (is_trail | (is_part & part_done)) & live & ~stop_exit & ~half_tp
                 if tr_upd.any():
+                    kt = np.where(is_trail, k1, k3)
                     ext = np.where(tr_upd & lng, np.maximum(ext, H[t]), np.where(tr_upd & sht, np.minimum(ext, L[t]), ext))
-                    sl = np.where(tr_upd & lng, np.maximum(sl, ext - k1 * atr_e),
-                                  np.where(tr_upd & sht, np.minimum(sl, ext + k1 * atr_e), sl))
+                    sl = np.where(tr_upd & lng, np.maximum(sl, ext - kt * atr_e),
+                                  np.where(tr_upd & sht, np.minimum(sl, ext + kt * atr_e), sl))
                 held = held + live
                 time_exit = is_time & live & ~stop_exit & (held >= hmax)
                 if time_exit.any():
-                    ret = np.where(time_exit, ret - cost * np.abs(ps), ret)
+                    ret = np.where(time_exit, ret - cost * size, ret)
                 closed = stop_exit | time_exit
                 tpnl = tpnl + np.where(live, ret, 0.0)
                 if closed.any():
                     ntr += closed
                     nwin += closed & (tpnl > 0)
                     tpnl = np.where(closed, 0.0, tpnl)
-                    blocked = np.where(closed, ps, blocked)
-                    cur = np.where(closed, 0.0, ps)
+                    blocked = np.where(closed, side, blocked)
+                    cur = np.where(closed, 0.0, ps_after)
+                else:
+                    cur = ps_after
             else:
                 cur = ps
         else:
             tpnl = tpnl + np.where(ps != 0, ret, 0.0)
-        # ---- decision at the close of bar t
+        # ---- decision at the close of bar t (compares SIDES: a half position after a partial target is kept)
         raw = P[:, t].astype(float)
         blk = blocked != 0
         still = blk & (raw == blocked)
         blocked = np.where(blk & ~still, 0.0, blocked)
         want = np.where(still, 0.0, raw)
-        change = want != cur
+        cside = np.sign(cur)
+        change = want != cside
         if change.any():
             closing = change & (cur != 0)
-            ret = ret - cost * np.abs(cur) * closing
-            tpnl = tpnl - cost * np.abs(cur) * closing
+            csize = np.abs(cur)
+            ret = ret - cost * csize * closing
+            tpnl = tpnl - cost * csize * closing
             ntr += closing
             nwin += closing & (tpnl > 0)
             tpnl = np.where(closing, 0.0, tpnl)
@@ -696,12 +757,17 @@ def simulate_batch(P: np.ndarray, ex: List[dict], atr_sel: np.ndarray, ctx_array
             ret = ret - cost * np.abs(want) * opening
             tpnl = np.where(opening, -cost * np.abs(want), tpnl)
             a = ATR[atr_sel, t]
+            am = ATRM[atr_sel, t]
+            vmul = np.clip(np.where(am > 0, a / np.where(am > 0, am, 1.0), 1.0), 0.5, 2.0)
+            k2e = np.where(is_vol, k2 * vmul, k2)
             entry = np.where(opening, C[t], entry)
             sl = np.where(opening & has_sl, C[t] - want * k1 * a, np.where(opening, np.nan, sl))
-            tp = np.where(opening & has_tp, C[t] + want * k2 * a, np.where(opening, np.nan, tp))
+            tp = np.where(opening & has_tp, C[t] + want * k2e * a, np.where(opening, np.nan, tp))
             ext = np.where(opening, C[t], ext)
             atr_e = np.where(opening, a, atr_e)
             held = np.where(opening, 0.0, held)
+            part_done = np.where(change, False, part_done)
+            be_done = np.where(change, False, be_done)
             E[opening, day_idx[t]] += 1
             cur = np.where(change, want, cur)
         inpos += cur != 0
@@ -710,7 +776,6 @@ def simulate_batch(P: np.ndarray, ex: List[dict], atr_sel: np.ndarray, ctx_array
             hourly[:, t] = ret
             pos_h[:, t] = cur
             ent_h[:, t] = entry
-    # open trades at the end count as closed for the statistics
     open_ = cur != 0
     ntr += open_
     nwin += open_ & (tpnl > 0)
@@ -933,6 +998,8 @@ def leverage_table(hr: np.ndarray, pos: np.ndarray, ent: np.ndarray, H: np.ndarr
 # ================================================================= research
 def _slice_ctx(ctx: Ctx, w0: int, w1: int) -> Tuple[dict, Dict[str, np.ndarray]]:
     arr = {"O": ctx.O[w0:w1], "H": ctx.H[w0:w1], "L": ctx.L[w0:w1], "C": ctx.C[w0:w1], "close_fill": ctx.no_wicks,
+           "ATRM": np.vstack([pd.Series(ctx.atr[tf]).rolling(720, min_periods=48).median().values[w0:w1]
+                              for tf in ("1h", "4h", "1d")]),
            "ATR": np.vstack([np.nan_to_num(ctx.atr[tf][w0:w1], nan=np.nan) for tf in ("1h", "4h", "1d")])}
     return arr, {}
 
@@ -1387,7 +1454,7 @@ def _rule_state(ctx: Ctx, rule: dict, cost: float) -> dict:
     day_idx = np.zeros(ctx.T, dtype=int)
     out = simulate_batch(p[None, :], [rule["exit"]], np.array([ATR_ROW.get(rule.get("atr", "4h"), 1)]), arr, cost, day_idx, 1)
     st = out["state"]
-    side = int(np.sign(st["side"][0]))
+    side = int(np.sign(st["side"][0]))   # a half position (after a partial target) keeps its side
     f = lambda v: float(v) if side and np.isfinite(v) else None
     return {"side": {1: "LONG", -1: "SHORT", 0: "FLAT"}[side], "entry": f(st["entry"][0]), "sl": f(st["sl"][0]),
             "tp": f(st["tp"][0]), "as_of": str(ctx.idx[-1])}
@@ -1444,7 +1511,8 @@ def live_signals(pb: dict, data: Optional[Dict[str, dict]] = None, sys_hist: Opt
                   "as_of": sig.get("as_of"), "fresh": fresh, "strategy": p.get("label"), "kind": p.get("kind"),
                   "proven": bool(p.get("proven")), "beta_only": bool(p.get("beta_only")), "path": p.get("path"),
                   "wf_sharpe": p.get("wf_sharpe"), "dsr": p.get("dsr"),
-                  "consensus_side": c_side, "consensus": (pb.get("consensus") or {}).get("label")}
+                  "consensus_side": c_side, "consensus": (pb.get("consensus") or {}).get("label"),
+                  "exit": (p.get("rule") or {}).get("exit")}
     return out
 
 
