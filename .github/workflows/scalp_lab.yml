@@ -1,0 +1,76 @@
+name: Tier-1 Scalping Lab (5 dakikalık botlar)
+
+# v10.0: intraday bots (mean reversion, RSI, liquidation-flush rebound,
+# breakout, order flow) on 5-minute bars of the 30 most traded Binance USDT
+# perps of each month (point-in-time), 2022 -> today, real taker fees,
+# sealed last 2 years. Needs the `xsdata` branch (Crypto Portfolio Lab).
+# RESULTS: run page -> Summary, Artifacts -> scalp-lab-results, `scalplab` branch.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: tier1-scalp-lab
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  lab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+      - name: Universe source (xsdata branch)
+        run: |
+          mkdir -p xs_data
+          git fetch --depth 1 origin xsdata && git archive FETCH_HEAD | tar -x -C xs_data
+          ls -la xs_data
+      - name: Cached 5-minute data
+        uses: actions/cache@v4
+        with:
+          path: scalp_data
+          key: scalp-5m-${{ github.run_id }}
+          restore-keys: scalp-5m-
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt numba
+      - name: Download 5-minute bars (Binance archive, only missing months)
+        timeout-minutes: 120
+        run: python scalp_data.py --panel xs_data/xs_panel.csv.gz --out scalp_data --top 30 --start 2022-01
+      - name: Scalping research (sealed 2-year exam)
+        run: python scalp_lab.py --data scalp_data --out scalp_out
+      - name: Report on the run page
+        if: always()
+        run: |
+          {
+            echo "## ⬇️ Sonuç dosyaları"
+            echo ""
+            echo "- **Tek tıkla hepsi (zip):** https://github.com/${GITHUB_REPOSITORY}/archive/refs/heads/scalplab.zip"
+            echo "- Bu sayfanın en altında **Artifacts → scalp-lab-results**"
+            echo ""
+            if [ -f scalp_out/scalp_report.md ]; then cat scalp_out/scalp_report.md; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: scalp-lab-results
+          path: scalp_out/
+          retention-days: 30
+      - name: Publish to the scalplab branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd scalp_out
+          git init -q && git checkout -q -b scalplab
+          git config user.email "quantbot@github.com" && git config user.name "QuantBot Tier-1"
+          git add -A && git commit -q -m "⚡ scalp lab $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -q -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" scalplab
