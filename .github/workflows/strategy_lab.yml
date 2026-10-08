@@ -3,7 +3,8 @@ name: Tier-1 Strategy Lab (strateji testi)
 # v5.0: leveraged perpetual-futures research over EVERY system signal (alone and
 # in combinations) + 54 technical rules, long/short/long-only/short-only,
 # 8 exit rules, funding & fees, leverage/liquidation table. Walk-forward +
-# Deflated Sharpe + alpha vs holding. Takes ~15-40 minutes.
+# Deflated Sharpe + alpha vs holding. v6: 5 holding horizons + combination
+# discovery with an untouched holdout. Takes ~30-90 minutes.
 #
 # Uses the system's point-in-time signals from the `reports` branch
 # (validation_reports/signal_panel.csv.gz, produced by
@@ -29,7 +30,7 @@ permissions:
 jobs:
   lab:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 300
     steps:
       - name: Repository Checkout (code)
         uses: actions/checkout@v6
