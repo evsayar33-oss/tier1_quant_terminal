@@ -49,13 +49,46 @@ COT_MARKETS = {                                 # (report, name must contain, na
 }
 
 
-def _get(url: str, timeout: int = 30) -> Optional[bytes]:
+UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
+      "Chrome/126.0 Safari/537.36")       # cftc.gov rejects non-browser clients
+LAST_STATUS: Dict[str, str] = {}
+
+
+def _get(url: str, timeout: int = 30, params: Optional[dict] = None) -> Optional[bytes]:
     import requests
     try:
-        r = requests.get(url, timeout=timeout, headers={"User-Agent": "tier1-quant-research"})
+        r = requests.get(url, timeout=timeout, params=params,
+                         headers={"User-Agent": UA, "Accept": "*/*", "Accept-Language": "en-US,en;q=0.9"})
+        LAST_STATUS[url] = str(r.status_code)
         return r.content if r.status_code == 200 and r.content else None
-    except Exception:
+    except Exception as exc:
+        LAST_STATUS[url] = type(exc).__name__
         return None
+
+
+# CFTC public reporting API (Socrata, free, no key) - fallback when the zip archive is blocked
+SOCRATA = {"fin": "https://publicreporting.cftc.gov/resource/gpe5-46if.json",       # TFF, futures only
+           "disagg": "https://publicreporting.cftc.gov/resource/72hh-3qpy.json"}    # disaggregated, futures only
+
+
+def _socrata(kind: str, since: str) -> Optional[pd.DataFrame]:
+    import json as _json
+    names = {"fin": ("E-MINI S&P 500", "NASDAQ", "BITCOIN", "ETHER"), "disagg": ("GOLD", "SILVER")}[kind]
+    like = " OR ".join(f"upper(market_and_exchange_names) like '%{n}%'" for n in names)
+    tries = [{"$where": f"report_date_as_yyyy_mm_dd >= '{since}T00:00:00' AND ({like})", "$limit": 50000},
+             {"$where": f"({like})", "$limit": 50000},
+             {"$limit": 200000, "$order": ":id"}]
+    for q in tries:
+        blob = _get(SOCRATA[kind], timeout=120, params=q)
+        if not blob:
+            continue
+        try:
+            rows = _json.loads(blob)
+            if isinstance(rows, list) and rows:
+                return pd.DataFrame(rows)
+        except Exception:
+            continue
+    return None
 
 
 def _read_zip_csv(blob: bytes, header="infer", names=None) -> Optional[pd.DataFrame]:
@@ -101,6 +134,8 @@ def _one_day(sym: str, day: str) -> Optional[pd.DataFrame]:
 
 
 def crypto_panel(days: int = 760, end: Optional[datetime] = None, workers: int = 8) -> pd.DataFrame:
+    if days <= 0:
+        return pd.DataFrame()
     end = (end or datetime.now(timezone.utc)).date()
     day_list = [str(end - timedelta(days=k)) for k in range(1, days + 1)]
     rows = []
@@ -133,11 +168,10 @@ def crypto_panel(days: int = 760, end: Optional[datetime] = None, workers: int =
 
 # ------------------------------------------------------------------ CFTC COT
 def _col(df: pd.DataFrame, *keys) -> Optional[str]:
-    for c in df.columns:
-        cl = str(c).lower()
-        if all(k.lower() in cl for k in keys):
-            return c
-    return None
+    """Column whose name contains every key; the SHORTEST such name wins
+    (so 'open_interest_all' never resolves to 'pct_of_open_interest_all')."""
+    hits = [c for c in df.columns if all(k.lower() in str(c).lower() for k in keys)]
+    return min(hits, key=lambda c: len(str(c))) if hits else None
 
 
 def cot_panel(years: int = 4, end: Optional[datetime] = None) -> pd.DataFrame:
@@ -150,6 +184,15 @@ def cot_panel(years: int = 4, end: Optional[datetime] = None) -> pd.DataFrame:
             d = _read_zip_csv(blob) if blob else None
             if d is not None:
                 frames[kind].append(d)
+        if not frames[kind]:
+            print(f"[alt] COT arşivi ({kind}) indirilemedi (HTTP {LAST_STATUS.get('https://www.cftc.gov/files/dea/history/' + pat.format(y=yrs[-1]), '?')}); "
+                  f"CFTC açık veri API'si deneniyor", flush=True)
+            d = _socrata(kind, f"{yrs[0]}-01-01")
+            if d is not None:
+                frames[kind].append(d)
+                print(f"[alt] COT ({kind}) API'den alındı: {len(d)} satır", flush=True)
+            else:
+                print(f"[alt] COT ({kind}) API'den de alınamadı (HTTP {LAST_STATUS.get(SOCRATA[kind], '?')})", flush=True)
     rows = []
     for a, (kind, must, mustnot) in COT_MARKETS.items():
         if not frames[kind]:

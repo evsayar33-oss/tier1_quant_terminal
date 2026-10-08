@@ -713,7 +713,7 @@ def rule_label(r: dict) -> str:
                    (" & ".join(f"[{ds(e)}]" for e in x["ens"]) if len(x["ens"]) <= 7 else f"{len(x['ens'])} sinyal")
         s = tr_name(x["src"])
         if x.get("op") == "z":
-            s += f" (güçlü, |z|>{x.get('thr', 1.0):g})"
+            s += f" (güçlü, ∣z∣>{x.get('thr', 1.0):g})"
         if "cad" in x and int(x["cad"]) > 1:
             s += f" · {CAD_ADJ.get(int(x['cad']), str(x['cad']) + ' saatlik')}" + (" ortalama" if x.get("smooth") else "")
         return ("TERS " if x.get("inv") else "") + s
@@ -1559,7 +1559,7 @@ def research(data: Dict[str, dict], panel: Optional[pd.DataFrame] = None, now: O
         g["both"] = both.reindex(g.index).astype(int)
         g = g.sort_values("mean", key=lambda x: -x.abs())
         res["alt_signals"] = [{"name": tr_name(r["src"]), "src": r["src"], "cad": int(r["cad"]),
-                               "op": ("işaret" if r["op"] == "sign" else f"|z|>{r['thr']}") + (" · ufuk ort." if r["smooth"] else " · son değer"), "mean": round(float(r["mean"]), 2),
+                               "op": ("işaret" if r["op"] == "sign" else f"∣z∣>{r['thr']}") + (" · ufuk ort." if r["smooth"] else " · son değer"), "mean": round(float(r["mean"]), 2),
                                "h1": round(float(r["h1"]), 2), "h2": round(float(r["h2"]), 2), "pos": int(r["pos"]),
                                "both": int(r["both"]), "n": int(r["n"])} for _, r in g.head(30).iterrows()]
         res["alt_assets"] = sorted(A["asset"].unique().tolist())
@@ -1744,7 +1744,7 @@ def report_md(res: dict) -> str:
         L += ["> ⚠️ ÇEVRİMDIŞI ÖN İZLEME: fiyat yolu panelden yeniden kuruldu (High/Low yok, stoplar kapanışla kontrol edildi). "
               "Kesin sonuç GitHub Actions'taki çalışmadır.", ""]
     L += ["**v6:** her sinyal 5 tutma ufkunda (1 saat · 4 saat · 1 gün · 1 hafta · 1 ay), son değer ya da ufuk ortalaması, "
-          "işaret / güçlü (|z|>0.5, |z|>1), sistem yönünde ve TERS, long+short / sadece long / sadece short, 3-8 çıkış kuralıyla "
+          "işaret / güçlü (∣z∣>0.5, ∣z∣>1), sistem yönünde ve TERS, long+short / sadece long / sadece short, 3-8 çıkış kuralıyla "
           "TEK TEK; sonra hazır kombinasyonlar ve veriden keşfedilen kombinasyonlar test edildi.", "",
           "**Kanıt** (biri yeterli; **C:** kombinasyon keşfinde hiç görülmemiş son dönemde t ≥ 2) — **A:** sistem sinyalli pencerede seçim prosedürünün walk-forward OOS t ≥ 2, 5 dilimin ≥ 3'ü "
           "pozitif, Deflated Sharpe ≥ 0.90, ≥ 30 işlem · **B:** 10 yıllık günlük veride aynı testler (7 dilimin ≥ 5'i). "

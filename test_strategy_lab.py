@@ -485,7 +485,7 @@ def test_alt_data_parsers_offline(monkeypatch):
             z.writestr(name, df.to_csv(index=False, header=header))
         return b.getvalue()
 
-    def fake_get(url, timeout=30):
+    def fake_get(url, timeout=30, params=None):
         if "metrics" in url and "BTCUSDT" in url:
             day = url.split("-metrics-")[1][:10]
             ts = pd.date_range(day, periods=288, freq="5min")
@@ -508,6 +508,15 @@ def test_alt_data_parsers_offline(monkeypatch):
                                  "Asset_Mgr_Positions_Long_All": 5000, "Asset_Mgr_Positions_Short_All": 1000,
                                  "Lev_Money_Positions_Long_All": 1000 + 100 * k, "Lev_Money_Positions_Short_All": 9000})
             return zipped(pd.DataFrame(rows), "FinFutYY.txt")
+        if url == alt_data.SOCRATA["disagg"]:                               # zip archive blocked -> public API (JSON)
+            dates = pd.date_range("2025-01-07", periods=15, freq="7D")
+            return json.dumps([{"market_and_exchange_names": "GOLD - COMMODITY EXCHANGE INC.",
+                                "report_date_as_yyyy_mm_dd": d.strftime("%Y-%m-%dT00:00:00.000"),
+                                "pct_of_open_interest_all": "100", "open_interest_all": "500000",
+                                "m_money_positions_long_all": str(200000 + 1000 * k), "m_money_positions_short_all": "50000",
+                                "prod_merc_positions_long": "40000", "prod_merc_positions_short": "240000",
+                                "swap_positions_long_all": "10000", "swap__positions_short_all": "90000"}
+                               for k, d in enumerate(dates)]).encode()
         return None
 
     monkeypatch.setattr(alt_data, "_get", fake_get)
@@ -522,3 +531,6 @@ def test_alt_data_parsers_offline(monkeypatch):
     assert len(b) == 20 and (b["t"].dt.dayofweek == 5).all()            # Tuesday report -> known Saturday
     assert np.isclose(b["alt::cot_lev_net"].iloc[0], (1000 - 9000) / 30000)  # main contract, micro excluded
     assert np.isclose(b["alt::cot_lev_chg"].iloc[1], 100 / 30000)
+    g = cot[cot["asset"] == "XAU"].reset_index(drop=True)
+    assert len(g) == 15 and np.isclose(g["alt::cot_mm_net"].iloc[0], 150000 / 500000)
+    assert np.isclose(g["alt::cot_swap_net"].iloc[0], -80000 / 500000) and np.isclose(g["alt::cot_mm_chg"].iloc[1], 1000 / 500000)
