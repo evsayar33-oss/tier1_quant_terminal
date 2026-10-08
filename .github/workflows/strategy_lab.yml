@@ -4,7 +4,11 @@ name: Tier-1 Strategy Lab (strateji testi)
 # in combinations) + 54 technical rules, long/short/long-only/short-only,
 # 8 exit rules, funding & fees, leverage/liquidation table. Walk-forward +
 # Deflated Sharpe + alpha vs holding. v6: 5 holding horizons + combination
-# discovery with an untouched holdout. Takes ~30-90 minutes.
+# discovery with an untouched holdout. v7: system direction used ONLY as a
+# filter for technical entry triggers (RSI2, Bollinger, Donchian, EMA20, MACD,
+# Keltner) + a NEW information source: Binance futures positioning (open
+# interest, long/short ratios, taker flow, perp premium) and CFTC Commitments
+# of Traders for all 6 assets (free, no key). Takes ~45-150 minutes.
 #
 # Uses the system's point-in-time signals from the `reports` branch
 # (validation_reports/signal_panel.csv.gz, produced by
@@ -55,8 +59,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: New information source (Binance positioning + CFTC COT, point-in-time)
+        continue-on-error: true
+        timeout-minutes: 30
+        run: |
+          mkdir -p validation_reports
+          python alt_data.py --out validation_reports/alt_panel.csv.gz --days 760 --years 4 || echo "alternatif veri indirilemedi; onsuz devam"
+
       - name: Strategy research
-        run: python strategy_lab.py --source yahoo --out lab_out
+        run: |
+          python strategy_lab.py --source yahoo --out lab_out
+          if [ -f validation_reports/alt_panel.csv.gz ]; then cp validation_reports/alt_panel.csv.gz lab_out/alt_panel.csv.gz; fi
 
       - name: Download links + full report on the run page
         if: always()
@@ -80,6 +93,7 @@ jobs:
             lab_out/lab_results.json
             lab_out/lab_playbook.json
             lab_out/lab_all_configs.csv.gz
+            lab_out/alt_panel.csv.gz
           if-no-files-found: warn
           retention-days: 30
 
