@@ -123,7 +123,7 @@ def publish(branch: str, paths: List[str], root: str = ".", message: str = "") -
 
 # v5.0: needed by the engine only (published on the `state` branch, NOT in the
 # app's download bundle, so the page stays fast)
-ENGINE_ONLY_FILES = ["signal_history.csv"]
+ENGINE_ONLY_FILES = ["signal_history.csv", "alt_recent.csv.gz", "alt_recent_meta.json"]
 STATE_PUBLISH_PATHS = STATE_FILES + ENGINE_ONLY_FILES + STATE_DIRS + ["state_backups", BUNDLE]
 
 

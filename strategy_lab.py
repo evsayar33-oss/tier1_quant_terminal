@@ -66,6 +66,8 @@ WINDOW_DAYS = 730
 FOLDS, LONG_FOLDS = 6, 8
 MIN_SELECT_TRADES = 15
 Z_WINDOW, Z_MIN = "30D", 60
+ALT_Z_N, ALT_Z_MIN = 90, 20                      # alt z-score: 90 observations of its own frequency (days / weeks)
+ALT_STALE = pd.Timedelta(days=15)              # COT is weekly + holidays -> stale after 15 days
 BATCH = 3000
 CRIT = {"wf_t": 2.0, "pos_folds": 3, "dsr": 0.90, "trades": 30,
         "long_t": 2.0, "long_pos_folds": 5, "long_years": 6.0, "alpha_t": 2.0}
@@ -78,6 +80,8 @@ EXITS = [{"type": "sig"},
          {"type": "part", "k1": 2.0, "k2": 2.0, "k3": 3.0}, {"type": "part", "k1": 3.0, "k2": 3.0, "k3": 3.0},
          {"type": "vol", "k1": 2.0, "k2": 4.0}, {"type": "vol", "k1": 3.0, "k2": 6.0}]
 MODES = ("LS", "LO", "SO")
+TRIG_EXITS = [{"type": "sig"}, {"type": "sltp", "k1": 2.0, "k2": 4.0}, {"type": "be", "k1": 2.0, "k2": 4.0, "b": 1.0},
+              {"type": "part", "k1": 2.0, "k2": 2.0, "k3": 3.0}, {"type": "trail", "k1": 2.0}, {"type": "vol", "k1": 2.0, "k2": 4.0}]
 # v6: holding horizons (rebalance cadence in hours) and their Turkish labels
 CADENCES = (1, 4, 24, 168, 720)
 CAD_TR = {1: "1 saat", 4: "4 saat", 24: "1 gün", 168: "1 hafta", 720: "1 ay"}
@@ -126,7 +130,20 @@ TR = {  # Turkish names of the most important system signals
 }
 
 
+ALT_TR = {"oi_chg_24h": "Açık pozisyon değişimi 24s", "oi_chg_7d": "Açık pozisyon değişimi 7g",
+          "top_trader_ls": "Büyük trader long/short", "account_ls": "Hesap long/short oranı",
+          "taker_buy_sell": "Agresif alış/satış oranı", "premium": "Perp primi (baz)", "premium_8h": "Perp primi 8s ort.",
+          "cot_lev_net": "COT kaldıraçlı fon net", "cot_am_net": "COT varlık yöneticisi net", "cot_dealer_net": "COT dealer net",
+          "cot_mm_net": "COT spekülatif fon net", "cot_prod_net": "COT üretici net", "cot_swap_net": "COT swap dealer net",
+          "cot_oi_chg": "COT açık pozisyon değişimi"}
+
+
 def tr_name(col: str) -> str:
+    if col.startswith("alt::"):
+        k = col[5:]
+        base = k[:-4] + "_net" if k.endswith("_chg") and k.startswith("cot_") and k != "cot_oi_chg" else k
+        nm = ALT_TR.get(base, k)
+        return "Alt: " + (nm + " (haftalık değişim)" if base != k else nm)
     if col in TR:
         return TR[col]
     if col.startswith("z::"):
@@ -306,6 +323,42 @@ def tech_signal(fam: str, p, df: pd.DataFrame) -> pd.Series:
     raise ValueError(fam)
 
 
+TRIG_TR = {"rsi2": "RSI(2) geri çekilme", "boll": "Bollinger bandı dışı", "donch": "20 mum kırılımı",
+           "ema20x": "EMA20 kesişimi", "macdx": "MACD kesişimi", "kelt": "Keltner kırılımı"}
+TRIG_HOLD = {"1h": 12, "4h": 48, "1d": 120}       # an entry trigger stays valid this many hours
+
+
+def trigger_events(kind: str, df: pd.DataFrame) -> pd.Series:
+    """ENTRY EVENTS (+1 long / -1 short) at the bar where the condition starts; 0 otherwise."""
+    C = df["Close"]
+
+    def onset(up: pd.Series, dn: pd.Series) -> pd.Series:
+        up, dn = up.fillna(False), dn.fillna(False)
+        e = pd.Series(0.0, index=df.index)
+        e[up & ~up.shift(1, fill_value=False)] = 1.0
+        e[dn & ~dn.shift(1, fill_value=False)] = -1.0
+        return e
+    if kind == "rsi2":
+        r = _rsi(C, 2)
+        return onset(r < 10, r > 90)
+    if kind == "boll":
+        m, sd = C.rolling(20).mean(), C.rolling(20).std()
+        return onset(C < m - 2 * sd, C > m + 2 * sd)
+    if kind == "donch":
+        return onset(C > df["High"].rolling(20).max().shift(1), C < df["Low"].rolling(20).min().shift(1))
+    if kind == "ema20x":
+        e = _ema(C, 20)
+        return onset(C > e, C < e)
+    if kind == "macdx":
+        m = _ema(C, 12) - _ema(C, 26)
+        sg = _ema(m, 9)
+        return onset(m > sg, m < sg)
+    if kind == "kelt":
+        e, a = _ema(C, 20), _atr(df, 20)
+        return onset(C > e + 2 * a, C < e - 2 * a)
+    raise ValueError(kind)
+
+
 def _pstr(p) -> str:
     return "-".join(str(x) for x in p) if isinstance(p, (list, tuple)) else str(p)
 
@@ -314,7 +367,8 @@ def _pstr(p) -> str:
 class Ctx:
     """Everything a rule can look at, aligned to the hourly execution grid."""
 
-    def __init__(self, h1: pd.DataFrame, d1: Optional[pd.DataFrame] = None, sys: Optional[pd.DataFrame] = None):
+    def __init__(self, h1: pd.DataFrame, d1: Optional[pd.DataFrame] = None, sys: Optional[pd.DataFrame] = None,
+                 alt: Optional[pd.DataFrame] = None):
         self.idx = h1.index
         self.O, self.H, self.L, self.C = (h1[c].values.astype(float) for c in ("Open", "High", "Low", "Close"))
         self.T = len(h1)
@@ -337,6 +391,10 @@ class Ctx:
                 return np.where(pos >= 0, v[np.clip(pos, 0, len(v) - 1)], np.nan)
 
             self.atr[tf] = _map(_atr(df))
+            first_seen = np.r_[True, pos[1:] != pos[:-1]] & (pos >= 0)
+            for kind in TRIG_TR:
+                ev = trigger_events(kind, df).values
+                self.feat[f"trig:{tf}:{kind}"] = np.where(first_seen, ev[np.clip(pos, 0, len(ev) - 1)], 0.0)
             for fam, plist in TECH[tf].items():
                 for p in plist:
                     self.feat[f"tech:{tf}:{fam}:{_pstr(p)}"] = np.nan_to_num(_map(tech_signal(fam, p, df)))
@@ -359,6 +417,26 @@ class Ctx:
                               int(len(fresh) - np.argmax(fresh[::-1])) if fresh.any() else 0)
         else:
             self.sys_cover = (0, 0)
+        # v7: alternative data (Binance derivatives positioning, CFTC COT) - its own as-of alignment:
+        # values arrive daily/weekly, so they stay valid up to ALT_STALE after they became known
+        self.alt_cols: List[str] = []
+        if alt is not None and len(alt):
+            A = alt[["t"] + [c for c in alt.columns if c.startswith("alt::")]].groupby("t").last().sort_index()
+            A = A.apply(pd.to_numeric, errors="coerce").dropna(axis=1, how="all")
+            stale = ALT_STALE.to_timedelta64()
+            for c in A.columns:                         # each source has its own calendar -> align column by column
+                x = A[c].dropna()
+                if len(x) < ALT_Z_MIN:
+                    continue
+                z = (x - x.rolling(ALT_Z_N, min_periods=ALT_Z_MIN).mean()) / x.rolling(ALT_Z_N, min_periods=ALT_Z_MIN).std()
+                tv = x.index.values
+                pos = np.searchsorted(tv, close_t.values, side="right") - 1
+                ok = (pos >= 0) & ((close_t.values - tv[np.clip(pos, 0, len(tv) - 1)]) <= stale)
+                for name, ser in ((c, x), ("z::" + c, z)):
+                    v = ser.values.astype(float)
+                    self.feat[name] = np.where(ok, v[np.clip(pos, 0, len(v) - 1)], np.nan)
+                    self.alt_cols.append(name)
+            self.sys_cols += self.alt_cols
 
     # ---------------- rule evaluation
     def direction(self, d: dict) -> np.ndarray:
@@ -372,6 +450,24 @@ class Ctx:
                 return np.where(np.all(M == M[0], axis=0), M[0], 0.0)
             need = math.ceil(len(parts) / 2.0)
             return np.where(np.abs(vote) >= need, np.sign(vote), 0.0) if len(parts) > 2 else np.sign(vote) * (np.abs(vote) == len(parts))
+        if "trig" in d:
+            key = json.dumps(d, sort_keys=True)
+            out = self._dmemo.get(key)
+            if out is None:
+                ev = self.feat.get(d["trig"])
+                if ev is None:
+                    return np.zeros(self.T)
+                last = np.maximum.accumulate(np.where(ev != 0, np.arange(self.T), -1))
+                age = np.arange(self.T) - last
+                hold = int(d.get("hold", 12))
+                sig = np.where((last >= 0) & (age < hold), ev[np.clip(last, 0, None)], 0.0)
+                if d.get("bias"):
+                    b = np.sign(self.direction(d["bias"]))
+                    sig = np.where(b == np.sign(sig), sig, 0.0)       # trade a trigger ONLY in the system's direction
+                out = sig
+                if len(self._dmemo) < 20000:
+                    self._dmemo[key] = out
+            return out
         if "cad" in d:
             key = json.dumps(d, sort_keys=True)
             out = self._dmemo.get(key)
@@ -549,12 +645,29 @@ def direction_rules(ctx: Ctx) -> List[Tuple[str, dict, Optional[dict]]]:
             for sm in (False, True):
                 for inv in (False, True):
                     out.append((f"tek·{CAD_TR[cad]}", {"src": k, "op": "sign", "inv": inv, "cad": cad, "smooth": sm}, None))
+    # 9) v7: SYSTEM DIRECTION AS FILTER + TECHNICAL ENTRY TRIGGER + ATR EXIT
+    #    every trigger alone (baseline) and taken only in the direction of each system bias
+    biases = [None]
+    bias_src = [c for c in core] + [c for c in sys_dir if c.startswith(("f::", "alt::", "z::alt::")) and c not in core]
+    for c in bias_src:
+        for cad in (1, 24, 168):
+            biases.append({"src": c, "op": "sign", "cad": cad, "smooth": cad > 1})
+    for tf in ("1h", "4h", "1d"):
+        for kind in TRIG_TR:
+            key = f"trig:{tf}:{kind}"
+            if key not in ctx.feat:
+                continue
+            for bspec in biases:
+                d = {"trig": key, "hold": TRIG_HOLD[tf], "bias": bspec}
+                out.append(("filtre+tetik" if bspec else "tetik (filtresiz)", d, None))
     # 7) benchmarks FIRST, so de-duplication never drops them (an always-positive signal equals "hold long")
     return [("referans", {"bench": "long"}, None), ("referans", {"bench": "short"}, None)] + out
 
 
 def _dir_tf(d: dict) -> str:
     """Which ATR scale the stops of this rule use."""
+    if "trig" in d:
+        return d["trig"].split(":")[1]
     src = d.get("src") or ""
     if int(d.get("cad", 1)) >= 24:
         return "1d"
@@ -570,6 +683,8 @@ def rule_id(cat: str, d: dict, f: Optional[dict], mode: str, ex: dict) -> str:
     def ds(x):
         if "bench" in x:
             return "HOLD_" + x["bench"].upper()
+        if "trig" in x:
+            return x["trig"] + ("|" + ds(x["bias"]) if x.get("bias") else "")
         if "ens" in x:
             return ("ALL(" if x.get("need") == "all" else "MAJ(") + ",".join(ds(e) for e in x["ens"]) + ")"
         s = x["src"] + (f">{x.get('thr', 1.0)}σ" if x.get("op") == "z" else "")
@@ -589,6 +704,10 @@ def rule_label(r: dict) -> str:
     def ds(x):
         if "bench" in x:
             return "Sürekli " + ("LONG" if x["bench"] == "long" else "SHORT") + " (referans)"
+        if "trig" in x:
+            _, tf, kind = x["trig"].split(":")
+            t = f"Tetik: {TRIG_TR[kind]} · {tf}"
+            return t + (f" | filtre: {ds(x['bias'])} yönünde" if x.get("bias") else " (filtresiz)")
         if "ens" in x:
             return ("Hepsi aynı yönde: " if x.get("need") == "all" else "Çoğunluk oyu: ") + \
                    (" & ".join(f"[{ds(e)}]" for e in x["ens"]) if len(x["ens"]) <= 7 else f"{len(x['ens'])} sinyal")
@@ -1023,7 +1142,13 @@ def _enumerate(ctx: Ctx, w0: int, w1: int, with_modes=MODES, exits=EXITS):
                 continue
             seen.add(key)
             p8 = p.astype(np.int8)
-            for ex in (SLOW_EXITS if int(d.get("cad", 1)) >= 24 and exits is EXITS else exits):
+            ex_list = exits
+            if exits is EXITS:
+                if "trig" in d:
+                    ex_list = TRIG_EXITS
+                elif int(d.get("cad", 1)) >= 24:
+                    ex_list = SLOW_EXITS
+            for ex in ex_list:
                 if "bench" in d and ex["type"] != "sig":
                     continue
                 yield {"cat": cat, "d": d, "f": f, "mode": mode, "exit": ex, "atr": _dir_tf(d)}, p8
@@ -1227,13 +1352,13 @@ def discover_combos(ctx: Ctx, metas: list, R: np.ndarray, E: np.ndarray, w0: int
 
 
 def research(data: Dict[str, dict], panel: Optional[pd.DataFrame] = None, now: Optional[datetime] = None,
-             source: str = "yahoo", all_rows: Optional[list] = None) -> dict:
+             source: str = "yahoo", all_rows: Optional[list] = None, alt: Optional[pd.DataFrame] = None) -> dict:
     now = now or datetime.now(timezone.utc)
     res = {"generated_at": now.isoformat(), "source": source, "panel": (panel.attrs.get("source") if panel is not None else None),
            "criteria": CRIT, "costs": {"fee_slippage_per_side": COST, "funding_long_per_8h": FUND_LONG_H * 8,
                                        "funding_short_per_8h": FUND_SHORT_H * 8},
            "assets": {}, "categories": [], "system_signals": {}, "robust": [], "n_configs": 0}
-    cat_rows, sys_rows, hz_rows = [], [], []
+    cat_rows, sys_rows, hz_rows, trig_rows, alt_rows = [], [], [], [], []
     robust: Dict[str, list] = {}
     robust_meta: Dict[str, dict] = {}
     for a, frames in data.items():
@@ -1241,7 +1366,10 @@ def research(data: Dict[str, dict], panel: Optional[pd.DataFrame] = None, now: O
         if h1 is None or len(h1) < 500:
             continue
         sysp = panel[panel["asset"] == a] if panel is not None else None
-        ctx = Ctx(h1, frames.get("1d"), sysp)
+        altp = alt[alt["asset"] == a] if alt is not None else None
+        ctx = Ctx(h1, frames.get("1d"), sysp, altp)
+        if ctx.alt_cols:
+            print(f"[lab] {a}: {len(ctx.alt_cols) // 2} alternatif veri sinyali eklendi", flush=True)
         idx = ctx.idx
         w0 = int(np.searchsorted(idx.values, (idx[-1] - pd.Timedelta(days=WINDOW_DAYS)).to_datetime64()))
         w1 = ctx.T
@@ -1341,6 +1469,28 @@ def research(data: Dict[str, dict], panel: Optional[pd.DataFrame] = None, now: O
                     and not str(d.get("src", "")).startswith("z::"):
                 hz_rows.append({"asset": a, "src": d["src"], "cad": int(d.get("cad", 1)), "sharpe": float(srs[i]),
                                 "h1": float(s1[i]), "h2": float(s2[i])})
+        # v7: system direction as FILTER for technical triggers - same trigger/exit/mode with vs without the filter
+        base_tr = {}
+        for i, m in enumerate(metas):
+            d = m["d"]
+            if "trig" in d and not d.get("bias"):
+                base_tr[(d["trig"], m["mode"], json.dumps(m["exit"], sort_keys=True))] = i
+        for i, m in enumerate(metas):
+            d = m["d"]
+            if "trig" in d and d.get("bias"):
+                j = base_tr.get((d["trig"], m["mode"], json.dumps(m["exit"], sort_keys=True)))
+                if j is None:
+                    continue
+                b = d["bias"]
+                trig_rows.append({"asset": a, "trig": d["trig"], "bias": b["src"], "bcad": int(b.get("cad", 1)), "mode": m["mode"],
+                                  "exit": m["exit"]["type"], "i_label": rule_label(m), "sharpe": float(srs[i]), "h1": float(s1[i]),
+                                  "h2": float(s2[i]), "trades": int(ntr[i]), "b_sharpe": float(srs[j]), "b_h1": float(s1[j]),
+                                  "b_h2": float(s2[j]), "b_trades": int(ntr[j])})
+            src = str(d.get("src", ""))
+            if "alt::" in src and m["f"] is None and m["mode"] == "LS" and m["exit"]["type"] == "sig" and not d.get("inv"):
+                alt_rows.append({"asset": a, "src": src, "cad": int(d.get("cad", 1)), "op": d.get("op"), "thr": d.get("thr"),
+                                 "smooth": bool(d.get("smooth")), "sharpe": float(srs[i]), "h1": float(s1[i]), "h2": float(s2[i]),
+                                 "trades": int(ntr[i])})
         # every system signal alone (LS, sign, signal exit): which outputs of the system carry information?
         for i, m in enumerate(metas):
             d = m["d"]
@@ -1395,6 +1545,24 @@ def research(data: Dict[str, dict], panel: Optional[pd.DataFrame] = None, now: O
         cad_avg = H.groupby("cad")["sharpe"].agg(["mean", "median", lambda s: float((s > 0).mean())])
         res["horizon_summary"] = [{"cad": int(c), "mean": round(float(r["mean"]), 2), "median": round(float(r["median"]), 2),
                                    "pos_share": round(float(r.iloc[2]), 2)} for c, r in cad_avg.iterrows()]
+    if trig_rows:
+        res["trigger"] = trigger_summary(pd.DataFrame(trig_rows))
+    if alt_rows:
+        A = pd.DataFrame(alt_rows)
+        A["key"] = A["src"] + "|" + A["cad"].astype(str) + "|" + A["op"].astype(str) + "|" + A["thr"].astype(str) + "|" + A["smooth"].astype(str)
+        g = A.groupby("key").agg(src=("src", "first"), cad=("cad", "first"), op=("op", "first"), thr=("thr", "first"),
+                                 smooth=("smooth", "first"),
+                                 mean=("sharpe", "mean"), h1=("h1", "mean"), h2=("h2", "mean"),
+                                 pos=("sharpe", lambda x: int((x > 0).sum())), n=("sharpe", "size"),
+                                 both=("h1", lambda x: 0))
+        both = A.assign(b=(A["h1"] > 0) & (A["h2"] > 0)).groupby("key")["b"].sum()
+        g["both"] = both.reindex(g.index).astype(int)
+        g = g.sort_values("mean", key=lambda x: -x.abs())
+        res["alt_signals"] = [{"name": tr_name(r["src"]), "src": r["src"], "cad": int(r["cad"]),
+                               "op": ("işaret" if r["op"] == "sign" else f"|z|>{r['thr']}") + (" · ufuk ort." if r["smooth"] else " · son değer"), "mean": round(float(r["mean"]), 2),
+                               "h1": round(float(r["h1"]), 2), "h2": round(float(r["h2"]), 2), "pos": int(r["pos"]),
+                               "both": int(r["both"]), "n": int(r["n"])} for _, r in g.head(30).iterrows()]
+        res["alt_assets"] = sorted(A["asset"].unique().tolist())
     nA = len(res["assets"])
     rob = [{"id": k, "label": rule_label(robust_meta[k]), "rule": robust_meta[k], "mean_sharpe": round(float(np.mean(v)), 2),
             "pos_assets": int(sum(x > 0 for x in v)), "n_assets": len(v)}
@@ -1403,6 +1571,42 @@ def research(data: Dict[str, dict], panel: Optional[pd.DataFrame] = None, now: O
     if res["robust"]:
         res["consensus"] = res["robust"][0]
     return res
+
+
+def trigger_summary(T: pd.DataFrame) -> dict:
+    """Does the system's direction, used ONLY as a filter, improve technical entry triggers?
+    lift = Sharpe(trigger taken only in the bias direction) - Sharpe(same trigger, same exit, no filter).
+    A filter is credible only if the lift is positive in BOTH halves of the window."""
+    T = T.copy()
+    T["lift"] = T["sharpe"] - T["b_sharpe"]
+    T["lift1"] = T["h1"] - T["b_h1"]
+    T["lift2"] = T["h2"] - T["b_h2"]
+    T["both"] = (T["lift1"] > 0) & (T["lift2"] > 0)
+    base = T.drop_duplicates(["asset", "trig", "mode", "exit"])
+    out = {"n_pairs": int(len(T)), "base_mean": round(float(base["b_sharpe"].mean()), 2),
+           "base_pos": round(float((base["b_sharpe"] > 0).mean()), 2), "filt_mean": round(float(T["sharpe"].mean()), 2),
+           "filt_pos": round(float((T["sharpe"] > 0).mean()), 2), "lift_mean": round(float(T["lift"].mean()), 2),
+           "lift_pos": round(float((T["lift"] > 0).mean()), 2), "lift_both": round(float(T["both"].mean()), 2)}
+    g = T.groupby(["bias", "bcad"]).agg(lift=("lift", "mean"), lift1=("lift1", "mean"), lift2=("lift2", "mean"),
+                                        both=("both", "mean"), filt=("sharpe", "mean"), n=("lift", "size"),
+                                        assets=("asset", "nunique")).reset_index()
+    g = g[g["n"] >= 6].sort_values("lift", ascending=False)
+    lab = {1: "anlık", 24: "günlük ort.", 168: "haftalık ort."}
+    out["biases"] = [{"name": tr_name(r["bias"]), "src": r["bias"], "cad": lab.get(int(r["bcad"]), str(r["bcad"])),
+                      "lift": round(float(r["lift"]), 2), "lift1": round(float(r["lift1"]), 2), "lift2": round(float(r["lift2"]), 2),
+                      "both": round(float(r["both"]), 2), "filt": round(float(r["filt"]), 2), "n": int(r["n"]), "assets": int(r["assets"])}
+                     for _, r in g.iterrows()]
+    t = T.groupby("trig").agg(base=("b_sharpe", "mean"), filt=("sharpe", "mean"), lift=("lift", "mean"),
+                              both=("both", "mean")).reset_index().sort_values("lift", ascending=False)
+    out["triggers"] = [{"trig": r["trig"], "name": f"{TRIG_TR.get(r['trig'].split(':')[2], r['trig'])} · {r['trig'].split(':')[1]}",
+                        "base": round(float(r["base"]), 2), "filt": round(float(r["filt"]), 2), "lift": round(float(r["lift"]), 2),
+                        "both": round(float(r["both"]), 2)} for _, r in t.iterrows()]
+    T["robust"] = T[["h1", "h2"]].min(axis=1)
+    top = T[(T["trades"] >= 20)].sort_values("robust", ascending=False).head(20)
+    out["top"] = [{"asset": r["asset"], "label": r["i_label"], "sharpe": round(float(r["sharpe"]), 2), "h1": round(float(r["h1"]), 2),
+                   "h2": round(float(r["h2"]), 2), "base": round(float(r["b_sharpe"]), 2), "lift": round(float(r["lift"]), 2),
+                   "trades": int(r["trades"])} for _, r in top.iterrows()]
+    return out
 
 
 def _idargs(m: dict) -> dict:
@@ -1480,7 +1684,7 @@ def load_live_system_history(root: str = ".") -> Optional[pd.DataFrame]:
 
 
 def live_signals(pb: dict, data: Optional[Dict[str, dict]] = None, sys_hist: Optional[pd.DataFrame] = None,
-                 now: Optional[datetime] = None) -> dict:
+                 now: Optional[datetime] = None, alt: Optional[pd.DataFrame] = None) -> dict:
     """Current position of every asset's candidate rule (and of the consensus
     rule), recomputed on fresh closed bars + the live system outputs."""
     now = now or datetime.now(timezone.utc)
@@ -1492,6 +1696,12 @@ def live_signals(pb: dict, data: Optional[Dict[str, dict]] = None, sys_hist: Opt
             data = {}
     if sys_hist is None:
         sys_hist = load_live_system_history()
+    if alt is None:
+        try:
+            import alt_data
+            alt = alt_data.load()
+        except Exception:
+            alt = None
     cons = (pb.get("consensus") or {}).get("rule")
     out = {}
     for a, p in (pb.get("assets") or {}).items():
@@ -1500,7 +1710,8 @@ def live_signals(pb: dict, data: Optional[Dict[str, dict]] = None, sys_hist: Opt
         if fr.get("1h") is not None and len(fr["1h"]) > 200:
             try:
                 sysp = sys_hist[sys_hist["asset"] == a] if sys_hist is not None else None
-                ctx = Ctx(fr["1h"], fr.get("1d"), sysp)
+                altp = alt[alt["asset"] == a] if alt is not None else None
+                ctx = Ctx(fr["1h"], fr.get("1d"), sysp, altp)
                 sig = _rule_state(ctx, p["rule"], COST[a])
                 fresh = True
                 if cons:
@@ -1523,7 +1734,7 @@ def _pct(x, d=1):
 
 def report_md(res: dict) -> str:
     c = res["costs"]
-    L = ["# 🧪 Strateji Laboratuvarı v5 — Kaldıraçlı Vadeli (Perp) Sonuç Raporu", "",
+    L = ["# 🧪 Strateji Laboratuvarı v7 — Kaldıraçlı Vadeli (Perp) Sonuç Raporu", "",
          f"_Üretim: {res['generated_at'][:16]} UTC · fiyat: {res['source']} · sistem sinyalleri: {res.get('panel') or 'yok'} · "
          f"denenen konfigürasyon: **{res['n_configs']:,}**_", "",
          f"**Maliyetler:** işlem başına (giriş ve çıkışta ayrı ayrı) komisyon+kayma %{c['fee_slippage_per_side']['BTC'] * 100:.2f}; "
@@ -1594,6 +1805,47 @@ def report_md(res: dict) -> str:
                 L.append(f"| {k} | {t['label']} | {t['cat']} | {t['d1']:.2f} | {t['d2']:.2f} | **{t['d3']:.2f}** | {_pct(t['ret3'])} | "
                          f"{t['t3']:+.1f} | {t['alpha_t3']:+.1f} | {t['trades']} |")
             L.append("")
+    # v7: system direction as filter + technical trigger
+    tg = res.get("trigger")
+    if tg:
+        L += ["## 3b) Sistem yönü FİLTRE + teknik TETİK + ATR çıkışı", "",
+              "_Kural: teknik tetik (RSI(2) aşırılığı, Bollinger dönüşü, Donchian kırılımı, EMA20 kesişimi, MACD kesişimi, "
+              "Keltner kırılımı) oluşunca, YALNIZCA sistemin gösterdiği yönde işleme girilir; çıkış ATR stop/hedef, başa-baş, "
+              "kısmi kâr, iz süren stop veya sinyal. 'Kazanç' = aynı tetik, aynı çıkış, aynı yön modu ile filtresiz hâline göre "
+              "Sharpe farkı. Bir filtreye ancak pencerenin İKİ yarısında da kazanç veriyorsa güvenilir._", "",
+              f"**Genel:** {tg['n_pairs']:,} (tetik × filtre × çıkış × yön) eşleşmesi · filtresiz tetik ort. Sharpe **{tg['base_mean']:.2f}** "
+              f"(pozitif %{tg['base_pos'] * 100:.0f}) → sistem filtreli ort. **{tg['filt_mean']:.2f}** (pozitif %{tg['filt_pos'] * 100:.0f}) · "
+              f"ortalama kazanç **{tg['lift_mean']:+.2f}** · kazanç pozitif %{tg['lift_pos'] * 100:.0f} · iki yarıda da pozitif "
+              f"**%{tg['lift_both'] * 100:.0f}**", "",
+              "**Filtre olarak en faydalı sistem yönleri** (tüm tetikler ve varlıklar ortalaması)", "",
+              "| Filtre (sistem yönü) | Ufuk | Ort. kazanç | 1. yarı / 2. yarı kazanç | İki yarıda da + | Filtreli ort. Sharpe | Eşleşme | Varlık |",
+              "|---|---|---|---|---|---|---|---|"]
+        for r in tg["biases"][:20]:
+            L.append(f"| {r['name']} | {r['cad']} | {r['lift']:+.2f} | {r['lift1']:+.2f} / {r['lift2']:+.2f} | %{r['both'] * 100:.0f} | "
+                     f"{r['filt']:.2f} | {r['n']} | {r['assets']} |")
+        if len(tg["biases"]) > 20:
+            L += ["", "_En zayıf 5 filtre:_ " + " · ".join(f"{r['name']} ({r['cad']}) {r['lift']:+.2f}" for r in tg["biases"][-5:])]
+        L += ["", "**Tetik bazında** (filtresiz → filtreli)", "", "| Tetik | Filtresiz Sharpe | Filtreli ort. | Kazanç | İki yarıda + |",
+              "|---|---|---|---|---|"]
+        for r in tg["triggers"]:
+            L.append(f"| {r['name']} | {r['base']:.2f} | {r['filt']:.2f} | {r['lift']:+.2f} | %{r['both'] * 100:.0f} |")
+        L += ["", "**İki yarıda da en sağlam 20 filtreli tetik kuralı** (sıralama: min(1. yarı, 2. yarı) — yine de seçim yanlılığı içerir)", "",
+              "| Varlık | Kural | Sharpe | 1. yarı / 2. yarı | Filtresiz | Kazanç | İşlem |", "|---|---|---|---|---|---|---|"]
+        for r in tg["top"]:
+            L.append(f"| {r['asset']} | {r['label']} | {r['sharpe']:.2f} | {r['h1']:.2f} / {r['h2']:.2f} | {r['base']:.2f} | "
+                     f"{r['lift']:+.2f} | {r['trades']} |")
+        L.append("")
+    if res.get("alt_signals"):
+        L += ["## 3c) Yeni bilgi kaynağı — türev piyasası konumlanması (Binance) ve CFTC COT", "",
+              f"_Varlıklar: {', '.join(res.get('alt_assets', []))}. Veri, canlı botun da bilebileceği an itibarıyla kullanıldı "
+              "(Binance günlük dosyası gün başlangıcından 30 saat sonra, COT salı pozisyonu cumartesi 00:00 UTC). "
+              "'(z)' = sinyalin kendi 90 gözlemlik ortalamasına göre konumu. Sinyal yönünde long+short, sinyalle çıkış._", "",
+              "| Sinyal | Ufuk | Kural | Ort. Sharpe | 1. yarı / 2. yarı | Pozitif varlık | İki yarıda + varlık |", "|---|---|---|---|---|---|---|"]
+        for r in res["alt_signals"]:
+            L.append(f"| {r['name']} | {CAD_TR.get(r['cad'], r['cad'])} | {r['op']} | {r['mean']:.2f} | {r['h1']:.2f} / {r['h2']:.2f} | "
+                     f"{r['pos']}/{r['n']} | {r['both']}/{r['n']} |")
+        L += ["", "_Negatif ortalama + iki yarıda tutarlı = sinyal TERS yönde çalışıyor olabilir (kalabalık pozisyonun tersine "
+              "işlem); bu TERS versiyonlar ayrıca test edilip tüm konfigürasyon dosyasında yer alır._", ""]
     # leverage
     L += ["## 4) Kaldıraç ve likidasyon (seçilen kural, 730 gün, saatlik High/Low ile)", "",
           "| Varlık | 1x yıllık / DD | 2x | 3x | 5x | 10x | Vol hedefli (%40, maks 5x) | Likidasyon (1/2/3/5/10x) |",
@@ -1660,8 +1912,14 @@ def main() -> None:
     ap.add_argument("--panel", default=None, help="signal_panel.csv.gz (veya factor_panel.csv.gz)")
     ap.add_argument("--out", default=".")
     ap.add_argument("--assets", default=None, help="virgülle (test için)")
+    ap.add_argument("--alt", default="auto", help="alt_panel.csv.gz yolu ('auto' = varsa yükle, 'none' = kullanma)")
     args = ap.parse_args()
     panel = load_signal_panel(args.panel)
+    alt = None
+    if args.alt != "none":
+        import alt_data
+        alt = alt_data.load((args.alt,) if args.alt != "auto" else alt_data.DEFAULT_PATHS)
+        print(f"[lab] alternatif veri: {'yok' if alt is None else f'{len(alt)} satır, ' + str(sorted(alt['asset'].unique()))}", flush=True)
     if args.source == "yahoo":
         data = load_yahoo()
     else:
@@ -1669,7 +1927,7 @@ def main() -> None:
     if args.assets:
         data = {k: v for k, v in data.items() if k in args.assets.split(",")}
     rows: list = []
-    res = research(data, panel, source=args.source, all_rows=rows)
+    res = research(data, panel, source=args.source, all_rows=rows, alt=alt)
     os.makedirs(args.out, exist_ok=True)
     json.dump(_jsonable(res), open(os.path.join(args.out, "lab_results.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     json.dump(playbook(res), open(os.path.join(args.out, "lab_playbook.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)

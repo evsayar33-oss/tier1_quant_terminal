@@ -378,3 +378,147 @@ def test_breakeven_moves_stop_to_entry():
     o = _run_one(df, sig, {"type": "be", "k1": 2.0, "k2": 4.0, "b": 1.0})
     assert o["pos"][0][26] == 1 and o["pos"][0][27] == 0
     assert abs(o["hourly"][0][27] - math.log(100.0 / 100.6)) < 1e-9   # filled at the entry price, not at -2 ATR
+
+
+# ---------------------------------------------------------------- v7: filter + trigger, alternative data
+def test_trigger_features_have_no_lookahead():
+    h = _ohlc(3000, seed=11)
+    d = h.resample("1D").agg({"Open": "first", "High": "max", "Low": "min", "Close": "last"})
+    full = L.Ctx(h, d)
+    part = L.Ctx(h.iloc[:2200], d[d.index + pd.Timedelta(days=1) <= h.index[2199] + pd.Timedelta(hours=1)])
+    for k in [k for k in full.feat if k.startswith("trig:")]:
+        assert np.array_equal(full.feat[k][:2200], part.feat[k]), k
+        assert np.abs(full.feat[k]).sum() > 0, k                       # every trigger fires at least once
+    rule = {"trig": "trig:4h:rsi2", "hold": 48, "bias": {"src": "tech:1d:ema_trend:50", "op": "sign", "cad": 24, "smooth": True}}
+    assert np.array_equal(full.direction(rule)[:2200], part.direction(rule))
+
+
+def test_trigger_is_taken_only_in_the_bias_direction():
+    h = _ohlc(3000, seed=12)
+    ctx = L.Ctx(h)
+    base = ctx.direction({"trig": "trig:1h:rsi2", "hold": 12, "bias": None})
+    bias = {"src": "tech:1d:ema_trend:20", "op": "sign"}
+    filt = ctx.direction({"trig": "trig:1h:rsi2", "hold": 12, "bias": bias})
+    b = ctx.direction(bias)
+    assert np.all((filt == 0) | (filt == base))                        # the filter only removes trades
+    assert np.all((filt == 0) | (np.sign(filt) == np.sign(b)))         # never against the system
+    assert (filt != 0).sum() < (base != 0).sum()
+
+
+def test_system_filter_adds_value_to_a_trigger():
+    """Price drifts in the direction of a slow system regime; a mean-reversion trigger is
+    random without it. The filter must show a positive lift in BOTH halves."""
+    rng = np.random.default_rng(21)
+    n = 9000
+    regime = np.repeat(rng.choice([-1.0, 1.0], n // 336 + 1), 336)[:n]
+    r = np.concatenate([[0.0], 0.0006 * regime[:-1] + rng.normal(0, 0.005, n - 1)])
+    c = 100 * np.exp(np.cumsum(r)); o = np.concatenate([[c[0]], c[:-1]])
+    idx = pd.date_range("2024-11-01", periods=n, freq="h", tz="UTC")
+    h = pd.DataFrame({"Open": o, "High": np.maximum(o, c) * 1.002, "Low": np.minimum(o, c) * 0.998, "Close": c}, index=idx)
+    P = _panel_from(h, {"sys::legacy_score": regime + rng.normal(0, 0.3, n)}, "XAU", step_h=1)
+    res = _small(lambda: L.research({"XAU": {"1h": h}}, P, source="test"))
+    tg = res["trigger"]
+    row = [b for b in tg["biases"] if b["src"] == "sys::legacy_score"]
+    assert row and max(b["lift"] for b in row) > 0.5, row
+    assert max(b["lift1"] for b in row) > 0 and max(b["lift2"] for b in row) > 0
+    assert "3b)" in L.report_md(res)
+
+
+def _alt_frame(h, values, lag_h=30, asset="BTC", col="alt::premium"):
+    days = pd.date_range(h.index[0].normalize(), h.index[-1].normalize(), freq="D", tz="UTC")
+    return pd.DataFrame({"asset": asset, "t": days + pd.Timedelta(hours=lag_h), col: np.asarray(values)[:len(days)]})
+
+
+def test_alt_data_is_used_only_after_it_became_known_and_goes_stale():
+    h = _ohlc(24 * 90, seed=13)
+    days = pd.date_range(h.index[0].normalize(), h.index[-1].normalize(), freq="D", tz="UTC")
+    A = _alt_frame(h, np.arange(len(days), dtype=float) + 1.0)
+    cot = pd.DataFrame({"asset": "BTC", "t": pd.date_range(h.index[0].normalize() - pd.Timedelta(weeks=20), periods=28, freq="7D",
+                                                           tz="UTC") + pd.Timedelta(days=4),
+                        "alt::cot_lev_net": np.linspace(-0.2, 0.2, 28)})
+    ctx = L.Ctx(h, None, None, pd.concat([A, cot], ignore_index=True))
+    close_t = h.index + pd.Timedelta(hours=1)
+    x = ctx.feat["alt::premium"]
+    for i in range(0, len(h), 7):
+        known = A[A["t"] <= close_t[i]]
+        exp = known["alt::premium"].iloc[-1] if len(known) else np.nan
+        assert (np.isnan(exp) and np.isnan(x[i])) or x[i] == exp, (i, x[i], exp)
+    # COT is weekly and lives in the same frame: it is aligned on its own calendar, not blanked by daily rows
+    y = ctx.feat["alt::cot_lev_net"]
+    last_cot = cot["t"].iloc[-1]
+    assert np.isfinite(y[close_t <= last_cot]).all()
+    assert np.isfinite(ctx.feat["z::alt::cot_lev_net"][close_t <= last_cot]).all()
+    assert np.isnan(y[close_t > last_cot + L.ALT_STALE]).all()          # stale after 15 days
+    assert "alt::premium" in ctx.sys_cols and "z::alt::cot_lev_net" in ctx.sys_cols
+
+
+def test_planted_alt_signal_is_reported():
+    rng = np.random.default_rng(22)
+    n = 24 * 400
+    idx = pd.date_range("2024-11-01", periods=n, freq="h", tz="UTC")
+    days = pd.date_range(idx[0], idx[-1].normalize(), freq="D", tz="UTC")
+    sig = rng.choice([-1.0, 1.0], len(days) + 2)
+    # the value published at day k + 30h predicts the next 24 hours
+    known_at = days + pd.Timedelta(hours=30)
+    drift = np.zeros(n)
+    for k, t in enumerate(known_at):
+        i0 = idx.searchsorted(t)
+        drift[i0:i0 + 24] = 0.0012 * sig[k]
+    r = np.concatenate([[0.0], drift[:-1] + rng.normal(0, 0.005, n - 1)])
+    c = 100 * np.exp(np.cumsum(r)); o = np.concatenate([[c[0]], c[:-1]])
+    h = pd.DataFrame({"Open": o, "High": np.maximum(o, c) * 1.001, "Low": np.minimum(o, c) * 0.999, "Close": c}, index=idx)
+    A = pd.DataFrame({"asset": "ETH", "t": known_at, "alt::taker_buy_sell": sig[:len(days)] * 0.1 + rng.normal(0, 0.01, len(days))})
+    res = _small(lambda: L.research({"ETH": {"1h": h}}, None, source="test", alt=A))
+    top = res["alt_signals"][0]
+    assert top["src"].endswith("alt::taker_buy_sell") and top["mean"] > 1.0, res["alt_signals"][:3]
+    assert "3c)" in L.report_md(res)
+
+
+def test_alt_data_parsers_offline(monkeypatch):
+    import io
+    import zipfile
+    import alt_data
+
+    def zipped(df, name, header=True):
+        b = io.BytesIO()
+        with zipfile.ZipFile(b, "w") as z:
+            z.writestr(name, df.to_csv(index=False, header=header))
+        return b.getvalue()
+
+    def fake_get(url, timeout=30):
+        if "metrics" in url and "BTCUSDT" in url:
+            day = url.split("-metrics-")[1][:10]
+            ts = pd.date_range(day, periods=288, freq="5min")
+            return zipped(pd.DataFrame({"create_time": ts.strftime("%Y-%m-%d %H:%M:%S"), "symbol": "BTCUSDT",
+                                        "sum_open_interest": 1.0, "sum_open_interest_value": 1e9 * (1 + 0.001 * np.arange(288)),
+                                        "count_toptrader_long_short_ratio": 1.2, "sum_toptrader_long_short_ratio": 1.1,
+                                        "count_long_short_ratio": 1.5, "sum_taker_long_short_vol_ratio": 0.9}), "m.csv")
+        if "premiumIndexKlines" in url and "BTCUSDT" in url:
+            day = url.split("-1h-")[1][:10]
+            ot = (pd.date_range(day, periods=24, freq="h", tz="UTC").asi8 // 10**6)
+            return zipped(pd.DataFrame({"open_time": ot, "open": 0, "high": 0, "low": 0, "close": 0.0002}), "p.csv",
+                          header=day.endswith("2"))                       # some archive files have no header
+        if "fut_fin_txt" in url:
+            dates = pd.date_range("2025-01-07", periods=20, freq="7D")
+            rows = []
+            for k, d in enumerate(dates):
+                for nm, oi in (("BITCOIN - CHICAGO MERCANTILE EXCHANGE", 30000), ("MICRO BITCOIN - CHICAGO MERCANTILE EXCHANGE", 90000)):
+                    rows.append({"Market_and_Exchange_Names": nm, "Report_Date_as_YYYY-MM-DD": d.strftime("%Y-%m-%d"),
+                                 "Open_Interest_All": oi, "Dealer_Positions_Long_All": 100, "Dealer_Positions_Short_All": 200,
+                                 "Asset_Mgr_Positions_Long_All": 5000, "Asset_Mgr_Positions_Short_All": 1000,
+                                 "Lev_Money_Positions_Long_All": 1000 + 100 * k, "Lev_Money_Positions_Short_All": 9000})
+            return zipped(pd.DataFrame(rows), "FinFutYY.txt")
+        return None
+
+    monkeypatch.setattr(alt_data, "_get", fake_get)
+    from datetime import datetime, timezone
+    cp = alt_data.crypto_panel(days=12, end=datetime(2025, 3, 1, tzinfo=timezone.utc), workers=2)
+    assert set(cp["asset"]) == {"BTC"} and len(cp) == 12
+    # every value becomes known 30h after its file day starts
+    assert (cp["t"].dt.hour == 6).all()
+    assert cp["alt::premium"].notna().all() and np.allclose(cp["alt::premium"], 0.0002)
+    cot = alt_data.cot_panel(years=1, end=datetime(2025, 6, 1, tzinfo=timezone.utc))
+    b = cot[cot["asset"] == "BTC"].reset_index(drop=True)
+    assert len(b) == 20 and (b["t"].dt.dayofweek == 5).all()            # Tuesday report -> known Saturday
+    assert np.isclose(b["alt::cot_lev_net"].iloc[0], (1000 - 9000) / 30000)  # main contract, micro excluded
+    assert np.isclose(b["alt::cot_lev_chg"].iloc[1], 100 / 30000)

@@ -57,11 +57,38 @@ def _atr_abs(symbol: str, n: int = 14):
         return None, None
 
 
+def refresh_alt_data(pb: dict, path: str = "alt_recent.csv.gz", stamp: str = "alt_recent_meta.json",
+                     every_h: float = 20.0) -> None:
+    """v7.0: when a Strategy-Lab rule uses the alternative data (Binance positioning / CFTC COT),
+    refresh its recent history about once a day (both sources publish at most daily). The time of
+    the last ATTEMPT is kept in a small json that travels with the state branch, so an unreachable
+    source is retried daily, not every hour."""
+    if "alt::" not in json.dumps(pb):
+        return
+    now = time.time()
+    try:
+        last = float(json.load(open(stamp, encoding="utf-8")).get("attempt", 0))
+    except Exception:
+        last = 0.0
+    if os.path.exists(path) and now - last < every_h * 3600:
+        return
+    json.dump({"attempt": now}, open(stamp, "w", encoding="utf-8"))
+    try:
+        import alt_data
+        P = alt_data.build(days=150, years=3)
+        if len(P):
+            P.to_csv(path, index=False, compression="gzip", float_format="%.6g")
+            print(f"[alt] {len(P)} satır alternatif veri yenilendi", flush=True)
+    except Exception as exc:
+        print(f"[alt] yenilenemedi: {exc}", flush=True)
+
+
 def lab_signals() -> dict:
     """v4.0: live signal of each asset's Strategy-Lab candidate (fresh closed bars)."""
     try:
         import strategy_lab
         pb = json.load(open("lab_playbook.json", encoding="utf-8"))
+        refresh_alt_data(pb)
         return strategy_lab.live_signals(pb)
     except FileNotFoundError:
         return {}
