@@ -1,0 +1,3367 @@
+{
+ "generated_at": "2026-10-08T11:00:58.967770+00:00",
+ "crit": {
+  "wf_t": 2.0,
+  "wf_pos": 0.6,
+  "dsr": 0.9,
+  "exam_t": 1.5,
+  "exam_alpha_t": 1.0
+ },
+ "holdout_days": 730,
+ "assets": {
+  "BTC": {
+   "asset": "BTC",
+   "window": [
+    "2016-10-08",
+    "2026-10-08"
+   ],
+   "exam_start": "2024-10-08",
+   "n_rules": 6005,
+   "n_eff": 19.2,
+   "n_signals": 107,
+   "chosen": {
+    "label": "live_counter_trend (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+    "rule": {
+     "src": "sys::live_counter_trend",
+     "cad": 5,
+     "op": "z",
+     "inv": false,
+     "mode": "LO",
+     "exit": {
+      "type": "trail",
+      "k": 3.0
+     }
+    },
+    "train": 1.53,
+    "exam": -0.82,
+    "exam_t": -1.16,
+    "exam_alpha_t": -1.31,
+    "exam_ret": -0.253,
+    "exam_dd": 0.3716,
+    "dsr": 0.996,
+    "trades": 128
+   },
+   "wf": {
+    "sharpe": 0.37,
+    "t": 0.89,
+    "pos": 0.5,
+    "folds": [
+     [
+      2019,
+      -0.0923308315199304
+     ],
+     [
+      2020,
+      -0.27933563768602604
+     ],
+     [
+      2021,
+      1.3782072675159762
+     ],
+     [
+      2022,
+      -0.6672263430956691
+     ],
+     [
+      2023,
+      0.2940613291362826
+     ],
+     [
+      2024,
+      2.8752928162393556
+     ]
+    ],
+    "picks": [
+     "TERS direction_acceleration · 1 ay ort. · sadece long · iz süren stop 3×ATR",
+     "live_counter_trend (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış",
+     "live_counter_trend (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "live_counter_trend (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "live_counter_trend (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "live_counter_trend (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR"
+    ],
+    "ret": 0.7544
+   },
+   "bench": {
+    "train": 0.65,
+    "exam": 0.08,
+    "exam_ret": 0.0696
+   },
+   "ok": {
+    "wf_t": false,
+    "wf_pos": false,
+    "dsr": true,
+    "exam_t": false,
+    "exam_alpha_t": false
+   },
+   "proven": false,
+   "top": [
+    {
+     "label": "live_counter_trend (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "train": 1.53,
+     "exam": -0.82,
+     "exam_ret": -0.253,
+     "trades": 128
+    },
+    {
+     "label": "live_counter_trend (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · sinyalle çıkış",
+     "train": 1.44,
+     "exam": -0.94,
+     "exam_ret": -0.2987,
+     "trades": 128
+    },
+    {
+     "label": "adaptive_cluster_scores.B · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "train": 1.41,
+     "exam": -0.3,
+     "exam_ret": -0.1169,
+     "trades": 118
+    },
+    {
+     "label": "live_counter_trend (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · iz süren stop 3×ATR",
+     "train": 1.41,
+     "exam": -0.58,
+     "exam_ret": -0.2164,
+     "trades": 142
+    },
+    {
+     "label": "direction_velocity · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "train": 1.34,
+     "exam": -0.8,
+     "exam_ret": -0.3322,
+     "trades": 232
+    },
+    {
+     "label": "adaptive_cluster_scores.B · 1 hafta ort. · long+short · iz süren stop 3×ATR",
+     "train": 1.33,
+     "exam": -0.27,
+     "exam_ret": -0.1654,
+     "trades": 119
+    },
+    {
+     "label": "short_term_parts.price_part (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · sinyalle çıkış",
+     "train": 1.32,
+     "exam": 0.14,
+     "exam_ret": 0.0621,
+     "trades": 136
+    },
+    {
+     "label": "adaptive_cluster_scores.B · 1 gün · sadece long · iz süren stop 3×ATR",
+     "train": 1.31,
+     "exam": 0.42,
+     "exam_ret": 0.2431,
+     "trades": 612
+    },
+    {
+     "label": "Faktör: duration_risk (güçlü ∣z∣>0.5) · 1 gün · sadece long · iz süren stop 3×ATR",
+     "train": 1.28,
+     "exam": -1.13,
+     "exam_ret": -0.307,
+     "trades": 210
+    },
+    {
+     "label": "EMA trend (50 gün) (güçlü ∣z∣>0.5) · 1 gün · sadece long · iz süren stop 3×ATR",
+     "train": 1.27,
+     "exam": 0.32,
+     "exam_ret": 0.1501,
+     "trades": 150
+    },
+    {
+     "label": "Faktör: duration_risk (güçlü ∣z∣>0.5) · 1 gün · sadece long · sinyalle çıkış",
+     "train": 1.25,
+     "exam": -1.02,
+     "exam_ret": -0.3535,
+     "trades": 210
+    },
+    {
+     "label": "EMA trend (50 gün) (güçlü ∣z∣>0.5) · 1 gün · sadece long · sinyalle çıkış",
+     "train": 1.25,
+     "exam": 0.37,
+     "exam_ret": 0.1871,
+     "trades": 150
+    },
+    {
+     "label": "short_term_parts.price_part (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "train": 1.25,
+     "exam": 0.17,
+     "exam_ret": 0.0731,
+     "trades": 136
+    },
+    {
+     "label": "EMA trend (200 gün) (güçlü ∣z∣>0.5) · 1 gün · sadece long · sinyalle çıkış",
+     "train": 1.24,
+     "exam": 0.45,
+     "exam_ret": 0.2041,
+     "trades": 88
+    },
+    {
+     "label": "Momentum (20 gün) (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "train": 1.22,
+     "exam": 0.5,
+     "exam_ret": 0.2308,
+     "trades": 82
+    },
+    {
+     "label": "Momentum (20 gün) · 1 gün · sadece long · sinyalle çıkış",
+     "train": 1.22,
+     "exam": 0.24,
+     "exam_ret": 0.1492,
+     "trades": 257
+    },
+    {
+     "label": "adaptive_cluster_scores.B (güçlü ∣z∣>0.5) · 1 gün · long+short · iz süren stop 3×ATR",
+     "train": 1.22,
+     "exam": -0.59,
+     "exam_ret": -0.3293,
+     "trades": 967
+    },
+    {
+     "label": "Zaman dilimi uyumu · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "train": 1.18,
+     "exam": 0.12,
+     "exam_ret": 0.0628,
+     "trades": 137
+    },
+    {
+     "label": "Faktör: duration_risk · 1 gün · sadece long · iz süren stop 3×ATR",
+     "train": 1.18,
+     "exam": -0.16,
+     "exam_ret": -0.0672,
+     "trades": 236
+    },
+    {
+     "label": "live_counter_trend (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış",
+     "train": 1.17,
+     "exam": -0.86,
+     "exam_ret": -0.357,
+     "trades": 142
+    }
+   ],
+   "families": [
+    {
+     "family": "sistem · 1 gün",
+     "n": 594,
+     "train_mean": 0.11,
+     "exam_mean": -0.29,
+     "exam_pos": 0.29,
+     "rank_corr": 0.49
+    },
+    {
+     "family": "sistem · 1 gün · TERS",
+     "n": 594,
+     "train_mean": -0.36,
+     "exam_mean": -0.3,
+     "exam_pos": 0.23,
+     "rank_corr": null
+    },
+    {
+     "family": "sistem · 1 hafta",
+     "n": 598,
+     "train_mean": 0.34,
+     "exam_mean": -0.19,
+     "exam_pos": 0.37,
+     "rank_corr": 0.01
+    },
+    {
+     "family": "sistem · 1 hafta · TERS",
+     "n": 598,
+     "train_mean": -0.3,
+     "exam_mean": 0.02,
+     "exam_pos": 0.5,
+     "rank_corr": null
+    },
+    {
+     "family": "sistem · 1 ay",
+     "n": 604,
+     "train_mean": 0.13,
+     "exam_mean": -0.07,
+     "exam_pos": 0.5,
+     "rank_corr": 0.13
+    },
+    {
+     "family": "sistem · 1 ay · TERS",
+     "n": 604,
+     "train_mean": -0.01,
+     "exam_mean": -0.47,
+     "exam_pos": 0.25,
+     "rank_corr": null
+    },
+    {
+     "family": "faktör · 1 gün",
+     "n": 120,
+     "train_mean": 0.17,
+     "exam_mean": -0.21,
+     "exam_pos": 0.4,
+     "rank_corr": 0.01
+    },
+    {
+     "family": "faktör · 1 gün · TERS",
+     "n": 120,
+     "train_mean": -0.27,
+     "exam_mean": -0.17,
+     "exam_pos": 0.34,
+     "rank_corr": null
+    },
+    {
+     "family": "faktör · 1 hafta",
+     "n": 120,
+     "train_mean": 0.25,
+     "exam_mean": -0.1,
+     "exam_pos": 0.38,
+     "rank_corr": 0.08
+    },
+    {
+     "family": "faktör · 1 hafta · TERS",
+     "n": 120,
+     "train_mean": -0.18,
+     "exam_mean": -0.16,
+     "exam_pos": 0.42,
+     "rank_corr": null
+    },
+    {
+     "family": "faktör · 1 ay",
+     "n": 120,
+     "train_mean": 0.15,
+     "exam_mean": -0.11,
+     "exam_pos": 0.33,
+     "rank_corr": 0.11
+    },
+    {
+     "family": "faktör · 1 ay · TERS",
+     "n": 120,
+     "train_mean": 0.06,
+     "exam_mean": -0.26,
+     "exam_pos": 0.42,
+     "rank_corr": null
+    },
+    {
+     "family": "makro · 1 gün",
+     "n": 120,
+     "train_mean": -0.14,
+     "exam_mean": -0.38,
+     "exam_pos": 0.14,
+     "rank_corr": 0.29
+    },
+    {
+     "family": "makro · 1 gün · TERS",
+     "n": 120,
+     "train_mean": -0.02,
+     "exam_mean": -0.08,
+     "exam_pos": 0.44,
+     "rank_corr": null
+    },
+    {
+     "family": "makro · 1 hafta",
+     "n": 120,
+     "train_mean": 0.04,
+     "exam_mean": 0.01,
+     "exam_pos": 0.48,
+     "rank_corr": -0.14
+    },
+    {
+     "family": "makro · 1 hafta · TERS",
+     "n": 120,
+     "train_mean": -0.0,
+     "exam_mean": -0.22,
+     "exam_pos": 0.31,
+     "rank_corr": null
+    },
+    {
+     "family": "makro · 1 ay",
+     "n": 120,
+     "train_mean": 0.17,
+     "exam_mean": 0.05,
+     "exam_pos": 0.47,
+     "rank_corr": 0.02
+    },
+    {
+     "family": "makro · 1 ay · TERS",
+     "n": 120,
+     "train_mean": -0.03,
+     "exam_mean": -0.43,
+     "exam_pos": 0.2,
+     "rank_corr": null
+    },
+    {
+     "family": "COT · 1 gün",
+     "n": 78,
+     "train_mean": 0.07,
+     "exam_mean": -0.19,
+     "exam_pos": 0.27,
+     "rank_corr": -0.05
+    },
+    {
+     "family": "COT · 1 gün · TERS",
+     "n": 78,
+     "train_mean": -0.09,
+     "exam_mean": -0.12,
+     "exam_pos": 0.37,
+     "rank_corr": null
+    },
+    {
+     "family": "COT · 1 hafta",
+     "n": 78,
+     "train_mean": 0.0,
+     "exam_mean": -0.09,
+     "exam_pos": 0.4,
+     "rank_corr": -0.24
+    },
+    {
+     "family": "COT · 1 hafta · TERS",
+     "n": 78,
+     "train_mean": 0.01,
+     "exam_mean": -0.16,
+     "exam_pos": 0.28,
+     "rank_corr": null
+    },
+    {
+     "family": "COT · 1 ay",
+     "n": 78,
+     "train_mean": 0.18,
+     "exam_mean": 0.03,
+     "exam_pos": 0.47,
+     "rank_corr": -0.27
+    },
+    {
+     "family": "COT · 1 ay · TERS",
+     "n": 78,
+     "train_mean": -0.08,
+     "exam_mean": -0.34,
+     "exam_pos": 0.18,
+     "rank_corr": null
+    },
+    {
+     "family": "teknik · 1 gün",
+     "n": 84,
+     "train_mean": 0.55,
+     "exam_mean": 0.2,
+     "exam_pos": 0.69,
+     "rank_corr": -0.21
+    },
+    {
+     "family": "teknik · 1 gün · TERS",
+     "n": 84,
+     "train_mean": -0.57,
+     "exam_mean": -0.47,
+     "exam_pos": 0.17,
+     "rank_corr": null
+    },
+    {
+     "family": "teknik · 1 hafta",
+     "n": 84,
+     "train_mean": 0.42,
+     "exam_mean": 0.28,
+     "exam_pos": 0.75,
+     "rank_corr": -0.15
+    },
+    {
+     "family": "teknik · 1 hafta · TERS",
+     "n": 84,
+     "train_mean": -0.36,
+     "exam_mean": -0.39,
+     "exam_pos": 0.13,
+     "rank_corr": null
+    },
+    {
+     "family": "teknik · 1 ay",
+     "n": 84,
+     "train_mean": 0.42,
+     "exam_mean": -0.05,
+     "exam_pos": 0.5,
+     "rank_corr": -0.05
+    },
+    {
+     "family": "teknik · 1 ay · TERS",
+     "n": 84,
+     "train_mean": -0.38,
+     "exam_mean": -0.48,
+     "exam_pos": 0.14,
+     "rank_corr": null
+    }
+   ],
+   "combos": {
+    "n": 66,
+    "chosen": {
+     "label": "[live_counter_trend (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış] & [score_raw_cycle · 1 hafta ort. · long+short · sinyalle çıkış]",
+     "train": 1.47,
+     "exam": -0.64,
+     "exam_t": -0.9
+    },
+    "exam_mean": 0.0,
+    "exam_pos": 0.76,
+    "top": [
+     {
+      "label": "[live_counter_trend (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış] & [score_raw_cycle · 1 hafta ort. · long+short · sinyalle çıkış]",
+      "train": 1.47,
+      "exam": -0.64
+     },
+     {
+      "label": "[raw_model_score · 1 hafta ort. · long+short · sinyalle çıkış] & [Faktör: duration_risk (güçlü ∣z∣>0.5) · 1 gün · long+short · sinyalle çıkış]",
+      "train": 1.45,
+      "exam": 0.1
+     },
+     {
+      "label": "[score_raw_cycle · 1 hafta ort. · long+short · sinyalle çıkış] & [Faktör: duration_risk (güçlü ∣z∣>0.5) · 1 gün · long+short · sinyalle çıkış]",
+      "train": 1.43,
+      "exam": 0.4
+     },
+     {
+      "label": "[adaptive_cluster_scores.B (güçlü ∣z∣>0.5) · 1 gün · long+short · sinyalle çıkış] & [Momentum (20 gün) · 1 gün · long+short · sinyalle çıkış]",
+      "train": 1.42,
+      "exam": -0.35
+     },
+     {
+      "label": "[Faktör: duration_risk (güçlü ∣z∣>0.5) · 1 gün · long+short · sinyalle çıkış] & [Adaptif skor · 1 hafta ort. · long+short · sinyalle çıkış]",
+      "train": 1.41,
+      "exam": 0.11
+     },
+     {
+      "label": "[Faktör: duration_risk (güçlü ∣z∣>0.5) · 1 gün · long+short · sinyalle çıkış] & [Makro model skoru · 1 hafta ort. · long+short · sinyalle çıkış]",
+      "train": 1.41,
+      "exam": 0.11
+     },
+     {
+      "label": "[short_term_parts.model_part · 1 hafta ort. · long+short · sinyalle çıkış] & [Faktör: duration_risk (güçlü ∣z∣>0.5) · 1 gün · long+short · sinyalle çıkış]",
+      "train": 1.39,
+      "exam": 0.23
+     },
+     {
+      "label": "[Model z (kısa vade) · 1 hafta ort. · long+short · sinyalle çıkış] & [Faktör: duration_risk (güçlü ∣z∣>0.5) · 1 gün · long+short · sinyalle çıkış]",
+      "train": 1.39,
+      "exam": 0.23
+     }
+    ]
+   },
+   "leverage_exam": [
+    {
+     "lev": 1,
+     "cagr": -0.1355,
+     "final": 0.747,
+     "maxdd": 0.3716,
+     "liquidations": 0
+    },
+    {
+     "lev": 2,
+     "cagr": -0.2764,
+     "final": 0.5232,
+     "maxdd": 0.6248,
+     "liquidations": 0
+    },
+    {
+     "lev": 3,
+     "cagr": -0.4143,
+     "final": 0.3426,
+     "maxdd": 0.788,
+     "liquidations": 0
+    },
+    {
+     "lev": 5,
+     "cagr": -0.6565,
+     "final": 0.1177,
+     "maxdd": 0.9439,
+     "liquidations": 0
+    },
+    {
+     "lev": 10,
+     "cagr": -0.9677,
+     "final": 0.001,
+     "maxdd": 0.9997,
+     "liquidations": 0
+    }
+   ]
+  },
+  "ETH": {
+   "asset": "ETH",
+   "window": [
+    "2017-11-10",
+    "2026-10-08"
+   ],
+   "exam_start": "2024-10-08",
+   "n_rules": 5977,
+   "n_eff": 18.3,
+   "n_signals": 107,
+   "chosen": {
+    "label": "TERS bear_clusters (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · iz süren stop 3×ATR",
+    "rule": {
+     "src": "sys::bear_clusters",
+     "cad": 5,
+     "op": "z",
+     "inv": true,
+     "mode": "LS",
+     "exit": {
+      "type": "trail",
+      "k": 3.0
+     }
+    },
+    "train": 1.49,
+    "exam": 0.5,
+    "exam_t": 0.71,
+    "exam_alpha_t": 0.69,
+    "exam_ret": 0.6225,
+    "exam_dd": 0.3775,
+    "dsr": 0.983,
+    "trades": 211
+   },
+   "wf": {
+    "sharpe": 0.2,
+    "t": 0.44,
+    "pos": 0.6,
+    "folds": [
+     [
+      2020,
+      -1.463109721689655
+     ],
+     [
+      2021,
+      -0.3636368463146245
+     ],
+     [
+      2022,
+      0.6083151632665156
+     ],
+     [
+      2023,
+      1.0779888473722357
+     ],
+     [
+      2024,
+      0.8503154605901083
+     ]
+    ],
+    "picks": [
+     "TERS Momentum (120 gün) · 1 hafta ort. · sadece short · iz süren stop 3×ATR",
+     "pair_common_factor.common_score · 1 hafta ort. · long+short · iz süren stop 3×ATR",
+     "TERS bear_clusters (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "TERS bear_clusters (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · iz süren stop 3×ATR",
+     "TERS bear_clusters (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR"
+    ],
+    "ret": 0.5174
+   },
+   "bench": {
+    "train": 0.22,
+    "exam": -0.12,
+    "exam_ret": -0.1515
+   },
+   "ok": {
+    "wf_t": false,
+    "wf_pos": true,
+    "dsr": true,
+    "exam_t": false,
+    "exam_alpha_t": false
+   },
+   "proven": false,
+   "top": [
+    {
+     "label": "TERS bear_clusters (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · iz süren stop 3×ATR",
+     "train": 1.49,
+     "exam": 0.5,
+     "exam_ret": 0.6225,
+     "trades": 211
+    },
+    {
+     "label": "TERS bear_clusters (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "train": 1.47,
+     "exam": 0.39,
+     "exam_ret": 0.2528,
+     "trades": 132
+    },
+    {
+     "label": "Faktör: duration_risk · 1 gün · long+short · iz süren stop 3×ATR",
+     "train": 1.44,
+     "exam": -0.55,
+     "exam_ret": -0.4431,
+     "trades": 224
+    },
+    {
+     "label": "TERS bear_clusters (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · sinyalle çıkış",
+     "train": 1.35,
+     "exam": 0.41,
+     "exam_ret": 0.307,
+     "trades": 132
+    },
+    {
+     "label": "TERS bear_clusters (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış",
+     "train": 1.34,
+     "exam": 0.71,
+     "exam_ret": 1.224,
+     "trades": 211
+    },
+    {
+     "label": "pair_common_factor.common_score (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "train": 1.34,
+     "exam": 0.26,
+     "exam_ret": 0.1549,
+     "trades": 118
+    },
+    {
+     "label": "Faktör: duration_risk · 1 gün · sadece long · iz süren stop 3×ATR",
+     "train": 1.34,
+     "exam": -0.62,
+     "exam_ret": -0.3437,
+     "trades": 216
+    },
+    {
+     "label": "Faktör: duration_risk · 1 hafta ort. · long+short · iz süren stop 3×ATR",
+     "train": 1.29,
+     "exam": 0.08,
+     "exam_ret": 0.0722,
+     "trades": 98
+    },
+    {
+     "label": "score_raw_cycle (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "train": 1.28,
+     "exam": 0.7,
+     "exam_ret": 0.4323,
+     "trades": 108
+    },
+    {
+     "label": "Model skoru (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "train": 1.25,
+     "exam": 0.76,
+     "exam_ret": 0.4889,
+     "trades": 106
+    },
+    {
+     "label": "score_raw_cycle (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · iz süren stop 3×ATR",
+     "train": 1.23,
+     "exam": 0.25,
+     "exam_ret": 0.268,
+     "trades": 195
+    },
+    {
+     "label": "adaptive_cluster_scores.B · 1 hafta ort. · long+short · iz süren stop 3×ATR",
+     "train": 1.22,
+     "exam": -0.65,
+     "exam_ret": -0.4931,
+     "trades": 104
+    },
+    {
+     "label": "Kısa Vade Yön (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "train": 1.22,
+     "exam": 0.47,
+     "exam_ret": 0.287,
+     "trades": 122
+    },
+    {
+     "label": "short_term_parts.model_part (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "train": 1.21,
+     "exam": 0.76,
+     "exam_ret": 0.4889,
+     "trades": 104
+    },
+    {
+     "label": "Model z (kısa vade) (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "train": 1.21,
+     "exam": 0.76,
+     "exam_ret": 0.4889,
+     "trades": 104
+    },
+    {
+     "label": "Model skoru (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · iz süren stop 3×ATR",
+     "train": 1.21,
+     "exam": 0.36,
+     "exam_ret": 0.4124,
+     "trades": 194
+    },
+    {
+     "label": "pair_common_factor.common_score · 1 hafta ort. · long+short · iz süren stop 3×ATR",
+     "train": 1.18,
+     "exam": 0.43,
+     "exam_ret": 0.5852,
+     "trades": 138
+    },
+    {
+     "label": "Adaptif skor (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "train": 1.17,
+     "exam": 0.48,
+     "exam_ret": 0.29,
+     "trades": 114
+    },
+    {
+     "label": "Makro model skoru (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "train": 1.17,
+     "exam": 0.48,
+     "exam_ret": 0.29,
+     "trades": 114
+    },
+    {
+     "label": "Makro model skoru (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · iz süren stop 3×ATR",
+     "train": 1.16,
+     "exam": 0.33,
+     "exam_ret": 0.3825,
+     "trades": 201
+    }
+   ],
+   "families": [
+    {
+     "family": "sistem · 1 gün",
+     "n": 590,
+     "train_mean": 0.19,
+     "exam_mean": -0.12,
+     "exam_pos": 0.44,
+     "rank_corr": 0.5
+    },
+    {
+     "family": "sistem · 1 gün · TERS",
+     "n": 590,
+     "train_mean": -0.34,
+     "exam_mean": -0.21,
+     "exam_pos": 0.31,
+     "rank_corr": null
+    },
+    {
+     "family": "sistem · 1 hafta",
+     "n": 594,
+     "train_mean": 0.42,
+     "exam_mean": 0.06,
+     "exam_pos": 0.56,
+     "rank_corr": 0.09
+    },
+    {
+     "family": "sistem · 1 hafta · TERS",
+     "n": 594,
+     "train_mean": -0.24,
+     "exam_mean": -0.17,
+     "exam_pos": 0.38,
+     "rank_corr": null
+    },
+    {
+     "family": "sistem · 1 ay",
+     "n": 598,
+     "train_mean": 0.11,
+     "exam_mean": 0.29,
+     "exam_pos": 0.69,
+     "rank_corr": 0.35
+    },
+    {
+     "family": "sistem · 1 ay · TERS",
+     "n": 598,
+     "train_mean": 0.06,
+     "exam_mean": -0.41,
+     "exam_pos": 0.28,
+     "rank_corr": null
+    },
+    {
+     "family": "faktör · 1 gün",
+     "n": 120,
+     "train_mean": 0.29,
+     "exam_mean": 0.06,
+     "exam_pos": 0.43,
+     "rank_corr": -0.28
+    },
+    {
+     "family": "faktör · 1 gün · TERS",
+     "n": 120,
+     "train_mean": -0.3,
+     "exam_mean": -0.31,
+     "exam_pos": 0.28,
+     "rank_corr": null
+    },
+    {
+     "family": "faktör · 1 hafta",
+     "n": 120,
+     "train_mean": 0.33,
+     "exam_mean": 0.13,
+     "exam_pos": 0.61,
+     "rank_corr": -0.1
+    },
+    {
+     "family": "faktör · 1 hafta · TERS",
+     "n": 120,
+     "train_mean": -0.15,
+     "exam_mean": -0.18,
+     "exam_pos": 0.38,
+     "rank_corr": null
+    },
+    {
+     "family": "faktör · 1 ay",
+     "n": 120,
+     "train_mean": 0.12,
+     "exam_mean": 0.2,
+     "exam_pos": 0.63,
+     "rank_corr": 0.21
+    },
+    {
+     "family": "faktör · 1 ay · TERS",
+     "n": 120,
+     "train_mean": 0.1,
+     "exam_mean": -0.31,
+     "exam_pos": 0.33,
+     "rank_corr": null
+    },
+    {
+     "family": "makro · 1 gün",
+     "n": 120,
+     "train_mean": -0.07,
+     "exam_mean": -0.2,
+     "exam_pos": 0.23,
+     "rank_corr": 0.14
+    },
+    {
+     "family": "makro · 1 gün · TERS",
+     "n": 120,
+     "train_mean": -0.01,
+     "exam_mean": -0.03,
+     "exam_pos": 0.36,
+     "rank_corr": null
+    },
+    {
+     "family": "makro · 1 hafta",
+     "n": 120,
+     "train_mean": 0.02,
+     "exam_mean": 0.11,
+     "exam_pos": 0.66,
+     "rank_corr": -0.46
+    },
+    {
+     "family": "makro · 1 hafta · TERS",
+     "n": 120,
+     "train_mean": 0.08,
+     "exam_mean": -0.17,
+     "exam_pos": 0.33,
+     "rank_corr": null
+    },
+    {
+     "family": "makro · 1 ay",
+     "n": 120,
+     "train_mean": 0.18,
+     "exam_mean": 0.17,
+     "exam_pos": 0.61,
+     "rank_corr": -0.25
+    },
+    {
+     "family": "makro · 1 ay · TERS",
+     "n": 120,
+     "train_mean": -0.01,
+     "exam_mean": -0.27,
+     "exam_pos": 0.31,
+     "rank_corr": null
+    },
+    {
+     "family": "COT · 1 gün",
+     "n": 78,
+     "train_mean": -0.01,
+     "exam_mean": -0.17,
+     "exam_pos": 0.41,
+     "rank_corr": 0.44
+    },
+    {
+     "family": "COT · 1 gün · TERS",
+     "n": 78,
+     "train_mean": -0.03,
+     "exam_mean": 0.07,
+     "exam_pos": 0.53,
+     "rank_corr": null
+    },
+    {
+     "family": "COT · 1 hafta",
+     "n": 78,
+     "train_mean": 0.0,
+     "exam_mean": -0.09,
+     "exam_pos": 0.42,
+     "rank_corr": 0.42
+    },
+    {
+     "family": "COT · 1 hafta · TERS",
+     "n": 78,
+     "train_mean": -0.0,
+     "exam_mean": -0.04,
+     "exam_pos": 0.49,
+     "rank_corr": null
+    },
+    {
+     "family": "COT · 1 ay",
+     "n": 78,
+     "train_mean": 0.12,
+     "exam_mean": 0.04,
+     "exam_pos": 0.55,
+     "rank_corr": 0.05
+    },
+    {
+     "family": "COT · 1 ay · TERS",
+     "n": 78,
+     "train_mean": -0.1,
+     "exam_mean": -0.14,
+     "exam_pos": 0.4,
+     "rank_corr": null
+    },
+    {
+     "family": "teknik · 1 gün",
+     "n": 84,
+     "train_mean": 0.42,
+     "exam_mean": 0.41,
+     "exam_pos": 0.86,
+     "rank_corr": -0.29
+    },
+    {
+     "family": "teknik · 1 gün · TERS",
+     "n": 84,
+     "train_mean": -0.32,
+     "exam_mean": -0.59,
+     "exam_pos": 0.17,
+     "rank_corr": null
+    },
+    {
+     "family": "teknik · 1 hafta",
+     "n": 84,
+     "train_mean": 0.34,
+     "exam_mean": 0.45,
+     "exam_pos": 0.82,
+     "rank_corr": -0.65
+    },
+    {
+     "family": "teknik · 1 hafta · TERS",
+     "n": 84,
+     "train_mean": -0.21,
+     "exam_mean": -0.62,
+     "exam_pos": 0.12,
+     "rank_corr": null
+    },
+    {
+     "family": "teknik · 1 ay",
+     "n": 84,
+     "train_mean": 0.28,
+     "exam_mean": 0.0,
+     "exam_pos": 0.5,
+     "rank_corr": 0.01
+    },
+    {
+     "family": "teknik · 1 ay · TERS",
+     "n": 84,
+     "train_mean": -0.16,
+     "exam_mean": -0.19,
+     "exam_pos": 0.36,
+     "rank_corr": null
+    }
+   ],
+   "combos": {
+    "n": 66,
+    "chosen": {
+     "label": "[Faktör: duration_risk · 1 gün · long+short · sinyalle çıkış] & [TERS Makro: composite_usd_risk · 1 ay ort. · long+short · sinyalle çıkış]",
+     "train": 1.77,
+     "exam": -0.67,
+     "exam_t": -0.95
+    },
+    "exam_mean": 0.27,
+    "exam_pos": 0.7,
+    "top": [
+     {
+      "label": "[Faktör: duration_risk · 1 gün · long+short · sinyalle çıkış] & [TERS Makro: composite_usd_risk · 1 ay ort. · long+short · sinyalle çıkış]",
+      "train": 1.77,
+      "exam": -0.67
+     },
+     {
+      "label": "[Faktör: duration_risk · 1 gün · long+short · sinyalle çıkış] & [TERS composite_usd_risk · 1 ay ort. · long+short · sinyalle çıkış]",
+      "train": 1.77,
+      "exam": -0.67
+     },
+     {
+      "label": "[TERS bear_clusters (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış] & [adaptive_cluster_scores.B (güçlü ∣z∣>0.5) · 1 gün · long+short · sinyalle çıkış]",
+      "train": 1.73,
+      "exam": 0.18
+     },
+     {
+      "label": "[TERS bear_clusters (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış] & [Faktör: duration_risk · 1 gün · long+short · sinyalle çıkış]",
+      "train": 1.62,
+      "exam": -0.02
+     },
+     {
+      "label": "[Faktör: duration_risk · 1 gün · long+short · sinyalle çıkış] & [raw_model_score · 1 hafta ort. · long+short · sinyalle çıkış]",
+      "train": 1.6,
+      "exam": -0.53
+     },
+     {
+      "label": "[Faktör: duration_risk · 1 gün · long+short · sinyalle çıkış] & [pair_common_factor.common_score · 1 hafta ort. · long+short · sinyalle çıkış]",
+      "train": 1.56,
+      "exam": -0.68
+     },
+     {
+      "label": "[Faktör: duration_risk · 1 gün · long+short · sinyalle çıkış] & [Faktör: btc_sympathy · 1 hafta ort. · long+short · sinyalle çıkış]",
+      "train": 1.53,
+      "exam": -0.39
+     },
+     {
+      "label": "[TERS bear_clusters (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış] & [TERS composite_usd_risk · 1 ay ort. · long+short · sinyalle çıkış]",
+      "train": 1.45,
+      "exam": 0.41
+     }
+    ]
+   },
+   "leverage_exam": [
+    {
+     "lev": 1,
+     "cagr": 0.2733,
+     "final": 1.6225,
+     "maxdd": 0.3775,
+     "liquidations": 0
+    },
+    {
+     "lev": 2,
+     "cagr": 0.2881,
+     "final": 1.6602,
+     "maxdd": 0.6349,
+     "liquidations": 0
+    },
+    {
+     "lev": 3,
+     "cagr": 0.0345,
+     "final": 1.0702,
+     "maxdd": 0.7992,
+     "liquidations": 0
+    },
+    {
+     "lev": 5,
+     "cagr": -0.685,
+     "final": 0.0989,
+     "maxdd": 0.9645,
+     "liquidations": 0
+    },
+    {
+     "lev": 10,
+     "cagr": -1.0,
+     "final": 0.0,
+     "maxdd": 1.0,
+     "liquidations": 2
+    }
+   ]
+  },
+  "NQ": {
+   "asset": "NQ",
+   "window": [
+    "2016-10-11",
+    "2026-10-08"
+   ],
+   "exam_start": "2024-10-08",
+   "n_rules": 6253,
+   "n_eff": 14.7,
+   "n_signals": 111,
+   "chosen": {
+    "label": "Volatilite desteği (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+    "rule": {
+     "src": "sys::volatility_supports",
+     "cad": 5,
+     "op": "z",
+     "inv": false,
+     "mode": "LO",
+     "exit": {
+      "type": "trail",
+      "k": 3.0
+     }
+    },
+    "train": 1.02,
+    "exam": 0.25,
+    "exam_t": 0.35,
+    "exam_alpha_t": 0.14,
+    "exam_ret": 0.0314,
+    "exam_dd": 0.0892,
+    "dsr": 0.877,
+    "trades": 19
+   },
+   "wf": {
+    "sharpe": 0.5,
+    "t": 1.2,
+    "pos": 0.5,
+    "folds": [
+     [
+      2019,
+      1.6299706961443767
+     ],
+     [
+      2020,
+      1.0810315040079035
+     ],
+     [
+      2021,
+      -0.5672187753068983
+     ],
+     [
+      2022,
+      -0.20690614544076225
+     ],
+     [
+      2023,
+      1.8244822330230723
+     ],
+     [
+      2024,
+      -0.36807260880341264
+     ]
+    ],
+    "picks": [
+     "TERS composite_usd_risk (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · sinyalle çıkış",
+     "TERS composite_usd_risk (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · sinyalle çıkış",
+     "TERS Alt: COT kaldıraçlı fon net (haftalık değişim) (güçlü ∣z∣>0.5) · 1 ay ort. · sadece long · iz süren stop 3×ATR",
+     "Alt: COT dealer net (haftalık değişim) · 1 ay ort. · sadece long · iz süren stop 3×ATR",
+     "TERS ADX trend rejimi (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "TERS direction_velocity · 1 ay ort. · sadece long · iz süren stop 3×ATR"
+    ],
+    "ret": 0.4986
+   },
+   "bench": {
+    "train": 0.3,
+    "exam": 0.52,
+    "exam_ret": 0.2541
+   },
+   "ok": {
+    "wf_t": false,
+    "wf_pos": false,
+    "dsr": false,
+    "exam_t": false,
+    "exam_alpha_t": false
+   },
+   "proven": false,
+   "top": [
+    {
+     "label": "Volatilite desteği (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "train": 1.02,
+     "exam": 0.25,
+     "exam_ret": 0.0314,
+     "trades": 19
+    },
+    {
+     "label": "Volatilite desteği (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · sinyalle çıkış",
+     "train": 0.99,
+     "exam": 0.3,
+     "exam_ret": 0.0765,
+     "trades": 19
+    },
+    {
+     "label": "TERS ADX trend rejimi (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.9,
+     "exam": -0.28,
+     "exam_ret": -0.0448,
+     "trades": 56
+    },
+    {
+     "label": "timeframe_confluence.all_aligned (güçlü ∣z∣>0.5) · 1 gün · sadece long · sinyalle çıkış",
+     "train": 0.9,
+     "exam": 0.0,
+     "exam_ret": 0.0,
+     "trades": 46
+    },
+    {
+     "label": "TERS direction_velocity · 1 ay ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.87,
+     "exam": -0.08,
+     "exam_ret": -0.0118,
+     "trades": 56
+    },
+    {
+     "label": "timeframe_confluence.all_aligned (güçlü ∣z∣>0.5) · 1 gün · sadece long · iz süren stop 3×ATR",
+     "train": 0.87,
+     "exam": 0.0,
+     "exam_ret": 0.0,
+     "trades": 46
+    },
+    {
+     "label": "Faktör: duration_risk (güçlü ∣z∣>0.5) · 1 gün · sadece long · iz süren stop 3×ATR",
+     "train": 0.85,
+     "exam": -0.08,
+     "exam_ret": -0.0144,
+     "trades": 214
+    },
+    {
+     "label": "Faktör: duration_risk · 1 gün · sadece long · iz süren stop 3×ATR",
+     "train": 0.84,
+     "exam": 0.32,
+     "exam_ret": 0.0678,
+     "trades": 236
+    },
+    {
+     "label": "Faktör: tech_vol_premium_lead · 1 hafta ort. · sadece long · sinyalle çıkış",
+     "train": 0.82,
+     "exam": 0.78,
+     "exam_ret": 0.2595,
+     "trades": 85
+    },
+    {
+     "label": "Faktör: tech_vol_premium_lead (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış",
+     "train": 0.81,
+     "exam": 0.77,
+     "exam_ret": 0.3577,
+     "trades": 135
+    },
+    {
+     "label": "TERS direction_velocity · 1 ay ort. · sadece long · sinyalle çıkış",
+     "train": 0.78,
+     "exam": 0.5,
+     "exam_ret": 0.0856,
+     "trades": 56
+    },
+    {
+     "label": "TERS direction_velocity (güçlü ∣z∣>0.5) · 1 ay ort. · sadece long · sinyalle çıkış",
+     "train": 0.78,
+     "exam": 0.37,
+     "exam_ret": 0.0543,
+     "trades": 42
+    },
+    {
+     "label": "Alt: COT kaldıraçlı fon net · 1 ay ort. · sadece long · sinyalle çıkış",
+     "train": 0.78,
+     "exam": -0.2,
+     "exam_ret": -0.0116,
+     "trades": 8
+    },
+    {
+     "label": "adaptive_cluster_scores.B · 1 hafta ort. · sadece long · sinyalle çıkış",
+     "train": 0.78,
+     "exam": 0.29,
+     "exam_ret": 0.09,
+     "trades": 116
+    },
+    {
+     "label": "TERS composite_usd_risk · 1 ay ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.76,
+     "exam": -0.02,
+     "exam_ret": -0.0025,
+     "trades": 16
+    },
+    {
+     "label": "TERS Makro: composite_usd_risk · 1 ay ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.76,
+     "exam": -0.02,
+     "exam_ret": -0.0025,
+     "trades": 16
+    },
+    {
+     "label": "TERS Giriş notu (güçlü ∣z∣>0.5) · 1 ay ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.76,
+     "exam": 0.3,
+     "exam_ret": 0.0352,
+     "trades": 35
+    },
+    {
+     "label": "Faktör: tech_vol_premium_lead · 1 ay ort. · sadece long · sinyalle çıkış",
+     "train": 0.74,
+     "exam": 1.11,
+     "exam_ret": 0.1997,
+     "trades": 30
+    },
+    {
+     "label": "Faktör: duration_risk · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.74,
+     "exam": 0.92,
+     "exam_ret": 0.2685,
+     "trades": 92
+    },
+    {
+     "label": "adaptive_cluster_scores.B · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.74,
+     "exam": 0.75,
+     "exam_ret": 0.2072,
+     "trades": 116
+    }
+   ],
+   "families": [
+    {
+     "family": "sistem · 1 gün",
+     "n": 540,
+     "train_mean": -0.54,
+     "exam_mean": -0.55,
+     "exam_pos": 0.2,
+     "rank_corr": 0.41
+    },
+    {
+     "family": "sistem · 1 gün · TERS",
+     "n": 540,
+     "train_mean": -0.5,
+     "exam_mean": -0.52,
+     "exam_pos": 0.23,
+     "rank_corr": null
+    },
+    {
+     "family": "sistem · 1 hafta",
+     "n": 542,
+     "train_mean": -0.31,
+     "exam_mean": -0.43,
+     "exam_pos": 0.25,
+     "rank_corr": 0.2
+    },
+    {
+     "family": "sistem · 1 hafta · TERS",
+     "n": 542,
+     "train_mean": -0.26,
+     "exam_mean": -0.1,
+     "exam_pos": 0.47,
+     "rank_corr": null
+    },
+    {
+     "family": "sistem · 1 ay",
+     "n": 550,
+     "train_mean": -0.19,
+     "exam_mean": -0.13,
+     "exam_pos": 0.43,
+     "rank_corr": -0.13
+    },
+    {
+     "family": "sistem · 1 ay · TERS",
+     "n": 550,
+     "train_mean": -0.23,
+     "exam_mean": -0.49,
+     "exam_pos": 0.29,
+     "rank_corr": null
+    },
+    {
+     "family": "faktör · 1 gün",
+     "n": 216,
+     "train_mean": -0.39,
+     "exam_mean": -0.56,
+     "exam_pos": 0.14,
+     "rank_corr": 0.19
+    },
+    {
+     "family": "faktör · 1 gün · TERS",
+     "n": 216,
+     "train_mean": -0.49,
+     "exam_mean": -0.42,
+     "exam_pos": 0.25,
+     "rank_corr": null
+    },
+    {
+     "family": "faktör · 1 hafta",
+     "n": 216,
+     "train_mean": -0.22,
+     "exam_mean": -0.31,
+     "exam_pos": 0.3,
+     "rank_corr": 0.32
+    },
+    {
+     "family": "faktör · 1 hafta · TERS",
+     "n": 216,
+     "train_mean": -0.32,
+     "exam_mean": -0.26,
+     "exam_pos": 0.37,
+     "rank_corr": null
+    },
+    {
+     "family": "faktör · 1 ay",
+     "n": 216,
+     "train_mean": -0.15,
+     "exam_mean": -0.2,
+     "exam_pos": 0.4,
+     "rank_corr": 0.06
+    },
+    {
+     "family": "faktör · 1 ay · TERS",
+     "n": 216,
+     "train_mean": -0.26,
+     "exam_mean": -0.38,
+     "exam_pos": 0.38,
+     "rank_corr": null
+    },
+    {
+     "family": "makro · 1 gün",
+     "n": 120,
+     "train_mean": -0.68,
+     "exam_mean": -0.65,
+     "exam_pos": 0.12,
+     "rank_corr": 0.57
+    },
+    {
+     "family": "makro · 1 gün · TERS",
+     "n": 120,
+     "train_mean": -0.3,
+     "exam_mean": -0.46,
+     "exam_pos": 0.23,
+     "rank_corr": null
+    },
+    {
+     "family": "makro · 1 hafta",
+     "n": 120,
+     "train_mean": -0.42,
+     "exam_mean": -0.42,
+     "exam_pos": 0.25,
+     "rank_corr": 0.39
+    },
+    {
+     "family": "makro · 1 hafta · TERS",
+     "n": 120,
+     "train_mean": -0.12,
+     "exam_mean": -0.1,
+     "exam_pos": 0.35,
+     "rank_corr": null
+    },
+    {
+     "family": "makro · 1 ay",
+     "n": 120,
+     "train_mean": -0.25,
+     "exam_mean": 0.04,
+     "exam_pos": 0.51,
+     "rank_corr": -0.1
+    },
+    {
+     "family": "makro · 1 ay · TERS",
+     "n": 120,
+     "train_mean": -0.14,
+     "exam_mean": -0.52,
+     "exam_pos": 0.25,
+     "rank_corr": null
+    },
+    {
+     "family": "COT · 1 gün",
+     "n": 78,
+     "train_mean": -0.25,
+     "exam_mean": -0.13,
+     "exam_pos": 0.44,
+     "rank_corr": 0.25
+    },
+    {
+     "family": "COT · 1 gün · TERS",
+     "n": 78,
+     "train_mean": -0.31,
+     "exam_mean": -0.47,
+     "exam_pos": 0.26,
+     "rank_corr": null
+    },
+    {
+     "family": "COT · 1 hafta",
+     "n": 78,
+     "train_mean": -0.24,
+     "exam_mean": -0.24,
+     "exam_pos": 0.32,
+     "rank_corr": -0.31
+    },
+    {
+     "family": "COT · 1 hafta · TERS",
+     "n": 78,
+     "train_mean": -0.25,
+     "exam_mean": -0.39,
+     "exam_pos": 0.27,
+     "rank_corr": null
+    },
+    {
+     "family": "COT · 1 ay",
+     "n": 78,
+     "train_mean": -0.16,
+     "exam_mean": -0.1,
+     "exam_pos": 0.41,
+     "rank_corr": 0.25
+    },
+    {
+     "family": "COT · 1 ay · TERS",
+     "n": 78,
+     "train_mean": -0.25,
+     "exam_mean": -0.38,
+     "exam_pos": 0.33,
+     "rank_corr": null
+    },
+    {
+     "family": "teknik · 1 gün",
+     "n": 84,
+     "train_mean": -0.3,
+     "exam_mean": -0.17,
+     "exam_pos": 0.35,
+     "rank_corr": 0.67
+    },
+    {
+     "family": "teknik · 1 gün · TERS",
+     "n": 84,
+     "train_mean": -0.27,
+     "exam_mean": -0.26,
+     "exam_pos": 0.39,
+     "rank_corr": null
+    },
+    {
+     "family": "teknik · 1 hafta",
+     "n": 84,
+     "train_mean": -0.2,
+     "exam_mean": 0.05,
+     "exam_pos": 0.54,
+     "rank_corr": 0.54
+    },
+    {
+     "family": "teknik · 1 hafta · TERS",
+     "n": 84,
+     "train_mean": -0.23,
+     "exam_mean": -0.41,
+     "exam_pos": 0.29,
+     "rank_corr": null
+    },
+    {
+     "family": "teknik · 1 ay",
+     "n": 84,
+     "train_mean": -0.14,
+     "exam_mean": -0.2,
+     "exam_pos": 0.37,
+     "rank_corr": 0.13
+    },
+    {
+     "family": "teknik · 1 ay · TERS",
+     "n": 84,
+     "train_mean": -0.25,
+     "exam_mean": -0.22,
+     "exam_pos": 0.32,
+     "rank_corr": null
+    }
+   ],
+   "combos": {
+    "n": 65,
+    "chosen": {
+     "label": "[Faktör: tech_vol_premium_lead (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış] & [adaptive_cluster_scores.B · 1 hafta ort. · long+short · sinyalle çıkış]",
+     "train": 1.02,
+     "exam": 0.7,
+     "exam_t": 0.99
+    },
+    "exam_mean": -0.03,
+    "exam_pos": 0.55,
+    "top": [
+     {
+      "label": "[Faktör: tech_vol_premium_lead (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış] & [adaptive_cluster_scores.B · 1 hafta ort. · long+short · sinyalle çıkış]",
+      "train": 1.02,
+      "exam": 0.7
+     },
+     {
+      "label": "[Faktör: tech_vol_premium_lead (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış] & [TERS direction_velocity · 1 ay ort. · long+short · sinyalle çıkış]",
+      "train": 0.97,
+      "exam": 0.83
+     },
+     {
+      "label": "[Faktör: tech_vol_premium_lead (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış] & [Faktör: duration_risk (güçlü ∣z∣>0.5) · 1 gün · long+short · sinyalle çıkış]",
+      "train": 0.9,
+      "exam": 0.46
+     },
+     {
+      "label": "[Faktör: tech_vol_premium_lead (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış] & [TERS Makro: real_yield_z · 1 hafta ort. · long+short · sinyalle çıkış]",
+      "train": 0.87,
+      "exam": 1.04
+     },
+     {
+      "label": "[Faktör: tech_vol_premium_lead (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış] & [TERS Makro: dfii10_z · 1 hafta ort. · long+short · sinyalle çıkış]",
+      "train": 0.87,
+      "exam": 1.04
+     },
+     {
+      "label": "[Faktör: tech_vol_premium_lead (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış] & [Volatilite desteği (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış]",
+      "train": 0.87,
+      "exam": 1.1
+     },
+     {
+      "label": "[Faktör: tech_vol_premium_lead (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış] & [Faktör: equity_duration_drag · 1 hafta ort. · long+short · sinyalle çıkış]",
+      "train": 0.87,
+      "exam": 1.04
+     },
+     {
+      "label": "[Faktör: tech_vol_premium_lead (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış] & [TERS Faktör: credit_spread (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış]",
+      "train": 0.83,
+      "exam": 1.34
+     }
+    ]
+   },
+   "leverage_exam": [
+    {
+     "lev": 1,
+     "cagr": 0.0156,
+     "final": 1.0314,
+     "maxdd": 0.0892,
+     "liquidations": 0
+    },
+    {
+     "lev": 2,
+     "cagr": 0.0273,
+     "final": 1.0554,
+     "maxdd": 0.1726,
+     "liquidations": 0
+    },
+    {
+     "lev": 3,
+     "cagr": 0.0351,
+     "final": 1.0715,
+     "maxdd": 0.2505,
+     "liquidations": 0
+    },
+    {
+     "lev": 5,
+     "cagr": 0.0381,
+     "final": 1.0777,
+     "maxdd": 0.3906,
+     "liquidations": 0
+    },
+    {
+     "lev": 10,
+     "cagr": -0.03,
+     "final": 0.9408,
+     "maxdd": 0.658,
+     "liquidations": 0
+    }
+   ]
+  },
+  "SPX": {
+   "asset": "SPX",
+   "window": [
+    "2016-10-11",
+    "2026-10-08"
+   ],
+   "exam_start": "2024-10-08",
+   "n_rules": 6145,
+   "n_eff": 14.3,
+   "n_signals": 110,
+   "chosen": {
+    "label": "TERS direction_velocity (güçlü ∣z∣>0.5) · 1 ay ort. · sadece long · sinyalle çıkış",
+    "rule": {
+     "src": "sys::direction_velocity",
+     "cad": 21,
+     "op": "z",
+     "inv": true,
+     "mode": "LO",
+     "exit": {
+      "type": "sig"
+     }
+    },
+    "train": 1.07,
+    "exam": 0.43,
+    "exam_t": 0.6,
+    "exam_alpha_t": 0.51,
+    "exam_ret": 0.0455,
+    "exam_dd": 0.0462,
+    "dsr": 0.903,
+    "trades": 48
+   },
+   "wf": {
+    "sharpe": 0.15,
+    "t": 0.37,
+    "pos": 0.67,
+    "folds": [
+     [
+      2019,
+      0.0
+     ],
+     [
+      2020,
+      -0.25600319245228104
+     ],
+     [
+      2021,
+      0.29599658699848097
+     ],
+     [
+      2022,
+      0.9480262711957257
+     ],
+     [
+      2023,
+      0.4437419587818341
+     ],
+     [
+      2024,
+      1.070848184638182
+     ]
+    ],
+    "picks": [
+     "TERS direction_warmup (güçlü ∣z∣>0.5) · 1 ay ort. · sadece long · sinyalle çıkış",
+     "Faktör: duration_risk · 1 ay ort. · sadece long · sinyalle çıkış",
+     "Giriş izni (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "TERS direction_velocity (güçlü ∣z∣>0.5) · 1 ay ort. · sadece long · sinyalle çıkış",
+     "TERS direction_velocity (güçlü ∣z∣>0.5) · 1 ay ort. · sadece long · sinyalle çıkış",
+     "TERS direction_velocity (güçlü ∣z∣>0.5) · 1 ay ort. · sadece long · sinyalle çıkış"
+    ],
+    "ret": 0.1398
+   },
+   "bench": {
+    "train": 0.08,
+    "exam": 0.28,
+    "exam_ret": 0.0934
+   },
+   "ok": {
+    "wf_t": false,
+    "wf_pos": true,
+    "dsr": true,
+    "exam_t": false,
+    "exam_alpha_t": false
+   },
+   "proven": false,
+   "top": [
+    {
+     "label": "TERS direction_velocity (güçlü ∣z∣>0.5) · 1 ay ort. · sadece long · sinyalle çıkış",
+     "train": 1.07,
+     "exam": 0.43,
+     "exam_ret": 0.0455,
+     "trades": 48
+    },
+    {
+     "label": "Giriş izni (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.97,
+     "exam": 0.71,
+     "exam_ret": 0.1462,
+     "trades": 134
+    },
+    {
+     "label": "TERS live_regime_event (güçlü ∣z∣>0.5) · 1 ay ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.95,
+     "exam": 0.6,
+     "exam_ret": 0.0764,
+     "trades": 28
+    },
+    {
+     "label": "Giriş izni (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · sinyalle çıkış",
+     "train": 0.82,
+     "exam": 0.59,
+     "exam_ret": 0.1296,
+     "trades": 134
+    },
+    {
+     "label": "Faktör: duration_risk (güçlü ∣z∣>0.5) · 1 gün · sadece long · iz süren stop 3×ATR",
+     "train": 0.78,
+     "exam": -0.71,
+     "exam_ret": -0.0927,
+     "trades": 214
+    },
+    {
+     "label": "bear_clusters (güçlü ∣z∣>0.5) · 1 ay ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.77,
+     "exam": -0.34,
+     "exam_ret": -0.0396,
+     "trades": 34
+    },
+    {
+     "label": "TERS direction_velocity (güçlü ∣z∣>0.5) · 1 ay ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.68,
+     "exam": 0.41,
+     "exam_ret": 0.0374,
+     "trades": 48
+    },
+    {
+     "label": "TERS Faktör: market_breadth (güçlü ∣z∣>0.5) · 1 ay ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.67,
+     "exam": 0.73,
+     "exam_ret": 0.0872,
+     "trades": 42
+    },
+    {
+     "label": "TERS direction_warmup (güçlü ∣z∣>0.5) · 1 ay ort. · sadece long · sinyalle çıkış",
+     "train": 0.65,
+     "exam": 0.0,
+     "exam_ret": 0.0,
+     "trades": 6
+    },
+    {
+     "label": "Giriş izni (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · iz süren stop 3×ATR",
+     "train": 0.62,
+     "exam": -0.16,
+     "exam_ret": -0.0396,
+     "trades": 220
+    },
+    {
+     "label": "Alt: COT dealer net · 1 gün · sadece long · iz süren stop 3×ATR",
+     "train": 0.59,
+     "exam": 0.0,
+     "exam_ret": 0.0,
+     "trades": 12
+    },
+    {
+     "label": "TERS Makro: composite_usd_risk · 1 ay ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.59,
+     "exam": -0.08,
+     "exam_ret": -0.0066,
+     "trades": 16
+    },
+    {
+     "label": "TERS composite_usd_risk · 1 ay ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.59,
+     "exam": -0.08,
+     "exam_ret": -0.0066,
+     "trades": 16
+    },
+    {
+     "label": "Faktör: defensive_flight (güçlü ∣z∣>0.5) · 1 ay ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.58,
+     "exam": 0.32,
+     "exam_ret": 0.0353,
+     "trades": 46
+    },
+    {
+     "label": "TERS direction_acceleration · 1 ay ort. · sadece long · sinyalle çıkış",
+     "train": 0.57,
+     "exam": -0.07,
+     "exam_ret": -0.0166,
+     "trades": 48
+    },
+    {
+     "label": "Faktör: duration_risk · 1 gün · sadece long · iz süren stop 3×ATR",
+     "train": 0.57,
+     "exam": -0.44,
+     "exam_ret": -0.0637,
+     "trades": 236
+    },
+    {
+     "label": "TERS ADX trend rejimi (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.56,
+     "exam": 0.56,
+     "exam_ret": 0.0998,
+     "trades": 74
+    },
+    {
+     "label": "Alt: COT kaldıraçlı fon net (güçlü ∣z∣>0.5) · 1 ay ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.56,
+     "exam": -0.6,
+     "exam_ret": -0.0495,
+     "trades": 26
+    },
+    {
+     "label": "adaptive_cluster_scores.B · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.56,
+     "exam": 0.41,
+     "exam_ret": 0.0776,
+     "trades": 110
+    },
+    {
+     "label": "Faktör: duration_risk · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.55,
+     "exam": 0.68,
+     "exam_ret": 0.1354,
+     "trades": 92
+    }
+   ],
+   "families": [
+    {
+     "family": "sistem · 1 gün",
+     "n": 540,
+     "train_mean": -0.61,
+     "exam_mean": -0.72,
+     "exam_pos": 0.09,
+     "rank_corr": 0.43
+    },
+    {
+     "family": "sistem · 1 gün · TERS",
+     "n": 540,
+     "train_mean": -0.66,
+     "exam_mean": -0.76,
+     "exam_pos": 0.11,
+     "rank_corr": null
+    },
+    {
+     "family": "sistem · 1 hafta",
+     "n": 542,
+     "train_mean": -0.45,
+     "exam_mean": -0.69,
+     "exam_pos": 0.12,
+     "rank_corr": 0.26
+    },
+    {
+     "family": "sistem · 1 hafta · TERS",
+     "n": 542,
+     "train_mean": -0.31,
+     "exam_mean": -0.04,
+     "exam_pos": 0.53,
+     "rank_corr": null
+    },
+    {
+     "family": "sistem · 1 ay",
+     "n": 550,
+     "train_mean": -0.38,
+     "exam_mean": -0.13,
+     "exam_pos": 0.45,
+     "rank_corr": -0.06
+    },
+    {
+     "family": "sistem · 1 ay · TERS",
+     "n": 550,
+     "train_mean": -0.16,
+     "exam_mean": -0.54,
+     "exam_pos": 0.26,
+     "rank_corr": null
+    },
+    {
+     "family": "faktör · 1 gün",
+     "n": 204,
+     "train_mean": -0.45,
+     "exam_mean": -0.7,
+     "exam_pos": 0.15,
+     "rank_corr": 0.09
+    },
+    {
+     "family": "faktör · 1 gün · TERS",
+     "n": 204,
+     "train_mean": -0.71,
+     "exam_mean": -0.64,
+     "exam_pos": 0.21,
+     "rank_corr": null
+    },
+    {
+     "family": "faktör · 1 hafta",
+     "n": 204,
+     "train_mean": -0.35,
+     "exam_mean": -0.43,
+     "exam_pos": 0.23,
+     "rank_corr": 0.35
+    },
+    {
+     "family": "faktör · 1 hafta · TERS",
+     "n": 204,
+     "train_mean": -0.39,
+     "exam_mean": -0.28,
+     "exam_pos": 0.33,
+     "rank_corr": null
+    },
+    {
+     "family": "faktör · 1 ay",
+     "n": 204,
+     "train_mean": -0.3,
+     "exam_mean": -0.4,
+     "exam_pos": 0.32,
+     "rank_corr": 0.15
+    },
+    {
+     "family": "faktör · 1 ay · TERS",
+     "n": 204,
+     "train_mean": -0.27,
+     "exam_mean": -0.34,
+     "exam_pos": 0.39,
+     "rank_corr": null
+    },
+    {
+     "family": "makro · 1 gün",
+     "n": 120,
+     "train_mean": -0.82,
+     "exam_mean": -0.86,
+     "exam_pos": 0.04,
+     "rank_corr": 0.71
+    },
+    {
+     "family": "makro · 1 gün · TERS",
+     "n": 120,
+     "train_mean": -0.41,
+     "exam_mean": -0.63,
+     "exam_pos": 0.14,
+     "rank_corr": null
+    },
+    {
+     "family": "makro · 1 hafta",
+     "n": 120,
+     "train_mean": -0.55,
+     "exam_mean": -0.63,
+     "exam_pos": 0.12,
+     "rank_corr": 0.49
+    },
+    {
+     "family": "makro · 1 hafta · TERS",
+     "n": 120,
+     "train_mean": -0.16,
+     "exam_mean": -0.1,
+     "exam_pos": 0.35,
+     "rank_corr": null
+    },
+    {
+     "family": "makro · 1 ay",
+     "n": 120,
+     "train_mean": -0.29,
+     "exam_mean": 0.08,
+     "exam_pos": 0.53,
+     "rank_corr": -0.06
+    },
+    {
+     "family": "makro · 1 ay · TERS",
+     "n": 120,
+     "train_mean": -0.21,
+     "exam_mean": -0.75,
+     "exam_pos": 0.16,
+     "rank_corr": null
+    },
+    {
+     "family": "COT · 1 gün",
+     "n": 72,
+     "train_mean": -0.24,
+     "exam_mean": -0.25,
+     "exam_pos": 0.31,
+     "rank_corr": -0.22
+    },
+    {
+     "family": "COT · 1 gün · TERS",
+     "n": 72,
+     "train_mean": -0.5,
+     "exam_mean": -0.36,
+     "exam_pos": 0.25,
+     "rank_corr": null
+    },
+    {
+     "family": "COT · 1 hafta",
+     "n": 72,
+     "train_mean": -0.33,
+     "exam_mean": -0.35,
+     "exam_pos": 0.32,
+     "rank_corr": 0.01
+    },
+    {
+     "family": "COT · 1 hafta · TERS",
+     "n": 72,
+     "train_mean": -0.32,
+     "exam_mean": -0.3,
+     "exam_pos": 0.36,
+     "rank_corr": null
+    },
+    {
+     "family": "COT · 1 ay",
+     "n": 72,
+     "train_mean": -0.27,
+     "exam_mean": -0.38,
+     "exam_pos": 0.29,
+     "rank_corr": 0.38
+    },
+    {
+     "family": "COT · 1 ay · TERS",
+     "n": 72,
+     "train_mean": -0.22,
+     "exam_mean": -0.17,
+     "exam_pos": 0.38,
+     "rank_corr": null
+    },
+    {
+     "family": "teknik · 1 gün",
+     "n": 84,
+     "train_mean": -0.38,
+     "exam_mean": -0.28,
+     "exam_pos": 0.31,
+     "rank_corr": 0.19
+    },
+    {
+     "family": "teknik · 1 gün · TERS",
+     "n": 84,
+     "train_mean": -0.43,
+     "exam_mean": -0.33,
+     "exam_pos": 0.4,
+     "rank_corr": null
+    },
+    {
+     "family": "teknik · 1 hafta",
+     "n": 84,
+     "train_mean": -0.4,
+     "exam_mean": -0.16,
+     "exam_pos": 0.39,
+     "rank_corr": 0.16
+    },
+    {
+     "family": "teknik · 1 hafta · TERS",
+     "n": 84,
+     "train_mean": -0.24,
+     "exam_mean": -0.41,
+     "exam_pos": 0.26,
+     "rank_corr": null
+    },
+    {
+     "family": "teknik · 1 ay",
+     "n": 84,
+     "train_mean": -0.28,
+     "exam_mean": -0.24,
+     "exam_pos": 0.36,
+     "rank_corr": 0.19
+    },
+    {
+     "family": "teknik · 1 ay · TERS",
+     "n": 84,
+     "train_mean": -0.2,
+     "exam_mean": -0.2,
+     "exam_pos": 0.39,
+     "rank_corr": null
+    }
+   ],
+   "combos": {
+    "n": 66,
+    "chosen": {
+     "label": "[adaptive_cluster_scores.B (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış] & [Makro: ndl_z · 1 hafta ort. · long+short · sinyalle çıkış]",
+     "train": 0.92,
+     "exam": -0.48,
+     "exam_t": -0.68
+    },
+    "exam_mean": -0.59,
+    "exam_pos": 0.14,
+    "top": [
+     {
+      "label": "[adaptive_cluster_scores.B (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış] & [Makro: ndl_z · 1 hafta ort. · long+short · sinyalle çıkış]",
+      "train": 0.92,
+      "exam": -0.48
+     },
+     {
+      "label": "[adaptive_cluster_scores.B (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış] & [Faktör: net_dollar_liquidity · 1 hafta ort. · long+short · sinyalle çıkış]",
+      "train": 0.92,
+      "exam": -0.48
+     },
+     {
+      "label": "[TERS direction_velocity (güçlü ∣z∣>0.5) · 1 ay ort. · long+short · sinyalle çıkış] & [Makro: ndl_z · 1 hafta ort. · long+short · sinyalle çıkış]",
+      "train": 0.89,
+      "exam": -0.67
+     },
+     {
+      "label": "[TERS direction_velocity (güçlü ∣z∣>0.5) · 1 ay ort. · long+short · sinyalle çıkış] & [Faktör: net_dollar_liquidity · 1 hafta ort. · long+short · sinyalle çıkış]",
+      "train": 0.89,
+      "exam": -0.67
+     },
+     {
+      "label": "[TERS direction_velocity (güçlü ∣z∣>0.5) · 1 ay ort. · long+short · sinyalle çıkış] & [TERS Makro: dfii10_z · 1 hafta ort. · long+short · sinyalle çıkış]",
+      "train": 0.87,
+      "exam": 0.26
+     },
+     {
+      "label": "[TERS direction_velocity (güçlü ∣z∣>0.5) · 1 ay ort. · long+short · sinyalle çıkış] & [TERS Makro: real_yield_z · 1 hafta ort. · long+short · sinyalle çıkış]",
+      "train": 0.87,
+      "exam": 0.26
+     },
+     {
+      "label": "[Makro: ndl_z · 1 hafta ort. · long+short · sinyalle çıkış] & [Faktör: duration_risk (güçlü ∣z∣>0.5) · 1 gün · long+short · sinyalle çıkış]",
+      "train": 0.85,
+      "exam": -1.3
+     },
+     {
+      "label": "[Faktör: net_dollar_liquidity · 1 hafta ort. · long+short · sinyalle çıkış] & [Faktör: duration_risk (güçlü ∣z∣>0.5) · 1 gün · long+short · sinyalle çıkış]",
+      "train": 0.85,
+      "exam": -1.3
+     }
+    ]
+   },
+   "leverage_exam": [
+    {
+     "lev": 1,
+     "cagr": 0.0225,
+     "final": 1.0455,
+     "maxdd": 0.0462,
+     "liquidations": 0
+    },
+    {
+     "lev": 2,
+     "cagr": 0.0427,
+     "final": 1.0872,
+     "maxdd": 0.0911,
+     "liquidations": 0
+    },
+    {
+     "lev": 3,
+     "cagr": 0.0604,
+     "final": 1.1244,
+     "maxdd": 0.1347,
+     "liquidations": 0
+    },
+    {
+     "lev": 5,
+     "cagr": 0.088,
+     "final": 1.1837,
+     "maxdd": 0.2178,
+     "liquidations": 0
+    },
+    {
+     "lev": 10,
+     "cagr": 0.1077,
+     "final": 1.2269,
+     "maxdd": 0.403,
+     "liquidations": 0
+    }
+   ]
+  },
+  "XAG": {
+   "asset": "XAG",
+   "window": [
+    "2016-10-11",
+    "2026-10-08"
+   ],
+   "exam_start": "2024-10-08",
+   "n_rules": 5961,
+   "n_eff": 17.3,
+   "n_signals": 106,
+   "chosen": {
+    "label": "Momentum (60 gün) (güçlü ∣z∣>0.5) · 1 ay ort. · sadece long · iz süren stop 3×ATR",
+    "rule": {
+     "src": "tech:tsmom:60",
+     "cad": 21,
+     "op": "z",
+     "inv": false,
+     "mode": "LO",
+     "exit": {
+      "type": "trail",
+      "k": 3.0
+     }
+    },
+    "train": 0.85,
+    "exam": 0.69,
+    "exam_t": 0.98,
+    "exam_alpha_t": 0.88,
+    "exam_ret": 0.194,
+    "exam_dd": 0.1075,
+    "dsr": 0.736,
+    "trades": 16
+   },
+   "wf": {
+    "sharpe": -0.21,
+    "t": -0.51,
+    "pos": 0.17,
+    "folds": [
+     [
+      2019,
+      -0.6299385060374827
+     ],
+     [
+      2020,
+      -0.5771512341083085
+     ],
+     [
+      2021,
+      -0.4944567744021827
+     ],
+     [
+      2022,
+      -1.6849886690405758
+     ],
+     [
+      2023,
+      -0.9695979312696119
+     ],
+     [
+      2024,
+      1.3334324443813517
+     ]
+    ],
+    "picks": [
+     "TERS EMA trend (100 gün) · 1 hafta ort. · sadece short · sinyalle çıkış",
+     "TERS RVOL (güçlü ∣z∣>0.5) · 1 gün · long+short · sinyalle çıkış",
+     "TERS Makro: dfii10_z · 1 ay ort. · sadece long · iz süren stop 3×ATR",
+     "TERS Kısa vade=model (güçlü ∣z∣>0.5) · 1 ay ort. · sadece long · iz süren stop 3×ATR",
+     "Momentum (60 gün) (güçlü ∣z∣>0.5) · 1 ay ort. · sadece long · iz süren stop 3×ATR",
+     "Faktör: duration_risk (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR"
+    ],
+    "ret": -0.1442
+   },
+   "bench": {
+    "train": -0.12,
+    "exam": 0.38,
+    "exam_ret": 0.4956
+   },
+   "ok": {
+    "wf_t": false,
+    "wf_pos": false,
+    "dsr": false,
+    "exam_t": false,
+    "exam_alpha_t": false
+   },
+   "proven": false,
+   "top": [
+    {
+     "label": "Momentum (60 gün) (güçlü ∣z∣>0.5) · 1 ay ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.85,
+     "exam": 0.69,
+     "exam_ret": 0.194,
+     "trades": 16
+    },
+    {
+     "label": "Faktör: duration_risk (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.84,
+     "exam": 0.6,
+     "exam_ret": 0.27,
+     "trades": 92
+    },
+    {
+     "label": "TERS direction_persistence (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · iz süren stop 3×ATR",
+     "train": 0.76,
+     "exam": -1.13,
+     "exam_ret": -0.5378,
+     "trades": 244
+    },
+    {
+     "label": "TERS Kısa vade=model (güçlü ∣z∣>0.5) · 1 ay ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.72,
+     "exam": 0.38,
+     "exam_ret": 0.084,
+     "trades": 40
+    },
+    {
+     "label": "TERS direction_persistence (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.71,
+     "exam": -1.01,
+     "exam_ret": -0.4605,
+     "trades": 187
+    },
+    {
+     "label": "Faktör: duration_risk · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.7,
+     "exam": 0.67,
+     "exam_ret": 0.3422,
+     "trades": 92
+    },
+    {
+     "label": "TERS Makro: real_yield_z · 1 ay ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.67,
+     "exam": -0.18,
+     "exam_ret": -0.0615,
+     "trades": 47
+    },
+    {
+     "label": "TERS Makro: dfii10_z · 1 ay ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.67,
+     "exam": -0.18,
+     "exam_ret": -0.0615,
+     "trades": 47
+    },
+    {
+     "label": "Faktör: real_yield · 1 ay ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.66,
+     "exam": -0.18,
+     "exam_ret": -0.0615,
+     "trades": 49
+    },
+    {
+     "label": "Faktör: net_dollar_liquidity (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.65,
+     "exam": 0.0,
+     "exam_ret": 0.0,
+     "trades": 10
+    },
+    {
+     "label": "Momentum (60 gün) (güçlü ∣z∣>0.5) · 1 ay ort. · long+short · iz süren stop 3×ATR",
+     "train": 0.65,
+     "exam": -0.06,
+     "exam_ret": -0.0164,
+     "trades": 42
+    },
+    {
+     "label": "Yön aşaması · 1 ay ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.63,
+     "exam": 0.61,
+     "exam_ret": 0.3455,
+     "trades": 29
+    },
+    {
+     "label": "live_regime_event (güçlü ∣z∣>0.5) · 1 ay ort. · sadece short · iz süren stop 3×ATR",
+     "train": 0.59,
+     "exam": 0.35,
+     "exam_ret": 0.0791,
+     "trades": 35
+    },
+    {
+     "label": "TERS timeframe_confluence.weight_total (güçlü ∣z∣>0.5) · 1 ay ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.58,
+     "exam": 0.94,
+     "exam_ret": 0.2737,
+     "trades": 19
+    },
+    {
+     "label": "Volatilite desteği (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · sinyalle çıkış",
+     "train": 0.57,
+     "exam": 0.37,
+     "exam_ret": 0.345,
+     "trades": 19
+    },
+    {
+     "label": "pair_stats.divergence_z_used (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · sinyalle çıkış",
+     "train": 0.57,
+     "exam": 0.17,
+     "exam_ret": 0.1698,
+     "trades": 38
+    },
+    {
+     "label": "Alt: COT spekülatif fon net (haftalık değişim) · 1 ay ort. · long+short · sinyalle çıkış",
+     "train": 0.57,
+     "exam": -0.62,
+     "exam_ret": -0.4827,
+     "trades": 48
+    },
+    {
+     "label": "TERS Giriş notu (güçlü ∣z∣>0.5) · 1 ay ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.56,
+     "exam": -0.23,
+     "exam_ret": -0.0501,
+     "trades": 40
+    },
+    {
+     "label": "TERS pair_stats.spread (güçlü ∣z∣>0.5) · 1 ay ort. · sadece short · sinyalle çıkış",
+     "train": 0.56,
+     "exam": -0.72,
+     "exam_ret": -0.4421,
+     "trades": 38
+    },
+    {
+     "label": "Volatilite desteği (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış",
+     "train": 0.56,
+     "exam": 0.33,
+     "exam_ret": 0.3397,
+     "trades": 91
+    }
+   ],
+   "families": [
+    {
+     "family": "sistem · 1 gün",
+     "n": 550,
+     "train_mean": -0.51,
+     "exam_mean": -0.26,
+     "exam_pos": 0.35,
+     "rank_corr": 0.42
+    },
+    {
+     "family": "sistem · 1 gün · TERS",
+     "n": 550,
+     "train_mean": -0.45,
+     "exam_mean": -0.38,
+     "exam_pos": 0.27,
+     "rank_corr": null
+    },
+    {
+     "family": "sistem · 1 hafta",
+     "n": 554,
+     "train_mean": -0.37,
+     "exam_mean": -0.14,
+     "exam_pos": 0.43,
+     "rank_corr": 0.23
+    },
+    {
+     "family": "sistem · 1 hafta · TERS",
+     "n": 554,
+     "train_mean": -0.11,
+     "exam_mean": 0.0,
+     "exam_pos": 0.5,
+     "rank_corr": null
+    },
+    {
+     "family": "sistem · 1 ay",
+     "n": 562,
+     "train_mean": -0.08,
+     "exam_mean": 0.13,
+     "exam_pos": 0.6,
+     "rank_corr": -0.18
+    },
+    {
+     "family": "sistem · 1 ay · TERS",
+     "n": 562,
+     "train_mean": -0.26,
+     "exam_mean": -0.27,
+     "exam_pos": 0.3,
+     "rank_corr": null
+    },
+    {
+     "family": "faktör · 1 gün",
+     "n": 156,
+     "train_mean": -0.37,
+     "exam_mean": -0.27,
+     "exam_pos": 0.33,
+     "rank_corr": -0.17
+    },
+    {
+     "family": "faktör · 1 gün · TERS",
+     "n": 156,
+     "train_mean": -0.43,
+     "exam_mean": -0.23,
+     "exam_pos": 0.33,
+     "rank_corr": null
+    },
+    {
+     "family": "faktör · 1 hafta",
+     "n": 156,
+     "train_mean": -0.26,
+     "exam_mean": -0.11,
+     "exam_pos": 0.46,
+     "rank_corr": 0.14
+    },
+    {
+     "family": "faktör · 1 hafta · TERS",
+     "n": 156,
+     "train_mean": -0.16,
+     "exam_mean": -0.03,
+     "exam_pos": 0.49,
+     "rank_corr": null
+    },
+    {
+     "family": "faktör · 1 ay",
+     "n": 156,
+     "train_mean": -0.12,
+     "exam_mean": 0.07,
+     "exam_pos": 0.52,
+     "rank_corr": -0.06
+    },
+    {
+     "family": "faktör · 1 ay · TERS",
+     "n": 156,
+     "train_mean": -0.25,
+     "exam_mean": -0.23,
+     "exam_pos": 0.37,
+     "rank_corr": null
+    },
+    {
+     "family": "makro · 1 gün",
+     "n": 120,
+     "train_mean": -0.38,
+     "exam_mean": -0.57,
+     "exam_pos": 0.2,
+     "rank_corr": -0.44
+    },
+    {
+     "family": "makro · 1 gün · TERS",
+     "n": 120,
+     "train_mean": -0.47,
+     "exam_mean": 0.05,
+     "exam_pos": 0.52,
+     "rank_corr": null
+    },
+    {
+     "family": "makro · 1 hafta",
+     "n": 120,
+     "train_mean": -0.17,
+     "exam_mean": -0.46,
+     "exam_pos": 0.17,
+     "rank_corr": 0.08
+    },
+    {
+     "family": "makro · 1 hafta · TERS",
+     "n": 120,
+     "train_mean": -0.27,
+     "exam_mean": 0.28,
+     "exam_pos": 0.7,
+     "rank_corr": null
+    },
+    {
+     "family": "makro · 1 ay",
+     "n": 120,
+     "train_mean": -0.16,
+     "exam_mean": -0.05,
+     "exam_pos": 0.48,
+     "rank_corr": -0.22
+    },
+    {
+     "family": "makro · 1 ay · TERS",
+     "n": 120,
+     "train_mean": -0.15,
+     "exam_mean": -0.11,
+     "exam_pos": 0.42,
+     "rank_corr": null
+    },
+    {
+     "family": "COT · 1 gün",
+     "n": 78,
+     "train_mean": -0.35,
+     "exam_mean": -0.24,
+     "exam_pos": 0.27,
+     "rank_corr": 0.47
+    },
+    {
+     "family": "COT · 1 gün · TERS",
+     "n": 78,
+     "train_mean": -0.18,
+     "exam_mean": 0.03,
+     "exam_pos": 0.47,
+     "rank_corr": null
+    },
+    {
+     "family": "COT · 1 hafta",
+     "n": 78,
+     "train_mean": -0.2,
+     "exam_mean": -0.24,
+     "exam_pos": 0.29,
+     "rank_corr": -0.09
+    },
+    {
+     "family": "COT · 1 hafta · TERS",
+     "n": 78,
+     "train_mean": -0.27,
+     "exam_mean": -0.04,
+     "exam_pos": 0.4,
+     "rank_corr": null
+    },
+    {
+     "family": "COT · 1 ay",
+     "n": 78,
+     "train_mean": -0.13,
+     "exam_mean": 0.04,
+     "exam_pos": 0.47,
+     "rank_corr": -0.77
+    },
+    {
+     "family": "COT · 1 ay · TERS",
+     "n": 78,
+     "train_mean": -0.23,
+     "exam_mean": -0.16,
+     "exam_pos": 0.38,
+     "rank_corr": null
+    },
+    {
+     "family": "teknik · 1 gün",
+     "n": 84,
+     "train_mean": -0.33,
+     "exam_mean": -0.27,
+     "exam_pos": 0.36,
+     "rank_corr": 0.64
+    },
+    {
+     "family": "teknik · 1 gün · TERS",
+     "n": 84,
+     "train_mean": -0.21,
+     "exam_mean": -0.09,
+     "exam_pos": 0.36,
+     "rank_corr": null
+    },
+    {
+     "family": "teknik · 1 hafta",
+     "n": 84,
+     "train_mean": -0.4,
+     "exam_mean": -0.18,
+     "exam_pos": 0.44,
+     "rank_corr": 0.23
+    },
+    {
+     "family": "teknik · 1 hafta · TERS",
+     "n": 84,
+     "train_mean": 0.02,
+     "exam_mean": -0.02,
+     "exam_pos": 0.44,
+     "rank_corr": null
+    },
+    {
+     "family": "teknik · 1 ay",
+     "n": 84,
+     "train_mean": -0.05,
+     "exam_mean": 0.03,
+     "exam_pos": 0.55,
+     "rank_corr": 0.08
+    },
+    {
+     "family": "teknik · 1 ay · TERS",
+     "n": 84,
+     "train_mean": -0.23,
+     "exam_mean": -0.33,
+     "exam_pos": 0.19,
+     "rank_corr": null
+    }
+   ],
+   "combos": {
+    "n": 66,
+    "chosen": {
+     "label": "[pair_stats.divergence_z_used (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış] & [TERS Momentum (60 gün) · 1 hafta ort. · long+short · sinyalle çıkış]",
+     "train": 1.15,
+     "exam": -0.71,
+     "exam_t": -1.0
+    },
+    "exam_mean": -0.13,
+    "exam_pos": 0.45,
+    "top": [
+     {
+      "label": "[pair_stats.divergence_z_used (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış] & [TERS Momentum (60 gün) · 1 hafta ort. · long+short · sinyalle çıkış]",
+      "train": 1.15,
+      "exam": -0.71
+     },
+     {
+      "label": "[pair_stats.divergence_z_used (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış] & [TERS Faktör: silver_copper (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış]",
+      "train": 1.14,
+      "exam": -0.09
+     },
+     {
+      "label": "[Alt: COT spekülatif fon net (haftalık değişim) · 1 ay ort. · long+short · sinyalle çıkış] & [TERS direction_persistence (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış]",
+      "train": 1.04,
+      "exam": -0.94
+     },
+     {
+      "label": "[Alt: COT spekülatif fon net (haftalık değişim) · 1 ay ort. · long+short · sinyalle çıkış] & [TERS Momentum (60 gün) · 1 hafta ort. · long+short · sinyalle çıkış]",
+      "train": 0.98,
+      "exam": -0.9
+     },
+     {
+      "label": "[Alt: COT spekülatif fon net (haftalık değişim) · 1 ay ort. · long+short · sinyalle çıkış] & [TERS adaptive_cluster_scores.B · 1 ay ort. · long+short · sinyalle çıkış]",
+      "train": 0.97,
+      "exam": 0.08
+     },
+     {
+      "label": "[pair_stats.divergence_z_used (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış] & [TERS Alt: COT açık pozisyon değişimi · 1 gün · long+short · sinyalle çıkış]",
+      "train": 0.96,
+      "exam": 0.74
+     },
+     {
+      "label": "[TERS direction_persistence (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış] & [TERS Alt: COT açık pozisyon değişimi · 1 gün · long+short · sinyalle çıkış]",
+      "train": 0.96,
+      "exam": -0.25
+     },
+     {
+      "label": "[Alt: COT spekülatif fon net (haftalık değişim) · 1 ay ort. · long+short · sinyalle çıkış] & [bear_clusters (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış]",
+      "train": 0.93,
+      "exam": -0.31
+     }
+    ]
+   },
+   "leverage_exam": [
+    {
+     "lev": 1,
+     "cagr": 0.0927,
+     "final": 1.194,
+     "maxdd": 0.1075,
+     "liquidations": 0
+    },
+    {
+     "lev": 2,
+     "cagr": 0.1745,
+     "final": 1.3794,
+     "maxdd": 0.2121,
+     "liquidations": 0
+    },
+    {
+     "lev": 3,
+     "cagr": 0.241,
+     "final": 1.54,
+     "maxdd": 0.3131,
+     "liquidations": 0
+    },
+    {
+     "lev": 5,
+     "cagr": 0.3108,
+     "final": 1.7181,
+     "maxdd": 0.5017,
+     "liquidations": 0
+    },
+    {
+     "lev": 10,
+     "cagr": -0.0374,
+     "final": 0.9266,
+     "maxdd": 0.8661,
+     "liquidations": 0
+    }
+   ]
+  },
+  "XAU": {
+   "asset": "XAU",
+   "window": [
+    "2016-10-11",
+    "2026-10-08"
+   ],
+   "exam_start": "2024-10-08",
+   "n_rules": 6005,
+   "n_eff": 17.1,
+   "n_signals": 107,
+   "chosen": {
+    "label": "Faktör: net_dollar_liquidity (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+    "rule": {
+     "src": "f::net_dollar_liquidity",
+     "cad": 5,
+     "op": "z",
+     "inv": false,
+     "mode": "LO",
+     "exit": {
+      "type": "trail",
+      "k": 3.0
+     }
+    },
+    "train": 0.77,
+    "exam": 0.0,
+    "exam_t": 0.0,
+    "exam_alpha_t": 0.0,
+    "exam_ret": 0.0,
+    "exam_dd": 0.0,
+    "dsr": 0.642,
+    "trades": 10
+   },
+   "wf": {
+    "sharpe": -0.58,
+    "t": -1.38,
+    "pos": 0.17,
+    "folds": [
+     [
+      2019,
+      -1.997417208676723
+     ],
+     [
+      2020,
+      0.9304000865527202
+     ],
+     [
+      2021,
+      -0.45644975615401695
+     ],
+     [
+      2022,
+      0.0
+     ],
+     [
+      2023,
+      0.0
+     ],
+     [
+      2024,
+      0.0
+     ]
+    ],
+    "picks": [
+     "directional_confluence (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece short · iz süren stop 3×ATR",
+     "Faktör: net_dollar_liquidity (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "live_counter_trend (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış",
+     "Faktör: net_dollar_liquidity (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "Faktör: net_dollar_liquidity (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "Faktör: net_dollar_liquidity (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR"
+    ],
+    "ret": -0.1018
+   },
+   "bench": {
+    "train": -0.1,
+    "exam": 0.45,
+    "exam_ret": 0.2494
+   },
+   "ok": {
+    "wf_t": false,
+    "wf_pos": false,
+    "dsr": false,
+    "exam_t": false,
+    "exam_alpha_t": false
+   },
+   "proven": false,
+   "top": [
+    {
+     "label": "Faktör: net_dollar_liquidity (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.77,
+     "exam": 0.0,
+     "exam_ret": 0.0,
+     "trades": 10
+    },
+    {
+     "label": "TERS intraday_regime.adx_val (güçlü ∣z∣>0.5) · 1 ay ort. · sadece long · sinyalle çıkış",
+     "train": 0.73,
+     "exam": 0.39,
+     "exam_ret": 0.0692,
+     "trades": 43
+    },
+    {
+     "label": "TERS adx_val (güçlü ∣z∣>0.5) · 1 ay ort. · sadece long · sinyalle çıkış",
+     "train": 0.73,
+     "exam": 0.39,
+     "exam_ret": 0.0692,
+     "trades": 43
+    },
+    {
+     "label": "TERS ADX trend rejimi (güçlü ∣z∣>0.5) · 1 ay ort. · sadece long · sinyalle çıkış",
+     "train": 0.62,
+     "exam": 0.09,
+     "exam_ret": 0.0225,
+     "trades": 34
+    },
+    {
+     "label": "TERS timeframe_confluence.weight_total (güçlü ∣z∣>0.5) · 1 ay ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.6,
+     "exam": 1.26,
+     "exam_ret": 0.2914,
+     "trades": 25
+    },
+    {
+     "label": "TERS Alt: COT üretici net (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.59,
+     "exam": -0.06,
+     "exam_ret": -0.0074,
+     "trades": 29
+    },
+    {
+     "label": "pair_stats.divergence_z_used (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · sinyalle çıkış",
+     "train": 0.59,
+     "exam": -0.11,
+     "exam_ret": -0.0391,
+     "trades": 38
+    },
+    {
+     "label": "TERS intraday_regime.adx_val (güçlü ∣z∣>0.5) · 1 ay ort. · long+short · sinyalle çıkış",
+     "train": 0.58,
+     "exam": -0.13,
+     "exam_ret": -0.0382,
+     "trades": 56
+    },
+    {
+     "label": "TERS adx_val (güçlü ∣z∣>0.5) · 1 ay ort. · long+short · sinyalle çıkış",
+     "train": 0.58,
+     "exam": -0.13,
+     "exam_ret": -0.0382,
+     "trades": 56
+    },
+    {
+     "label": "Faktör: net_dollar_liquidity (güçlü ∣z∣>0.5) · 1 gün · sadece long · iz süren stop 3×ATR",
+     "train": 0.55,
+     "exam": 0.0,
+     "exam_ret": 0.0,
+     "trades": 14
+    },
+    {
+     "label": "TERS Makro: composite_usd_risk · 1 ay ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.54,
+     "exam": 0.59,
+     "exam_ret": 0.0528,
+     "trades": 16
+    },
+    {
+     "label": "TERS composite_usd_risk · 1 ay ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.54,
+     "exam": 0.59,
+     "exam_ret": 0.0528,
+     "trades": 16
+    },
+    {
+     "label": "TERS adaptive_cluster_scores.B · 1 ay ort. · sadece long · sinyalle çıkış",
+     "train": 0.54,
+     "exam": 0.56,
+     "exam_ret": 0.2145,
+     "trades": 27
+    },
+    {
+     "label": "Faktör: breakeven_infl (güçlü ∣z∣>0.5) · 1 gün · sadece long · iz süren stop 3×ATR",
+     "train": 0.53,
+     "exam": -0.51,
+     "exam_ret": -0.0903,
+     "trades": 54
+    },
+    {
+     "label": "Alt: COT swap dealer net (güçlü ∣z∣>0.5) · 1 gün · sadece long · iz süren stop 3×ATR",
+     "train": 0.52,
+     "exam": 0.25,
+     "exam_ret": 0.0406,
+     "trades": 34
+    },
+    {
+     "label": "Faktör: duration_risk (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.48,
+     "exam": -0.18,
+     "exam_ret": -0.042,
+     "trades": 92
+    },
+    {
+     "label": "Makro: composite_usd_risk (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · sinyalle çıkış",
+     "train": 0.48,
+     "exam": 0.6,
+     "exam_ret": 0.1958,
+     "trades": 159
+    },
+    {
+     "label": "composite_usd_risk (güçlü ∣z∣>0.5) · 1 hafta ort. · sadece long · sinyalle çıkış",
+     "train": 0.48,
+     "exam": 0.6,
+     "exam_ret": 0.1958,
+     "trades": 159
+    },
+    {
+     "label": "adaptive_cluster_scores.A · 1 ay ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.47,
+     "exam": -0.16,
+     "exam_ret": -0.0128,
+     "trades": 17
+    },
+    {
+     "label": "TERS Faktör: gold_oil_ratio (güçlü ∣z∣>0.5) · 1 ay ort. · sadece long · iz süren stop 3×ATR",
+     "train": 0.47,
+     "exam": -1.01,
+     "exam_ret": -0.108,
+     "trades": 28
+    }
+   ],
+   "families": [
+    {
+     "family": "sistem · 1 gün",
+     "n": 552,
+     "train_mean": -0.88,
+     "exam_mean": -0.68,
+     "exam_pos": 0.14,
+     "rank_corr": 0.6
+    },
+    {
+     "family": "sistem · 1 gün · TERS",
+     "n": 552,
+     "train_mean": -0.75,
+     "exam_mean": -0.38,
+     "exam_pos": 0.27,
+     "rank_corr": null
+    },
+    {
+     "family": "sistem · 1 hafta",
+     "n": 556,
+     "train_mean": -0.45,
+     "exam_mean": -0.16,
+     "exam_pos": 0.38,
+     "rank_corr": -0.14
+    },
+    {
+     "family": "sistem · 1 hafta · TERS",
+     "n": 556,
+     "train_mean": -0.4,
+     "exam_mean": -0.32,
+     "exam_pos": 0.29,
+     "rank_corr": null
+    },
+    {
+     "family": "sistem · 1 ay",
+     "n": 562,
+     "train_mean": -0.37,
+     "exam_mean": 0.02,
+     "exam_pos": 0.52,
+     "rank_corr": -0.05
+    },
+    {
+     "family": "sistem · 1 ay · TERS",
+     "n": 562,
+     "train_mean": -0.29,
+     "exam_mean": -0.16,
+     "exam_pos": 0.42,
+     "rank_corr": null
+    },
+    {
+     "family": "faktör · 1 gün",
+     "n": 168,
+     "train_mean": -0.69,
+     "exam_mean": -0.69,
+     "exam_pos": 0.1,
+     "rank_corr": 0.09
+    },
+    {
+     "family": "faktör · 1 gün · TERS",
+     "n": 168,
+     "train_mean": -0.65,
+     "exam_mean": -0.14,
+     "exam_pos": 0.43,
+     "rank_corr": null
+    },
+    {
+     "family": "faktör · 1 hafta",
+     "n": 168,
+     "train_mean": -0.45,
+     "exam_mean": -0.3,
+     "exam_pos": 0.33,
+     "rank_corr": -0.13
+    },
+    {
+     "family": "faktör · 1 hafta · TERS",
+     "n": 168,
+     "train_mean": -0.37,
+     "exam_mean": -0.22,
+     "exam_pos": 0.33,
+     "rank_corr": null
+    },
+    {
+     "family": "faktör · 1 ay",
+     "n": 168,
+     "train_mean": -0.29,
+     "exam_mean": 0.05,
+     "exam_pos": 0.51,
+     "rank_corr": -0.06
+    },
+    {
+     "family": "faktör · 1 ay · TERS",
+     "n": 168,
+     "train_mean": -0.39,
+     "exam_mean": -0.16,
+     "exam_pos": 0.45,
+     "rank_corr": null
+    },
+    {
+     "family": "makro · 1 gün",
+     "n": 120,
+     "train_mean": -0.84,
+     "exam_mean": -0.56,
+     "exam_pos": 0.17,
+     "rank_corr": -0.05
+    },
+    {
+     "family": "makro · 1 gün · TERS",
+     "n": 120,
+     "train_mean": -0.68,
+     "exam_mean": -0.47,
+     "exam_pos": 0.28,
+     "rank_corr": null
+    },
+    {
+     "family": "makro · 1 hafta",
+     "n": 120,
+     "train_mean": -0.3,
+     "exam_mean": -0.38,
+     "exam_pos": 0.23,
+     "rank_corr": 0.45
+    },
+    {
+     "family": "makro · 1 hafta · TERS",
+     "n": 120,
+     "train_mean": -0.5,
+     "exam_mean": -0.18,
+     "exam_pos": 0.42,
+     "rank_corr": null
+    },
+    {
+     "family": "makro · 1 ay",
+     "n": 120,
+     "train_mean": -0.38,
+     "exam_mean": -0.23,
+     "exam_pos": 0.41,
+     "rank_corr": 0.23
+    },
+    {
+     "family": "makro · 1 ay · TERS",
+     "n": 120,
+     "train_mean": -0.24,
+     "exam_mean": 0.05,
+     "exam_pos": 0.54,
+     "rank_corr": null
+    },
+    {
+     "family": "COT · 1 gün",
+     "n": 72,
+     "train_mean": -0.35,
+     "exam_mean": -0.49,
+     "exam_pos": 0.22,
+     "rank_corr": 0.86
+    },
+    {
+     "family": "COT · 1 gün · TERS",
+     "n": 72,
+     "train_mean": -0.45,
+     "exam_mean": -0.08,
+     "exam_pos": 0.46,
+     "rank_corr": null
+    },
+    {
+     "family": "COT · 1 hafta",
+     "n": 72,
+     "train_mean": -0.4,
+     "exam_mean": -0.42,
+     "exam_pos": 0.26,
+     "rank_corr": 0.12
+    },
+    {
+     "family": "COT · 1 hafta · TERS",
+     "n": 72,
+     "train_mean": -0.39,
+     "exam_mean": -0.14,
+     "exam_pos": 0.38,
+     "rank_corr": null
+    },
+    {
+     "family": "COT · 1 ay",
+     "n": 72,
+     "train_mean": -0.4,
+     "exam_mean": -0.16,
+     "exam_pos": 0.36,
+     "rank_corr": 0.41
+    },
+    {
+     "family": "COT · 1 ay · TERS",
+     "n": 72,
+     "train_mean": -0.28,
+     "exam_mean": -0.1,
+     "exam_pos": 0.43,
+     "rank_corr": null
+    },
+    {
+     "family": "teknik · 1 gün",
+     "n": 84,
+     "train_mean": -0.51,
+     "exam_mean": 0.06,
+     "exam_pos": 0.56,
+     "rank_corr": 0.39
+    },
+    {
+     "family": "teknik · 1 gün · TERS",
+     "n": 84,
+     "train_mean": -0.31,
+     "exam_mean": -0.62,
+     "exam_pos": 0.11,
+     "rank_corr": null
+    },
+    {
+     "family": "teknik · 1 hafta",
+     "n": 84,
+     "train_mean": -0.42,
+     "exam_mean": 0.07,
+     "exam_pos": 0.64,
+     "rank_corr": -0.0
+    },
+    {
+     "family": "teknik · 1 hafta · TERS",
+     "n": 84,
+     "train_mean": -0.15,
+     "exam_mean": -0.47,
+     "exam_pos": 0.2,
+     "rank_corr": null
+    },
+    {
+     "family": "teknik · 1 ay",
+     "n": 84,
+     "train_mean": -0.11,
+     "exam_mean": 0.24,
+     "exam_pos": 0.74,
+     "rank_corr": -0.15
+    },
+    {
+     "family": "teknik · 1 ay · TERS",
+     "n": 84,
+     "train_mean": -0.51,
+     "exam_mean": -0.49,
+     "exam_pos": 0.2,
+     "rank_corr": null
+    }
+   ],
+   "combos": {
+    "n": 66,
+    "chosen": {
+     "label": "[direction_z_support (güçlü ∣z∣>0.5) · 1 ay ort. · long+short · sinyalle çıkış] & [composite_usd_risk (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış]",
+     "train": 0.83,
+     "exam": -0.64,
+     "exam_t": -0.9
+    },
+    "exam_mean": -0.12,
+    "exam_pos": 0.41,
+    "top": [
+     {
+      "label": "[direction_z_support (güçlü ∣z∣>0.5) · 1 ay ort. · long+short · sinyalle çıkış] & [composite_usd_risk (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış]",
+      "train": 0.83,
+      "exam": -0.64
+     },
+     {
+      "label": "[direction_z_support (güçlü ∣z∣>0.5) · 1 ay ort. · long+short · sinyalle çıkış] & [Makro: composite_usd_risk (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış]",
+      "train": 0.83,
+      "exam": -0.64
+     },
+     {
+      "label": "[TERS adaptive_cluster_scores.B · 1 ay ort. · long+short · sinyalle çıkış] & [direction_z_support (güçlü ∣z∣>0.5) · 1 ay ort. · long+short · sinyalle çıkış]",
+      "train": 0.78,
+      "exam": -0.48
+     },
+     {
+      "label": "[TERS ADX trend rejimi (güçlü ∣z∣>0.5) · 1 ay ort. · long+short · sinyalle çıkış] & [direction_z_support (güçlü ∣z∣>0.5) · 1 ay ort. · long+short · sinyalle çıkış]",
+      "train": 0.78,
+      "exam": -0.91
+     },
+     {
+      "label": "[TERS adaptive_cluster_scores.B · 1 ay ort. · long+short · sinyalle çıkış] & [TERS timeframe_confluence.weight_total (güçlü ∣z∣>0.5) · 1 ay ort. · long+short · sinyalle çıkış]",
+      "train": 0.75,
+      "exam": 0.49
+     },
+     {
+      "label": "[TERS Faktör: breakeven_infl · 1 ay ort. · long+short · sinyalle çıkış] & [Makro: composite_usd_risk (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış]",
+      "train": 0.71,
+      "exam": -0.06
+     },
+     {
+      "label": "[TERS Makro: breakeven_z · 1 ay ort. · long+short · sinyalle çıkış] & [Makro: composite_usd_risk (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış]",
+      "train": 0.71,
+      "exam": -0.06
+     },
+     {
+      "label": "[TERS Faktör: breakeven_infl · 1 ay ort. · long+short · sinyalle çıkış] & [composite_usd_risk (güçlü ∣z∣>0.5) · 1 hafta ort. · long+short · sinyalle çıkış]",
+      "train": 0.71,
+      "exam": -0.06
+     }
+    ]
+   },
+   "leverage_exam": [
+    {
+     "lev": 1,
+     "cagr": 0.0,
+     "final": 1.0,
+     "maxdd": 0.0,
+     "liquidations": 0
+    },
+    {
+     "lev": 2,
+     "cagr": 0.0,
+     "final": 1.0,
+     "maxdd": 0.0,
+     "liquidations": 0
+    },
+    {
+     "lev": 3,
+     "cagr": 0.0,
+     "final": 1.0,
+     "maxdd": 0.0,
+     "liquidations": 0
+    },
+    {
+     "lev": 5,
+     "cagr": 0.0,
+     "final": 1.0,
+     "maxdd": 0.0,
+     "liquidations": 0
+    },
+    {
+     "lev": 10,
+     "cagr": 0.0,
+     "final": 1.0,
+     "maxdd": 0.0,
+     "liquidations": 0
+    }
+   ]
+  }
+ }
+}
