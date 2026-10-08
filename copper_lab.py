@@ -40,6 +40,7 @@ import pandas as pd
 TRAIN0, EXAM0 = pd.Timestamp("2000-01-01"), pd.Timestamp("2017-01-01")
 COST = 0.0008                 # per unit of turnover (taker fee + slippage)
 LONG_FUNDING = 0.03           # extra yearly cost of holding a long perp over futures (funding premium)
+FUNDING_SCENARIOS = (0.0, 0.03, 0.08, 0.158)   # yearly funding paid by longs and received by shorts (Bitget 2026: 15.8%)
 MIN_TRAIN_YEARS = 6
 
 
@@ -321,11 +322,16 @@ def atvs_view(F: pd.DataFrame) -> Dict[str, np.ndarray]:
 
 
 # ================================================================== evaluation
-def strat_returns(pos: np.ndarray, F: pd.DataFrame, cost=COST, long_fund=LONG_FUNDING) -> np.ndarray:
+def strat_returns(pos: np.ndarray, F: pd.DataFrame, cost=None, long_fund=None, symmetric=False) -> np.ndarray:
+    """symmetric=False: longs pay long_fund, shorts receive nothing (conservative default used for SELECTION).
+    symmetric=True : longs pay and shorts receive the same funding (how a perp actually settles; scenarios)."""
+    cost = COST if cost is None else cost
+    long_fund = LONG_FUNDING if long_fund is None else long_fund     # read at call time (can be set from Bitget data)
     p = np.nan_to_num(np.asarray(pos, float))
     r_next = np.r_[F.r.to_numpy()[1:], np.nan]
     turn = np.abs(np.diff(np.r_[0.0, p]))
-    ret = p * np.nan_to_num(r_next) - cost * turn - np.clip(p, 0, None) * long_fund / 252
+    fund = p if symmetric else np.clip(p, 0, None)
+    ret = p * np.nan_to_num(r_next) - cost * turn - fund * long_fund / 252
     return ret                                                    # ret[i] = P&L of the position chosen at close i
 
 
@@ -447,6 +453,31 @@ def research(px, fred, cot, hourly=None, bg=None, bgc=None, fast=False) -> dict:
     ntr = int(((F.index >= TRAIN0) & (F.index < EXAM0)).sum())
     T["deflated_sharpe"] = [deflated_sharpe(s, ntr, n_trials, sr_var) for s in T.eğitim_sharpe]
     res["n_trials"] = n_trials
+    # ---- funding scenarios: the same strategies under 0 / 3 / 8 / 15.8 % yearly funding (longs pay, shorts receive)
+    sc_rows = []
+    keys = list(dict.fromkeys([(r.strateji, r.yön) for r in T.itertuples()]))
+    for (nm, md) in keys:
+        pos = store[(nm, md)]
+        row = {"strateji": nm, "yön": md}
+        for f in FUNDING_SCENARIOS:
+            ret = strat_returns(pos, F, long_fund=f, symmetric=True)
+            tr, ex = stats(ret, F, TRAIN0, EXAM0), stats(ret, F, EXAM0, end)
+            row[f"eğ_{f}"] = tr.get("sharpe", np.nan)
+            row[f"sı_{f}"] = ex.get("sharpe", np.nan)
+            row[f"sı_yıllık_{f}"] = ex.get("cagr", np.nan)
+        row["eğ_en_kötü"] = min(row[f"eğ_{f}"] for f in FUNDING_SCENARIOS)
+        sc_rows.append(row)
+    SC = pd.DataFrame(sc_rows)
+    tc = T.drop_duplicates(["strateji", "yön"]).set_index(["strateji", "yön"])
+    SC["eğitim_işlem"] = [tc.loc[(a, b), "eğitim_işlem"] for a, b in zip(SC.strateji, SC.yön)]
+    robust = SC[SC.eğitim_işlem >= 20].sort_values("eğ_en_kötü", ascending=False)
+    res["funding_robust_pick"] = _row(robust.iloc[0]) if len(robust) else None
+    res["funding_table"] = robust.head(15).round(3).to_dict("records")
+    bhr = {f"{f}": stats(strat_returns(np.ones(len(F)), F, long_fund=f, symmetric=True), F, EXAM0, end).get("cagr") for f in FUNDING_SCENARIOS}
+    res["bh_by_funding"] = bhr
+    for key in ("chosen", "chosen_single"):
+        c = res.get(key) or (None)
+    res["_scenarios"] = SC
     # ---- families
     res["families"] = (T[T.tür == "tek"].groupby(["aile", "yön"]).agg(
         strateji=("strateji", "size"), eğitim_sharpe=("eğitim_sharpe", "mean"), sınav_sharpe=("sınav_sharpe", "mean"),
@@ -459,6 +490,11 @@ def research(px, fred, cot, hourly=None, bg=None, bgc=None, fast=False) -> dict:
     res["chosen"] = _row(cand.iloc[0]) if len(cand) else None
     cs = cand[cand.tür == "tek"]
     res["chosen_single"] = _row(cs.iloc[0]) if len(cs) else None
+    for key in ("chosen", "chosen_single"):
+        c = res.get(key)
+        if c:
+            r_ = res["_scenarios"].set_index(["strateji", "yön"]).loc[(c["strateji"], c["yön"])]
+            c["senaryolar"] = {f"{f}": {"sınav_sharpe": float(r_[f"sı_{f}"]), "sınav_yıllık": float(r_[f"sı_yıllık_{f}"])} for f in FUNDING_SCENARIOS}
     # ---- robustness of the chosen single: neighbours in the same family/mode
     if res["chosen_single"]:
         ch = res["chosen_single"]
@@ -470,6 +506,7 @@ def research(px, fred, cot, hourly=None, bg=None, bgc=None, fast=False) -> dict:
     res["bitget"] = bitget_check(F, bg or {}, bgc)
     res["hourly"] = hourly_explore(hourly) if hourly is not None else None
     res["_table"] = T
+    res.pop("_scenarios", None)
     res["yearly_chosen"] = yearly(res, store, F)
     return res
 
@@ -633,6 +670,27 @@ def report_md(R: dict) -> str:
                   f"| eğitim | {c['eğitim_sharpe']:.2f} | {_p(c['eğitim_yıllık'])} | %{c['eğitim_dd'] * 100:.0f} | {c['eğitim_alfa_t']:.1f} | {c['eğitim_işlem']} | %{c['eğitim_piyasada'] * 100:.0f} |",
                   f"| **sınav** | **{c['sınav_sharpe']:.2f}** | **{_p(c['sınav_yıllık'])}** | %{c['sınav_dd'] * 100:.0f} | **{c['sınav_alfa_t']:.1f}** | {c['sınav_işlem']} | %{c['sınav_piyasada'] * 100:.0f} |",
                   f"| Deflated Sharpe (eğitim, {R['n_trials']} deneme için) | {c['deflated_sharpe']:.2f} | | | | | |", ""]
+    fs = list(FUNDING_SCENARIOS)
+    L += ["### Fonlama senaryoları (long öder, short alır)", "",
+          "| | " + " | ".join(f"fonlama %{f * 100:.1f}" for f in fs) + " |", "|---" * (len(fs) + 1) + "|",
+          "| Bakırı tutmak (sınav yıllık) | " + " | ".join(_p(R["bh_by_funding"].get(f"{f}")) for f in fs) + " |"]
+    for key, lab in (("chosen", "Eğitimin en iyisi"), ("chosen_single", "En iyi tek kural")):
+        c = R.get(key)
+        if c and c.get("senaryolar"):
+            L.append(f"| {lab}: sınav Sharpe / yıllık | " + " | ".join(
+                f"{c['senaryolar'][f'{f}']['sınav_sharpe']:.2f} / {_p(c['senaryolar'][f'{f}']['sınav_yıllık'])}" for f in fs) + " |")
+    rp = R.get("funding_robust_pick")
+    if rp:
+        L.append(f"| **Fonlamaya dayanıklı seçim** ({rp['strateji']}, {rp['yön']}; eğitimde 4 senaryonun en kötüsüne göre) | " + " | ".join(
+            f"{rp[f'sı_{f}']:.2f} / {_p(rp[f'sı_yıllık_{f}'])}" for f in fs) + " |")
+    L += ["", "_Seçim yine yalnız eğitim verisiyle; sınav sütunları seçimi etkilemez._", ""]
+    ft = R.get("funding_table") or []
+    if ft:
+        L += ["**Eğitimde en kötü senaryoda en iyi 15 (sınav Sharpe'ları senaryo sırasıyla):**", "",
+              "| Strateji | Yön | Eğitim (en kötü) | Sınav: " + " / ".join(f"%{f * 100:.1f}" for f in fs) + " |", "|---|---|---|---|"]
+        for t in ft:
+            L.append(f"| {t['strateji']} | {t['yön']} | {t['eğ_en_kötü']:.2f} | " + " / ".join(f"{t[f'sı_{f}']:.2f}" for f in fs) + " |")
+        L.append("")
     nb = R.get("chosen_neighbours")
     if nb:
         L += [f"_Seçilen tek kuralın ailesindeki {nb['n']} komşu: eğitimde pozitif %{nb['train_pos'] * 100:.0f}, sınavda pozitif %{nb['exam_pos'] * 100:.0f}, "
@@ -693,6 +751,14 @@ def main() -> None:
     ap.add_argument("--out", default="copper_out")
     a = ap.parse_args()
     px, fred, cot, hourly, bg, bgc = load(a.data)
+    global LONG_FUNDING
+    f = [float(x["fundingRate"]) for x in (bg or {}).get("funding", []) if x.get("fundingRate") not in (None, "")]
+    hours = float(((bg or {}).get("contract") or {}).get("fundInterval") or 8)
+    if len(f) >= 90:                       # the measured Bitget funding becomes the last scenario column
+        global FUNDING_SCENARIOS
+        real = round(float(np.mean(f)) * (24 / hours) * 365, 3)
+        FUNDING_SCENARIOS = tuple(sorted(set((0.0, 0.03, 0.08, real))))
+        print(f"[bakır] ölçülen Bitget fonlaması: %{real * 100:.1f}/yıl (senaryolara eklendi)", flush=True)
     R = research(px, fred, cot, hourly, bg, bgc)
     os.makedirs(a.out, exist_ok=True)
     T = R.pop("_table")

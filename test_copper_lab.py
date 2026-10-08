@@ -90,6 +90,10 @@ def test_returns_use_next_day_and_charge_costs():
     ret = C.strat_returns(pos, F)
     assert np.isclose(ret[10], F.r.iloc[11] - C.COST - C.LONG_FUNDING / 252)
     assert np.isclose(ret[11], -C.COST)
+    old = C.LONG_FUNDING
+    C.LONG_FUNDING = 0.20                                            # changing the global must take effect
+    assert np.isclose(C.strat_returns(pos, F)[10], F.r.iloc[11] - C.COST - 0.20 / 252)
+    C.LONG_FUNDING = old
 
 
 if __name__ == "__main__":
