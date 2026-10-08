@@ -1,0 +1,69 @@
+name: Tier-1 Bakır Lab v14 (COPPERUSDT — tüm stratejiler, 2000-bugün)
+
+# v14.0: every strategy family on COMEX copper (HG=F, 2000-today) for Bitget COPPERUSDT: trend, mean reversion,
+# breakouts, seasonality, macro/fundamentals, CFTC positioning, ML, ATVS rules, pairs, exits, portfolio fit.
+# RESULTS: run page -> Summary, Artifacts -> copper-lab-results, `copperlab` branch.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: tier1-copper-lab
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  lab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt "scikit-learn>=1.5" pytest
+      - name: Download data (Yahoo + FRED + CFTC + Bitget)
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: python copper_data.py --out copper_data
+      - name: Tests
+        run: python -m pytest -q test_copper_lab.py
+      - name: Copper research (sealed exam from 2017)
+        run: python copper_lab.py --data copper_data --out copper_out
+      - name: Report on the run page
+        if: always()
+        run: |
+          {
+            echo "## ⬇️ Sonuç dosyaları"
+            echo ""
+            echo "- **Tek tıkla hepsi (zip):** https://github.com/${GITHUB_REPOSITORY}/archive/refs/heads/copperlab.zip"
+            echo "- Bu sayfanın en altında **Artifacts → copper-lab-results**"
+            echo ""
+            if [ -f copper_out/copper_report.md ]; then head -c 900000 copper_out/copper_report.md; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: copper-lab-results
+          path: |
+            copper_out/
+            copper_data/
+          retention-days: 30
+      - name: Publish to the copperlab branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cp -r copper_data copper_out/data
+          cd copper_out
+          git init -q && git checkout -q -b copperlab
+          git config user.email "quantbot@github.com" && git config user.name "QuantBot Tier-1"
+          git add -A && git commit -q -m "🟠 copper lab $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -q -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" copperlab
