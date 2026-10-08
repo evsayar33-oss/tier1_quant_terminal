@@ -1,0 +1,81 @@
+name: Tier-1 Crypto Portfolio Lab (kesitsel, mühürlü son 2 yıl)
+
+# v9.0: cross-sectional strategies on EVERY Binance USDT-M perpetual (delisted
+# ones included), point-in-time universe, real funding, sealed last 2 years.
+# Data: Binance public archive (free, no key), cached on the `xsdata` branch
+# so later runs only download the new months.
+# RESULTS: run page -> Summary, Artifacts -> xs-lab-results, `xslab` branch.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '41 4 3 * *'          # monthly, after the archive publishes the previous month
+
+concurrency:
+  group: tier1-xs-lab
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  lab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+      - name: Restore cached archive data (xsdata branch)
+        run: |
+          mkdir -p xs_data
+          if git fetch --depth 1 origin xsdata 2>/dev/null; then git archive FETCH_HEAD | tar -x -C xs_data; fi
+          ls -la xs_data
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Download / update every USDT perp (Binance archive)
+        timeout-minutes: 120
+        run: python xs_data.py --out xs_data/xs_panel.csv.gz --workers 24
+      - name: Cache the data on the xsdata branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          d=$(mktemp -d); cp xs_data/xs_panel.csv.gz "$d"/; cd "$d"
+          git init -q && git checkout -q -b xsdata
+          git config user.email "quantbot@github.com" && git config user.name "QuantBot Tier-1"
+          git add -A && git commit -q -m "xs data $(date -u +%F)"
+          git push -q -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" xsdata || echo "önbellek yazılamadı"
+      - name: Portfolio research (sealed 2-year exam)
+        run: python xs_lab.py --panel xs_data/xs_panel.csv.gz --out xs_out
+      - name: Report on the run page
+        if: always()
+        run: |
+          {
+            echo "## ⬇️ Sonuç dosyaları"
+            echo ""
+            echo "- **Tek tıkla hepsi (zip):** https://github.com/${GITHUB_REPOSITORY}/archive/refs/heads/xslab.zip"
+            echo "- Bu sayfanın en altında **Artifacts → xs-lab-results**"
+            echo ""
+            if [ -f xs_out/xs_report.md ]; then cat xs_out/xs_report.md; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: xs-lab-results
+          path: xs_out/
+          retention-days: 30
+      - name: Publish to the xslab branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd xs_out
+          git init -q && git checkout -q -b xslab
+          git config user.email "quantbot@github.com" && git config user.name "QuantBot Tier-1"
+          git add -A && git commit -q -m "🌐 xs lab $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -q -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" xslab
