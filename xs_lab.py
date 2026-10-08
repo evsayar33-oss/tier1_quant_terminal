@@ -96,7 +96,7 @@ def weights(X: pd.DataFrame, U: pd.DataFrame, q: float, mode: str, wt: str, vol:
     enough = (cnt >= 10).values[:, None]
     long = (pct > 1 - q).values & enough
     short = (pct <= q).values & enough
-    base = np.ones(X.shape) if wt == "ew" else np.nan_to_num(1.0 / vol.values, nan=0.0, posinf=0.0)
+    base = np.ones(X.shape) if wt == "ew" else np.nan_to_num(1.0 / np.where(vol.values > 0, vol.values, np.nan), nan=0.0)
     lw = np.where(long, base, 0.0)
     sw = np.where(short, base, 0.0)
     ls, ss = lw.sum(1, keepdims=True), sw.sum(1, keepdims=True)
@@ -112,14 +112,17 @@ def weights(X: pd.DataFrame, U: pd.DataFrame, q: float, mode: str, wt: str, vol:
 
 
 def pnl(w: np.ndarray, R: np.ndarray, Fd: np.ndarray, cost: float) -> np.ndarray:
-    """w[d] decided at the close of d -> earns day d+1. A contract whose next
-    return is missing (stopped trading) is exited at its last close."""
+    """w[d] decided at the close of d -> earns day d+1 (R = daily LOG returns,
+    output = the book's daily LOG return). A contract whose next return is
+    missing (stopped trading) is exited at its last close."""
     alive = np.isfinite(R[1:])
     held = np.where(alive, w[:-1], 0.0)
     prev = np.vstack([np.zeros((1, w.shape[1])), held[:-1]])
     out = np.zeros(len(w))
-    out[1:] = ((held * np.nan_to_num(R[1:])).sum(1) - (held * np.nan_to_num(Fd[1:])).sum(1)
-               - cost * np.abs(w[:-1] - prev).sum(1) - cost * np.abs(np.where(alive, 0.0, w[:-1])).sum(1))
+    simple = np.expm1(np.nan_to_num(R[1:]))                 # portfolio P&L adds SIMPLE returns (a short gains at most 100%)
+    port = ((held * simple).sum(1) - (held * np.nan_to_num(Fd[1:])).sum(1)
+            - cost * np.abs(w[:-1] - prev).sum(1) - cost * np.abs(np.where(alive, 0.0, w[:-1])).sum(1))
+    out[1:] = np.log1p(np.maximum(port, -0.99))
     return out
 
 
@@ -130,6 +133,37 @@ def label(m: dict) -> str:
             else f"en iyi %{m['q'] * 100:.0f} sadece long")
     return (f"{s} · ilk {m['n']} coin · {side} · {'eşit' if m['wt'] == 'ew' else 'ters-volatilite'} ağırlık · "
             f"{'günlük' if m['rebal'] == 1 else 'haftalık'} yenileme")
+
+
+FAM_SHARE = 0.8          # a family is "on" when >= 80% of its variants were profitable so far
+
+
+def fam_key(m: dict) -> str:
+    return f"{m['sig']}|{'inv' if m['inv'] else 'dir'}"
+
+
+def ensemble_pick(Rm: np.ndarray, metas: List[dict], s: int) -> List[str]:
+    """Procedure B (pre-specified, mechanical): using ONLY days [0, s), keep the
+    market-neutral (long/short) families whose variants were profitable in at
+    least 80% of cases and on average. No single 'best' variant is picked."""
+    sh = _rows_sh(Rm[:, :s])
+    act = (np.abs(Rm[:, :s]) > 0).mean(1) > 0.5
+    fams: Dict[str, List[int]] = {}
+    for i, m in enumerate(metas):
+        if m["mode"] == "LS" and act[i]:
+            fams.setdefault(fam_key(m), []).append(i)
+    return sorted(k for k, ii in fams.items() if len(ii) >= 6 and np.mean(sh[ii] > 0) >= FAM_SHARE and np.mean(sh[ii]) > 0)
+
+
+def ensemble_returns(Rm: np.ndarray, metas: List[dict], keys: List[str], s: int, e: int) -> np.ndarray:
+    """Equal capital in every chosen family; inside a family equal capital in every variant."""
+    if not keys:
+        return np.zeros(e - s)
+    fam_r = []
+    for k in keys:
+        ii = [i for i, m in enumerate(metas) if m["mode"] == "LS" and fam_key(m) == k]
+        fam_r.append(np.expm1(Rm[ii, s:e]).mean(0))
+    return np.log1p(np.mean(fam_r, axis=0))
 
 
 def _sh(x):
@@ -193,6 +227,32 @@ def research(panel: pd.DataFrame, ns=NS, qs=QS, rebals=REBAL) -> dict:
         j = int(np.argmax(sc))
         oos.append(Rm[j, s:e]); folds.append((y, round(_sh(Rm[j, s:e]), 2))); picks.append(label(metas[j]))
     wf = np.concatenate(oos) if oos else np.zeros(0)
+    # ---- procedure B: family ensemble, same walk-forward and the same sealed exam
+    e_oos, e_folds = [], []
+    for y in sorted(set(dts[:e0].year)):
+        s_ = int(np.searchsorted(dts.values[:e0], np.datetime64(f"{y}-01-01")))
+        e_ = int(np.searchsorted(dts.values[:e0], np.datetime64(f"{y + 1}-01-01")))
+        if s_ < 365 or e_ - s_ < 60:
+            continue
+        keys = ensemble_pick(Rm, metas, s_)
+        rr = ensemble_returns(Rm, metas, keys, s_, e_)
+        e_oos.append(rr); e_folds.append((y, round(_sh(rr), 2), keys))
+    ewf = np.concatenate(e_oos) if e_oos else np.zeros(0)
+    ekeys = ensemble_pick(Rm, metas, e0)
+    eex = ensemble_returns(Rm, metas, ekeys, e0, Rm.shape[1])
+    _, ebeta, e_at = L.alpha_t(eex, btc[e0:])
+    eok = {"wf_t": L.t_stat(ewf) >= CRIT["wf_t"],
+           "wf_pos": (np.mean([f[1] > 0 for f in e_folds]) if e_folds else 0) >= CRIT["wf_pos"],
+           "exam_t": L.t_stat(eex) >= CRIT["exam_t"], "exam_alpha_t": e_at >= CRIT["exam_alpha_t"]}
+    fam_name = lambda k: (("TERS " if k.endswith("inv") else "") + f"{SIG_TR[k.split(':')[0]]} ({k.split(':')[1].split('|')[0]}g)")
+    ensemble = {"families": [fam_name(k) for k in ekeys], "keys": ekeys,
+                "wf": {"sharpe": round(_sh(ewf), 2), "t": round(L.t_stat(ewf), 2),
+                       "folds": [(y, sh_, [fam_name(k) for k in ks]) for y, sh_, ks in e_folds]},
+                "exam": round(_sh(eex), 2), "exam_t": round(L.t_stat(eex), 2), "exam_alpha_t": round(e_at, 2),
+                "exam_beta": round(ebeta, 2), "exam_ret": round(float(math.expm1(eex.sum())), 4),
+                "exam_dd": round(L.max_dd(eex), 4), "ok": eok, "proven": bool(ekeys) and all(eok.values()),
+                "yearly_exam": {str(y): round(_sh(g), 2) for y, g in pd.Series(eex, index=dts[e0:]).groupby(dts[e0:].year)},
+                "leverage_exam": L.leverage_daily(eex, max(len(eex) / 365.0, 0.1))}
     neff = L.n_effective(Rtr)
     best = int(np.argmax(np.where(elig, s_tr, -np.inf)))
     dsr = L.deflated_sharpe(Rtr[best], neff)
@@ -229,7 +289,7 @@ def research(panel: pd.DataFrame, ns=NS, qs=QS, rebals=REBAL) -> dict:
         "wf": {"sharpe": round(_sh(wf), 2), "t": round(L.t_stat(wf), 2), "folds": folds, "picks": picks,
                "ret": round(float(math.expm1(wf.sum())), 4) if len(wf) else 0.0},
         "btc": {"train": round(_sh(btc[:e0]), 2), "exam": round(_sh(btc[e0:]), 2)},
-        "ok": ok, "proven": all(ok.values()), "top": top,
+        "ok": ok, "proven": all(ok.values()), "top": top, "ensemble": ensemble,
         "families": sorted(fam_rows, key=lambda r: -(min(r["train_mean"], r["exam_mean"]))),
         "leverage_exam": L.leverage_daily(Rex[best], max(yrs_ex, 0.1)),
     }
@@ -251,6 +311,17 @@ def report_md(r: dict) -> str:
           f"{c['turnover']:.2f} | {'✅ KANITLI' if r['proven'] else '❌ kanıt yok'} |", "",
           f"BTC'yi tutmak: eğitim Sharpe {r['btc']['train']:.2f} · sınav {r['btc']['exam']:.2f}", "",
           "**Yıllık walk-forward seçimleri:** " + " · ".join(f"{y}: {s:+.2f} ({p})" for (y, s), p in zip(w["folds"], w["picks"])), "",
+          "## 1b) Prosedür B — aile topluluğu (tek 'en iyi' seçmeden)", "",
+          "_Önceden sabit kural: o güne kadarki veride varyantlarının ≥%80'i kârlı olan piyasa-nötr (long/short) aileler seçilir; "
+          "her aileye eşit sermaye, aile içinde her varyanta eşit sermaye. Aynı yıllık walk-forward ve aynı mühürlü sınav._", "",
+          "| Seçilen aileler (eğitimin tamamıyla) | WF Sharpe (t) | **Sınav Sharpe** | Sınav getiri / DD | Sınav t · alfa t (β) | Durum |",
+          "|---|---|---|---|---|---|",
+          f"| {', '.join(r['ensemble']['families']) or '—'} | {r['ensemble']['wf']['sharpe']:.2f} ({r['ensemble']['wf']['t']:+.1f}) | "
+          f"**{r['ensemble']['exam']:.2f}** | {L._pct(r['ensemble']['exam_ret'])} / {L._pct(-r['ensemble']['exam_dd'])} | "
+          f"{r['ensemble']['exam_t']:+.1f} · {r['ensemble']['exam_alpha_t']:+.1f} ({r['ensemble']['exam_beta']:.2f}) | "
+          f"{'✅ KANITLI' if r['ensemble']['proven'] else '❌ kanıt yok'} |", "",
+          "**Yıllık seçim (walk-forward):** " + " · ".join(f"{y}: {s_:+.2f} [{', '.join(k) or '—'}]" for y, s_, k in r["ensemble"]["wf"]["folds"]), "",
+          "**Sınav yılları:** " + " · ".join(f"{y}: {v:+.2f}" for y, v in r["ensemble"]["yearly_exam"].items()), "",
           "## 2) Strateji aileleri — eğitimde VE sınavda (aile ortalaması, seçim yanlılığı neredeyse yok)", "",
           "_Bir aile = aynı sinyalin tüm evren/eşik/ağırlık/yenileme varyantları. Güvenilir aile: eğitimde de sınavda da pozitif, "
           "varyantlarının çoğu pozitif._", "",

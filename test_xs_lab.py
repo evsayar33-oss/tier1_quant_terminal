@@ -56,10 +56,14 @@ def test_pnl_accounting_funding_costs_and_delisting():
     w = np.array([[0.5, -0.5], [0.5, -0.5], [0.5, 0.0], [0, 0]], float)
     out = X.pnl(w, R, Fd, 0.001)
     # day1: 0.5*0.10 + (-0.5)*(-0.05) - (0.5*0.001 - 0.5*0.002) - cost*1.0
-    assert math.isclose(out[1], 0.05 + 0.025 - (0.0005 - 0.001) - 0.001)
+    e = math.expm1
+    assert math.isclose(out[1], math.log1p(0.5 * e(0.10) - 0.5 * e(-0.05) - (0.0005 - 0.001) - 0.001))
     # day2: second coin stopped trading -> exited at its last close (no return, exit cost)
-    assert math.isclose(out[2], 0.5 * 0.02 - 0.001 * 0.5)
-    assert math.isclose(out[3], 0.5 * 0.01 - 0.001 * 0.0)
+    assert math.isclose(out[2], math.log1p(0.5 * e(0.02) - 0.001 * 0.5))
+    assert math.isclose(out[3], math.log1p(0.5 * e(0.01)))
+    # a short in a coin that collapses gains at most its weight (simple returns, not log returns)
+    crash = X.pnl(np.array([[-0.5], [0.0]]), np.array([[np.nan], [math.log(0.01)]]), np.zeros((2, 1)), 0.0)
+    assert math.isclose(crash[1], math.log1p(0.5 * 0.99))
 
 
 def test_noise_is_not_proven():
