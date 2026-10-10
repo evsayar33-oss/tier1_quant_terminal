@@ -1,0 +1,240 @@
+{
+ "generated_at": "2026-10-10T10:02:52.319944+00:00",
+ "source": "yahoo",
+ "assets": {
+  "SPX": {
+   "rule": {
+    "cat": "tek·1 hafta",
+    "d": {
+     "src": "sys::pair_stats.residual_z",
+     "op": "z",
+     "inv": false,
+     "cad": 168,
+     "smooth": false,
+     "thr": 0.5
+    },
+    "f": null,
+    "mode": "LO",
+    "exit": {
+     "type": "sig"
+    },
+    "atr": "1d"
+   },
+   "label": "pair_stats.residual_z (güçlü, ∣z∣>0.5) · 1 haftalık · sadece long · sinyalle çıkış",
+   "kind": null,
+   "path": null,
+   "proven": false,
+   "beta_only": false,
+   "wf_sharpe": -0.108,
+   "wf_t": -0.136,
+   "dsr": 0.964,
+   "signal": {
+    "side": "FLAT",
+    "entry": null,
+    "sl": null,
+    "tp": null,
+    "as_of": "2026-10-07 18:00:00+00:00"
+   }
+  },
+  "NQ": {
+   "rule": {
+    "cat": "tek·1 hafta",
+    "d": {
+     "src": "sys::pair_stats.residual_z",
+     "op": "z",
+     "inv": false,
+     "cad": 168,
+     "smooth": false,
+     "thr": 0.5
+    },
+    "f": null,
+    "mode": "LO",
+    "exit": {
+     "type": "sig"
+    },
+    "atr": "1d"
+   },
+   "label": "pair_stats.residual_z (güçlü, ∣z∣>0.5) · 1 haftalık · sadece long · sinyalle çıkış",
+   "kind": null,
+   "path": null,
+   "proven": false,
+   "beta_only": false,
+   "wf_sharpe": 0.302,
+   "wf_t": 0.382,
+   "dsr": 0.982,
+   "signal": {
+    "side": "FLAT",
+    "entry": null,
+    "sl": null,
+    "tp": null,
+    "as_of": "2026-10-07 18:00:00+00:00"
+   }
+  },
+  "XAU": {
+   "rule": {
+    "cat": "tek·1 gün",
+    "d": {
+     "src": "z::alt::cot_mm_net",
+     "op": "z",
+     "inv": true,
+     "cad": 24,
+     "smooth": true,
+     "thr": 0.5
+    },
+    "f": null,
+    "mode": "LS",
+    "exit": {
+     "type": "vol",
+     "k1": 3.0,
+     "k2": 6.0
+    },
+    "atr": "1d"
+   },
+   "label": "TERS Alt: COT spekülatif fon net (z) (güçlü, ∣z∣>0.5) · 1 günlük ortalama · long+short · SL 3.0 / TP 6.0×ATR × volatilite oranı",
+   "kind": null,
+   "path": null,
+   "proven": false,
+   "beta_only": false,
+   "wf_sharpe": 0.324,
+   "wf_t": 0.41,
+   "dsr": 0.728,
+   "signal": {
+    "side": "LONG",
+    "entry": 4412.10009765625,
+    "sl": 4077.686209542411,
+    "tp": 5106.466058225466,
+    "as_of": "2026-10-07 18:00:00+00:00"
+   }
+  },
+  "XAG": {
+   "rule": {
+    "cat": "tek·1 hafta",
+    "d": {
+     "src": "tech:1h:dmi:14",
+     "op": "sign",
+     "inv": true,
+     "cad": 168,
+     "smooth": true
+    },
+    "f": null,
+    "mode": "LO",
+    "exit": {
+     "type": "trail",
+     "k1": 3.0
+    },
+    "atr": "1d"
+   },
+   "label": "TERS DMI/ADX yönü (14) · 1h · 1 haftalık ortalama · sadece long · iz süren stop 3.0×ATR",
+   "kind": null,
+   "path": null,
+   "proven": false,
+   "beta_only": false,
+   "wf_sharpe": -0.315,
+   "wf_t": -0.399,
+   "dsr": 0.901,
+   "signal": {
+    "side": "LONG",
+    "entry": 60.970001220703125,
+    "sl": 58.746212823050364,
+    "tp": null,
+    "as_of": "2026-10-07 18:00:00+00:00"
+   }
+  },
+  "BTC": {
+   "rule": {
+    "cat": "tek·1 hafta",
+    "d": {
+     "src": "sys::direction_velocity",
+     "op": "sign",
+     "inv": true,
+     "cad": 168,
+     "smooth": false
+    },
+    "f": null,
+    "mode": "LS",
+    "exit": {
+     "type": "part",
+     "k1": 3.0,
+     "k2": 3.0,
+     "k3": 3.0
+    },
+    "atr": "1d"
+   },
+   "label": "TERS direction_velocity · 1 haftalık · long+short · SL 3.0×ATR, yarısı 3.0×ATR'de kâr al, kalanı başa baş + iz süren 3.0×ATR",
+   "kind": null,
+   "path": null,
+   "proven": false,
+   "beta_only": false,
+   "wf_sharpe": -0.569,
+   "wf_t": -0.721,
+   "dsr": 0.736,
+   "signal": {
+    "side": "SHORT",
+    "entry": 84462.1328125,
+    "sl": 91789.24107142858,
+    "tp": 77135.02455357142,
+    "as_of": "2026-10-07 18:00:00+00:00"
+   }
+  },
+  "ETH": {
+   "rule": {
+    "cat": "filtre+tetik",
+    "d": {
+     "trig": "trig:4h:kelt",
+     "hold": 48,
+     "bias": {
+      "src": "cat::short_term",
+      "op": "sign",
+      "cad": 24,
+      "smooth": true
+     }
+    },
+    "f": null,
+    "mode": "SO",
+    "exit": {
+     "type": "part",
+     "k1": 2.0,
+     "k2": 2.0,
+     "k3": 3.0
+    },
+    "atr": "4h"
+   },
+   "label": "Tetik: Keltner kırılımı · 4h | filtre: Kısa Vade Yön · 1 günlük ortalama yönünde · sadece short · SL 2.0×ATR, yarısı 2.0×ATR'de kâr al, kalanı başa baş + iz süren 3.0×ATR",
+   "kind": null,
+   "path": null,
+   "proven": false,
+   "beta_only": false,
+   "wf_sharpe": -0.688,
+   "wf_t": -0.871,
+   "dsr": 0.843,
+   "signal": {
+    "side": "SHORT",
+    "entry": 2610.530029296875,
+    "sl": 2610.530029296875,
+    "tp": null,
+    "as_of": "2026-10-07 18:00:00+00:00"
+   }
+  }
+ },
+ "consensus": {
+  "rule": {
+   "cat": "teknik",
+   "d": {
+    "src": "tech:1d:keltner:20-2.0",
+    "op": "sign",
+    "inv": false
+   },
+   "f": null,
+   "mode": "LS",
+   "exit": {
+    "type": "sltp",
+    "k1": 2.0,
+    "k2": 4.0
+   },
+   "atr": "1d"
+  },
+  "label": "Keltner kırılımı (20/2.0) · 1d · long+short · SL 2.0×ATR / TP 4.0×ATR",
+  "mean_sharpe": 0.79,
+  "pos_assets": 6
+ }
+}
