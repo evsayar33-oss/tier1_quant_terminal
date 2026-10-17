@@ -6,7 +6,8 @@ import numpy as np
 import pandas as pd
 from typing import Dict, Any, Optional
 
-from config import ASSET_MATRICES, CLUSTERS, REGIME_DYNAMIC_THRESHOLDS
+from config import ASSET_MATRICES, CLUSTERS, REGIME_DYNAMIC_THRESHOLDS, is_directional
+import market_structure
 
 try:
     from config import ENTRY_FILTER_CONFIG
@@ -561,6 +562,13 @@ class PreTradeGatekeeper:
                     # 2022) rather than merely following them. Shared by
                     # SPX and NQ (single US-equity tail-risk read).
                     val = compute_relative_vol_premium_lead(self._vol_history("SKEW"))
+                elif f_id == "cta_trend_position":
+                    # v15.1 state factor: generic trend-follower position proxy (daily).
+                    val = market_structure.cta_factor(df_daily_htf)
+                elif f_id == "vol_control_flow":
+                    val = market_structure.vol_control_factor(df_daily_htf)
+                elif f_id == "liquidity_sweep":
+                    val = market_structure.sweep_factor(df_ast, asset_key, df_daily_htf)
                 elif f_id == "usd_strength":
                     val = self.dxy_velocity
                 elif f_id == "net_dollar_liquidity":
@@ -590,6 +598,14 @@ class PreTradeGatekeeper:
                     "faktör": factor["name"], "küme": cluster,
                     "ham_deger": None, "puan": None,
                     "durum": "VERİ YETERSİZ / KATKI DIŞI"
+                })
+                continue
+            if not is_directional(factor):
+                # v15.0: volatility/momentum STATE -- shown and logged, not voted.
+                details.append({
+                    "faktör": factor["name"], "küme": cluster,
+                    "ham_deger": round(float(val), 2), "puan": 0.0,
+                    "durum": "DURUM DEĞİŞKENİ (yön skoruna katılmaz)"
                 })
                 continue
             f_score = float(np.clip(float(val), -1.8, 1.8)) * sign * weight

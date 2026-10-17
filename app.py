@@ -903,6 +903,42 @@ except Exception:
 
 
 # =============================================================================
+# v15.1 KARAR ÖZETİ — tek bakışta: giriş · kısa vade · uzun vade · stop
+# =============================================================================
+# Bu sistem bir al-sat botu DEĞİLDİR. Tablo bir yön ve giriş-zamanlaması
+# analizidir; stop seviyesi bir öneridir, emir değildir.
+
+try:
+    import decision_panel as _DP
+    st.subheader("🎯 Karar Özeti")
+    st.dataframe(pd.DataFrame(_DP.build_rows(verdicts, list(ASSET_MATRICES.keys()))),
+                 use_container_width=True, hide_index=True)
+    _cal = active_data.get("market_calendar") or {}
+    _cal_bits = [f"Sıradaki OPEX {_cal.get('next_opex', '—')} ({_cal.get('days_to_opex', '—')} gün)",
+                 f"VIX vadesi {_cal.get('next_vix_expiry', '—')}"] if _cal else []
+    _cal_bits += list(_cal.get("notes") or [])
+    with st.expander("🧭 Stop gerekçeleri, seans ve takvim", expanded=False):
+        st.caption("Stop, yönü geçersiz kılan en yakın yapısal seviyenin ÖTESİNE, likidite avı payıyla konur. "
+                   "Pay, stop defterinin 'stop avlandı ama yön doğru çıktı' oranına göre kendini kalibre eder.")
+        for _ln in _DP.stop_basis_lines(verdicts, list(ASSET_MATRICES.keys())):
+            st.markdown(_ln)
+        _cb = active_data.get("stop_calibration") or {}
+        if _cb and "error" not in _cb:
+            st.caption(" · ".join(
+                f"{h}: n={x.get('n')} · stop tetiklenme %{100 * float(x.get('stop_hit_rate') or 0):.0f} · "
+                f"avlanma %{100 * float(x.get('hunted_rate') or 0):.0f} · pay ×{x.get('buffer_mult')} ({x.get('verdict')})"
+                for h, x in _cb.items()))
+        for _a in ASSET_MATRICES.keys():
+            _ss = ((verdicts.get(_a) or {}).get("market_structure") or {}).get("session") or {}
+            if _ss:
+                st.markdown(f"**{_a}** seans: {_ss.get('phase')} — {_ss.get('note')}")
+        if _cal_bits:
+            st.markdown("📅 " + " · ".join(_cal_bits))
+except Exception as _dp_exc:
+    st.caption(f"Karar özeti gösterilemedi ({_dp_exc})")
+
+
+# =============================================================================
 # STATEFUL ADAPTIVE SUMMARY
 # =============================================================================
 
@@ -924,7 +960,7 @@ if stateful_diag:
 
     try:
 
-        _bs = json.load(open("bot_status.json", encoding="utf-8"))
+        _bs = json.load(open("engine_status.json", encoding="utf-8"))
 
         _lc = pd.Timestamp(_bs.get("last_cycle")).tz_convert("Europe/Istanbul")
 
@@ -934,40 +970,11 @@ if stateful_diag:
 
         _icon = "🟢" if _age_m < 75 else ("🟡" if _age_m < 180 else "🔴")
 
-        st.caption(f"{_icon} Motor: son döngü {_lc:%d.%m %H:%M} TSİ · sıradaki {_nc:%H:%M} · "
-
-                   f"işlem yapılabilir: {', '.join(_bs.get('tradeable_assets') or []) or 'yok (kanıt bekleniyor)'}")
+        st.caption(f"{_icon} Motor: son döngü {_lc:%d.%m %H:%M} TSİ · sıradaki {_nc:%H:%M}")
 
     except Exception:
 
         pass
-
-    # v3.9: paper trading scorecard
-    if os.path.exists("paper_report.md"):
-        with st.expander("📒 Paper Trading Karnesi (kanıt toplama)", expanded=False):
-            st.markdown(open("paper_report.md", encoding="utf-8").read())
-    # v4.0: strategy research tables
-    if os.path.exists("lab_report.md"):
-        with st.expander("🧪 Strateji Laboratuvarı — test ve getiri tabloları", expanded=False):
-            _lab_md = open("lab_report.md", encoding="utf-8").read()
-            _dc = st.columns(3)
-            _dc[0].download_button("⬇️ Rapor (.md)", _lab_md, file_name="lab_report.md", mime="text/markdown",
-                                   use_container_width=True)
-            if os.path.exists("lab_results.json"):
-                _dc[1].download_button("⬇️ Tüm sonuçlar (.json)", open("lab_results.json", encoding="utf-8").read(),
-                                       file_name="lab_results.json", mime="application/json", use_container_width=True)
-            if os.path.exists("paper_ledger.json"):
-                _dc[2].download_button("⬇️ Paper defter (.json)", open("paper_ledger.json", encoding="utf-8").read(),
-                                       file_name="paper_ledger.json", mime="application/json", use_container_width=True)
-            try:
-                from config import STATE_REPO as _repo
-                st.markdown(f"⬇️ **Tüm laboratuvar dosyaları (her konfigürasyonun tek tek sonucu dahil, zip):** "
-                            f"[lab.zip](https://github.com/{_repo}/archive/refs/heads/lab.zip)")
-            except Exception:
-                pass
-            st.markdown(_lab_md)
-    else:
-        st.caption("🧪 Strateji Laboratuvarı henüz çalışmadı: Actions → 'Tier-1 Strategy Lab (strateji testi)' → Run workflow.")
 
 
     stateful_cols = st.columns(5)
@@ -1117,33 +1124,6 @@ st.subheader(
 
 summary_rows = []
 
-# v4.0: Strategy-Lab candidate per asset (live, from the engine's signals.json)
-try:
-    _lab_live = {k: (v.get("lab") or {}) for k, v in
-                 (json.load(open("signals.json", encoding="utf-8")).get("assets") or {}).items()}
-except Exception:
-    _lab_live = {}
-if not any(_lab_live.values()):
-    try:   # before the engine's first v4.0 cycle: weekly playbook snapshot
-        _pbk = json.load(open("lab_playbook.json", encoding="utf-8"))
-        _lab_live = {k: dict(v.get("signal") or {}, proven=v.get("proven"), beta_only=v.get("beta_only"),
-                             strategy=v.get("label")) for k, v in (_pbk.get("assets") or {}).items()}
-    except Exception:
-        _lab_live = {}
-
-
-def _lab_cell(k):
-    lb = _lab_live.get(k) or {}
-    if not lb:
-        return "— (lab henüz çalışmadı)"
-    side = {"LONG": "🟢 LONG", "SHORT": "🔴 SHORT"}.get(lb.get("side"), "⚪ POZİSYON YOK")
-    proof = ("✅ KANITLI ALFA" if lb.get("proven") else
-             "⚠️ β ağırlıklı (al-tut'u geçmiyor)" if lb.get("beta_only") else "⚠️ aday · kanıtsız")
-    cons = {"LONG": " · 📈 trend kuralı: AL", "SHORT": " · 📈 trend kuralı: SAT",
-            "FLAT": " · 📈 trend kuralı: YOK"}.get(lb.get("consensus_side"), "")
-    return f"{side} · {proof} · {lb.get('strategy', '')}{cons}"
-
-
 for k in ASSET_MATRICES.keys():
 
     data = verdicts.get(
@@ -1217,9 +1197,6 @@ for k in ASSET_MATRICES.keys():
 
             "🔮 Model Sinyali (24 Saat-1 Hafta)":
                 fore_dir,
-
-            "🎯 Strateji Lab Sinyali":
-                _lab_cell(k),
 
             "Yön Aşaması":
                 direction_stage,
@@ -1483,6 +1460,49 @@ with col_card2:
 
 
 # =============================================================================
+# v15.1 PİYASA YAPISI — seviyeler, likidite avı, sistematik akışlar, gama
+# =============================================================================
+
+_ms = res.get("market_structure") or {}
+_dg = res.get("dealer_gamma") or {}
+if _ms or _dg:
+    with st.expander("🏗️ Piyasa yapısı: seviyeler, likidite avı, CTA / vol-control, gama", expanded=False):
+        _ss = _ms.get("session") or {}
+        if _ss:
+            st.markdown(f"🕒 **Seans:** {_ss.get('phase')} — {_ss.get('note')}")
+        _sw = _ms.get("sweep")
+        if _sw:
+            st.markdown(f"🪤 **Likidite avı:** {_sw.get('note')} ({_sw.get('bars_ago')} bar önce)")
+        _lv = (_ms.get("levels") or {}).get("levels") or []
+        if _lv:
+            _px = (_ms.get("levels") or {}).get("price")
+            st.dataframe(pd.DataFrame([{"Seviye": x["label"], "Fiyat": x["price"],
+                                        "Uzaklık %": round(100 * (x["price"] / _px - 1), 2) if _px else None}
+                                       for x in sorted(_lv, key=lambda x: -x["price"])]),
+                         use_container_width=True, hide_index=True)
+        _cta = _ms.get("cta")
+        if _cta:
+            _tb, _ta = _cta.get("nearest_trigger_below"), _cta.get("nearest_trigger_above")
+            st.markdown(
+                f"🤖 **CTA (tahmini):** pozisyon {_cta['position']:+.2f} (−1 tam açığa satış … +1 tam uzun) · "
+                f"fiyat sabit kalırsa akış {_cta['flow_if_flat']:+.3f} · tetik altı "
+                f"{_tb['level'] if _tb else '—'} · tetik üstü {_ta['level'] if _ta else '—'}")
+        _vc = _ms.get("vol_control")
+        if _vc:
+            st.markdown(f"⚖️ **Vol-control fonları (tahmini):** gerçekleşen vol %{100 * _vc['realized_vol']:.1f} · "
+                        f"kaldıraç {_vc['leverage']:.2f} (5g Δ {_vc['leverage_change_5d']:+.2f}) → {_vc['flow']}")
+        if _dg:
+            st.markdown(
+                f"🧲 **Dealer gama:** {_dg.get('regime')} · flip {_dg.get('gamma_flip')} · call duvarı "
+                f"{_dg.get('call_wall')} · put duvarı {_dg.get('put_wall')} · 0DTE {_dg.get('put_wall_0dte')} / "
+                f"{_dg.get('call_wall_0dte')} · beklenen 1g hareket {_dg.get('expected_move_1d')}")
+            for _n in _dg.get("notes") or []:
+                st.caption(_n)
+        st.caption("Bu bölümdeki büyüklükler yön skoruna oy vermez (rol: durum). Haftalık replay, her birinin "
+                   "gerçekten öncü olup olmadığını 3 dönem kararlılık testiyle ölçer.")
+
+
+# =============================================================================
 # FACTOR DETAILS
 # =============================================================================
 
@@ -1583,6 +1603,33 @@ if details:
 # etkilemez.
 
 st.divider()
+# v15.0: dealer gamma map (read-only, from the published state)
+try:
+    _dg = (load_persisted_state() or {}).get("dealer_gamma") or {}
+    _snaps = _dg.get("snapshots") or {}
+    if _snaps:
+        with st.expander("🧲 Dealer Gamma Haritası (opsiyon piyasasının gizli seviyeleri)", expanded=False):
+            st.caption("Gama YÖN söylemez. Hareketin NASIL (sıkışma / hızlanma) ve NEREDE durabileceğini "
+                       "söyler. Kanıt oluşana kadar sadece not düşer, giriş iznini kaldırmaz.")
+            _rows = []
+            for _a, _m in _snaps.items():
+                _ev = (_dg.get("evidence") or {}).get(_a) or {}
+                _rows.append({
+                    "Varlık": _a, "Rejim": _m.get("regime"), "Vadeli": _m.get("future_price"),
+                    "Gamma flip": _m.get("gamma_flip"), "Call duvarı": _m.get("call_wall"),
+                    "Put duvarı": _m.get("put_wall"), "0DTE pin": _m.get("pin_0dte"),
+                    "Beklenen 1g hareket": _m.get("expected_move_1d"),
+                    "0DTE payı": _m.get("share_0dte"), "Kaynak": _m.get("source"),
+                    "Kanıt": _ev.get("verdict"),
+                })
+            st.dataframe(pd.DataFrame(_rows), use_container_width=True, hide_index=True)
+            for _a, _m in _snaps.items():
+                _i = _m.get("interpretation") or {}
+                st.markdown(f"**{_a}** — {_i.get('hedge_flow', '')}  \n{_i.get('flip', '')}  \n"
+                            f"{_i.get('levels', '')} · {_i.get('share_0dte', '')}  \n{_i.get('vanna_charm', '')}")
+except Exception as _dg_exc:
+    st.caption(f"Dealer gamma haritası okunamadı ({_dg_exc})")
+
 for _title, _path in (
     ("📊 Canlı Performans Karnesi (gerçekleşen fiyatla notlanan sinyaller)", "performance_report.md"),
     ("🧪 Tarihsel Doğrulama Raporu (walk-forward)", os.path.join("validation_reports", "historical_replay_report.md")),

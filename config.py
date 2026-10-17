@@ -44,7 +44,7 @@ ASSET_MATRICES = {
         "benchmark_symbol": "ES=F",
         "vol_scale": 1.0,
         "factors": [
-            {"id": "asset_direction", "name": "ES 4H Anlık Fiyat Hızı", "cluster": "E", "base_weight": 1.10, "base_sign": 1.0},
+            {"id": "asset_direction", "name": "ES 4H Anlık Fiyat Hızı", "cluster": "E", "base_weight": 1.10, "base_sign": 1.0, "role": "state"},
             {"id": "semi_lead", "name": "SMH Çip / AI Sektör İvmesi", "cluster": "E", "base_weight": 0.35, "base_sign": 1.0},
             {"id": "market_breadth", "name": "RSP/SPY Piyasa Katılım Genişliği", "cluster": "E", "base_weight": 0.30, "base_sign": 1.0},
             {"id": "defensive_flight", "name": "XLU/SPY Kurumsal Defansif Kaçış", "cluster": "E", "base_weight": 0.30, "base_sign": -1.0},
@@ -53,15 +53,18 @@ ASSET_MATRICES = {
             {"id": "duration_risk", "name": "TLT/SHY Uzun Vade Tahvil Süre Riski", "cluster": "B", "base_weight": 0.55, "base_sign": 1.0},
             {"id": "banking_stress", "name": "KRE/SPY Bölgesel Bankacılık Likiditesi", "cluster": "C", "base_weight": 0.50, "base_sign": 1.0},
             {"id": "credit_spread", "name": "HYG/LQD Kredi Gücü & İştahı", "cluster": "C", "base_weight": 0.55, "base_sign": 1.0},
-            {"id": "vix_strain", "name": "VIX Opsiyon Korku Primi", "cluster": "C", "base_weight": 0.55, "base_sign": -1.0},
-            {"id": "vix_term", "name": "VIX/VIX3M Dealer Gamma & Vade Eğrisi", "cluster": "C", "base_weight": 0.60, "base_sign": -1.0},
+            {"id": "vix_strain", "name": "VIX Opsiyon Korku Primi", "cluster": "C", "base_weight": 0.55, "base_sign": -1.0, "role": "state"},
+            {"id": "vix_term", "name": "VIX/VIX3M Dealer Gamma & Vade Eğrisi", "cluster": "C", "base_weight": 0.60, "base_sign": -1.0, "role": "state"},
             {"id": "stagflation_shock", "name": "Petrol / Ticaret (IYT) Şoku", "cluster": "D", "base_weight": 0.50, "base_sign": -1.0},
             {"id": "usd_strength", "name": "DXY Kısa Vade Dolar Baskısı", "cluster": "A", "base_weight": 0.60, "base_sign": -1.0},
             {"id": "net_dollar_liquidity", "name": "Fed Net Dolar Likiditesi (NDL)", "cluster": "A", "base_weight": 0.65, "base_sign": 1.0},
             {"id": "usd_jpy_carry", "name": "USD/JPY Carry & Küresel Likidite", "cluster": "A", "base_weight": 0.55, "base_sign": 1.0},
             {"id": "nq_relative_divergence", "name": "🎯 SPX/NQ Adaptif Ayrışma (Rezidüel)", "cluster": "E", "base_weight": 0.40, "base_sign": 1.0},
-            {"id": "vix_term_lead", "name": "🔮 VIX Vade Yapısı Öncü Sinyali (Backwardation/Contango)", "cluster": "E", "base_weight": 0.70, "base_sign": 1.0},
-            {"id": "tail_risk_skew_lead", "name": "🔮 CBOE SKEW Kuyruk Riski Fiyatlaması (Öncü)", "cluster": "E", "base_weight": 0.95, "base_sign": 1.0}
+            {"id": "vix_term_lead", "name": "🔮 VIX Vade Yapısı Öncü Sinyali (Backwardation/Contango)", "cluster": "E", "base_weight": 0.70, "base_sign": 1.0, "role": "state"},
+            {"id": "tail_risk_skew_lead", "name": "🔮 CBOE SKEW Kuyruk Riski Fiyatlaması (Öncü)", "cluster": "E", "base_weight": 0.95, "base_sign": 1.0},
+            {"id": "cta_trend_position", "name": "🤖 CTA Trend Fonu Pozisyonu (Tahmini)", "cluster": "E", "base_weight": 0.40, "base_sign": 1.0, "role": "state"},
+            {"id": "liquidity_sweep", "name": "🪤 Likidite Avı (Stop Süpürme) Sinyali", "cluster": "E", "base_weight": 0.40, "base_sign": 1.0, "role": "state"},
+            {"id": "vol_control_flow", "name": "⚖️ Volatilite Hedefli Fon Akışı (Tahmini)", "cluster": "C", "base_weight": 0.40, "base_sign": 1.0, "role": "state"}
         ]
     },
     "NQ": {
@@ -73,7 +76,7 @@ ASSET_MATRICES = {
         "benchmark_symbol": "NQ=F",
         "vol_scale": 1.2,
         "factors": [
-            {"id": "asset_direction", "name": "NQ 4H Anlık Fiyat Hızı", "cluster": "E", "base_weight": 1.10, "base_sign": 1.0},
+            {"id": "asset_direction", "name": "NQ 4H Anlık Fiyat Hızı", "cluster": "E", "base_weight": 1.10, "base_sign": 1.0, "role": "state"},
             {"id": "semi_lead", "name": "SMH Çip / AI Sektör İvmesi", "cluster": "E", "base_weight": 0.40, "base_sign": 1.0},
             {"id": "tech_breadth_dispersion", "name": "Çip & Yüksek Beta Ayrışması", "cluster": "E", "base_weight": 0.35, "base_sign": 1.0},
             {"id": "speculative_beta", "name": "ARKK/QQQ Yüksek Beta Spekülasyon", "cluster": "E", "base_weight": 0.30, "base_sign": 1.0},
@@ -82,16 +85,19 @@ ASSET_MATRICES = {
             {"id": "duration_risk", "name": "TLT Tahvil Süre Duyarlılığı", "cluster": "B", "base_weight": 0.55, "base_sign": 1.0},
             {"id": "banking_stress", "name": "Finansal Sistem Likidite Stresi (KRE)", "cluster": "C", "base_weight": 0.40, "base_sign": 1.0},
             {"id": "credit_spread", "name": "Kredi Piyasası Gücü (HYG/LQD)", "cluster": "C", "base_weight": 0.50, "base_sign": 1.0},
-            {"id": "vix_strain", "name": "Teknoloji Volatilite Baskısı", "cluster": "C", "base_weight": 0.55, "base_sign": -1.0},
-            {"id": "vix_term", "name": "VIX Vade Eğrisi & Gamma Stresi", "cluster": "C", "base_weight": 0.60, "base_sign": -1.0},
+            {"id": "vix_strain", "name": "Teknoloji Volatilite Baskısı", "cluster": "C", "base_weight": 0.55, "base_sign": -1.0, "role": "state"},
+            {"id": "vix_term", "name": "VIX Vade Eğrisi & Gamma Stresi", "cluster": "C", "base_weight": 0.60, "base_sign": -1.0, "role": "state"},
             {"id": "stagflation_shock", "name": "Petrol / Enerji Baskısı", "cluster": "D", "base_weight": 0.45, "base_sign": -1.0},
             {"id": "usd_strength", "name": "DXY Dolar Likidite Sıkışması", "cluster": "A", "base_weight": 0.60, "base_sign": -1.0},
             {"id": "net_dollar_liquidity", "name": "Fed Net Dolar Likiditesi (NDL)", "cluster": "A", "base_weight": 0.65, "base_sign": 1.0},
             {"id": "usd_jpy_carry", "name": "USD/JPY Carry Tasfiye Riski", "cluster": "A", "base_weight": 0.55, "base_sign": 1.0},
             {"id": "spx_relative_divergence", "name": "🎯 NQ/SPX Adaptif Ayrışma (Rezidüel)", "cluster": "E", "base_weight": 0.50, "base_sign": 1.0},
-            {"id": "vix_term_lead", "name": "🔮 VIX Vade Yapısı Öncü Sinyali (Backwardation/Contango)", "cluster": "E", "base_weight": 0.60, "base_sign": 1.0},
+            {"id": "vix_term_lead", "name": "🔮 VIX Vade Yapısı Öncü Sinyali (Backwardation/Contango)", "cluster": "E", "base_weight": 0.60, "base_sign": 1.0, "role": "state"},
             {"id": "tech_vol_premium_lead", "name": "🔮 VXN/VIX Teknoloji Volatilite Primi (Öncü)", "cluster": "E", "base_weight": 0.55, "base_sign": 1.0},
-            {"id": "tail_risk_skew_lead", "name": "🔮 CBOE SKEW Kuyruk Riski Fiyatlaması (Öncü)", "cluster": "E", "base_weight": 0.85, "base_sign": 1.0}
+            {"id": "tail_risk_skew_lead", "name": "🔮 CBOE SKEW Kuyruk Riski Fiyatlaması (Öncü)", "cluster": "E", "base_weight": 0.85, "base_sign": 1.0},
+            {"id": "cta_trend_position", "name": "🤖 CTA Trend Fonu Pozisyonu (Tahmini)", "cluster": "E", "base_weight": 0.40, "base_sign": 1.0, "role": "state"},
+            {"id": "liquidity_sweep", "name": "🪤 Likidite Avı (Stop Süpürme) Sinyali", "cluster": "E", "base_weight": 0.40, "base_sign": 1.0, "role": "state"},
+            {"id": "vol_control_flow", "name": "⚖️ Volatilite Hedefli Fon Akışı (Tahmini)", "cluster": "C", "base_weight": 0.40, "base_sign": 1.0, "role": "state"}
         ]
     },
     "XAU": {
@@ -112,7 +118,9 @@ ASSET_MATRICES = {
             {"id": "copper_gold", "name": "Bakır/Altın Sanayi Döngüsü", "cluster": "D", "base_weight": 0.55, "base_sign": -1.0},
             {"id": "gsr_velocity", "name": "Altın/Gümüş Rasyosu (GSR)", "cluster": "D", "base_weight": 0.55, "base_sign": 1.0},
             {"id": "usd_strength", "name": "DXY Spot Dolar Baskısı", "cluster": "A", "base_weight": 0.75, "base_sign": -1.0},
-            {"id": "net_dollar_liquidity", "name": "Dolar Rezerv / Net Likidite İvmesi", "cluster": "A", "base_weight": 0.65, "base_sign": 1.0}
+            {"id": "net_dollar_liquidity", "name": "Dolar Rezerv / Net Likidite İvmesi", "cluster": "A", "base_weight": 0.65, "base_sign": 1.0},
+            {"id": "cta_trend_position", "name": "🤖 CTA Trend Fonu Pozisyonu (Tahmini)", "cluster": "E", "base_weight": 0.40, "base_sign": 1.0, "role": "state"},
+            {"id": "liquidity_sweep", "name": "🪤 Likidite Avı (Stop Süpürme) Sinyali", "cluster": "E", "base_weight": 0.40, "base_sign": 1.0, "role": "state"}
         ]
     },
     "XAG": {
@@ -133,7 +141,9 @@ ASSET_MATRICES = {
             {"id": "breakeven_infl", "name": "Enflasyon Beklenti Kalkanı", "cluster": "B", "base_weight": 0.60, "base_sign": 1.0},
             {"id": "credit_spread", "name": "Küresel Kredi & Sanayi İştahı", "cluster": "C", "base_weight": 0.60, "base_sign": 1.0},
             {"id": "usd_strength", "name": "USD Gücü & Dolar Baskısı", "cluster": "A", "base_weight": 0.65, "base_sign": -1.0},
-            {"id": "net_dollar_liquidity", "name": "Fed Net Dolar Likiditesi (NDL)", "cluster": "A", "base_weight": 0.60, "base_sign": 1.0}
+            {"id": "net_dollar_liquidity", "name": "Fed Net Dolar Likiditesi (NDL)", "cluster": "A", "base_weight": 0.60, "base_sign": 1.0},
+            {"id": "cta_trend_position", "name": "🤖 CTA Trend Fonu Pozisyonu (Tahmini)", "cluster": "E", "base_weight": 0.40, "base_sign": 1.0, "role": "state"},
+            {"id": "liquidity_sweep", "name": "🪤 Likidite Avı (Stop Süpürme) Sinyali", "cluster": "E", "base_weight": 0.40, "base_sign": 1.0, "role": "state"}
         ]
     },
     "BTC": {
@@ -155,7 +165,9 @@ ASSET_MATRICES = {
             {"id": "vix_strain", "name": "Sistemik Volatilite Baskısı", "cluster": "C", "base_weight": 0.50, "base_sign": -1.0},
             {"id": "usd_strength", "name": "DXY Dolar Likidite Baskısı", "cluster": "A", "base_weight": 0.65, "base_sign": -1.0},
             {"id": "net_dollar_liquidity", "name": "Fed Net Dolar Likiditesi (NDL)", "cluster": "A", "base_weight": 0.80, "base_sign": 1.0},
-            {"id": "usd_jpy_carry", "name": "USD/JPY Carry & Risk-On Likiditesi", "cluster": "A", "base_weight": 0.55, "base_sign": 1.0}
+            {"id": "usd_jpy_carry", "name": "USD/JPY Carry & Risk-On Likiditesi", "cluster": "A", "base_weight": 0.55, "base_sign": 1.0},
+            {"id": "cta_trend_position", "name": "🤖 CTA Trend Fonu Pozisyonu (Tahmini)", "cluster": "E", "base_weight": 0.40, "base_sign": 1.0, "role": "state"},
+            {"id": "liquidity_sweep", "name": "🪤 Likidite Avı (Stop Süpürme) Sinyali", "cluster": "E", "base_weight": 0.40, "base_sign": 1.0, "role": "state"}
         ]
     },
     "ETH": {
@@ -184,10 +196,39 @@ ASSET_MATRICES = {
             {"id": "vix_strain", "name": "Sistemik Volatilite Baskısı", "cluster": "C", "base_weight": 0.50, "base_sign": -1.0},
             {"id": "usd_strength", "name": "DXY Dolar Likidite Baskısı", "cluster": "A", "base_weight": 0.65, "base_sign": -1.0},
             {"id": "net_dollar_liquidity", "name": "Fed Net Dolar Likiditesi (NDL)", "cluster": "A", "base_weight": 0.75, "base_sign": 1.0},
-            {"id": "usd_jpy_carry", "name": "USD/JPY Carry Likiditesi", "cluster": "A", "base_weight": 0.50, "base_sign": 1.0}
+            {"id": "usd_jpy_carry", "name": "USD/JPY Carry Likiditesi", "cluster": "A", "base_weight": 0.50, "base_sign": 1.0},
+            {"id": "cta_trend_position", "name": "🤖 CTA Trend Fonu Pozisyonu (Tahmini)", "cluster": "E", "base_weight": 0.40, "base_sign": 1.0, "role": "state"},
+            {"id": "liquidity_sweep", "name": "🪤 Likidite Avı (Stop Süpürme) Sinyali", "cluster": "E", "base_weight": 0.40, "base_sign": 1.0, "role": "state"}
         ]
     }
 }
+
+# ---------------------------------------------------------------------------
+# v15.0 — Factor ROLE: "direction" (default) vs "state"
+# ---------------------------------------------------------------------------
+# A "state" factor is still computed, shown, logged to the replay panel and
+# offered to the walk-forward learned model (which may use it with ANY sign),
+# but it is NOT added to the hand-weighted DIRECTION score.
+# Reason (validation_reports/factor_panel.csv.gz, 2024-10 → 2026-09, 3 equal
+# time periods, signed IC vs next 24h return):
+#   SPX vix_term / vix_term_lead : -0.067 -0.214 -0.088  (wrong sign 3/3)
+#   NQ  vix_term / vix_term_lead : -0.034 -0.210 -0.077  (wrong sign 3/3)
+#   SPX vix_strain               : -0.001 -0.093 -0.048
+#   vix_term and vix_term_lead have rank correlation 1.00 (same signal twice);
+#   vix_strain 0.75 -> one variable (VIX level) was counted three times.
+#   The same factors predict the SIZE of the next move in 3/3 periods
+#   (|r24|/vol IC -0.06 … -0.30): volatility is a state, not a direction.
+#   asset_direction (4H momentum, the largest weight) has ~0 IC; removing it
+#   plus the VIX cluster raised the SPX/NQ score IC in 12/12 period×horizon cells
+#   (SPX 24h: +0.054/-0.068/-0.052 -> +0.063/+0.010/-0.015; NQ 72h: +0.009/-0.025/+0.025 -> +0.049/+0.023/+0.110).
+# Under dealer long gamma (most days) the last hours' move is absorbed by
+# market-maker hedging; momentum and "fear = sell" then point the wrong way.
+FACTOR_ROLE_DEFAULT = "direction"
+
+
+def is_directional(factor: dict) -> bool:
+    return str(factor.get("role", FACTOR_ROLE_DEFAULT)) != "state"
+
 
 ASSET_CLOCKS = {
     "SPX": {"open_utc": 0.0, "close_utc": 24.0, "type": "FUTURES_23H", "continuous": True},
@@ -385,3 +426,14 @@ SHORT_TERM_SCALES = {"model": 0.60, "price": 1.20}   # typical |score| of each p
 
 # v3.7: where the app downloads the published state bundle (branch `state`).
 STATE_REPO = "evsayar33-oss/tier1_quant_terminal"
+
+
+# ---------------------------------------------------------------------------
+# v15.0 — Dealer gamma map (dealer_gamma.py)
+# ---------------------------------------------------------------------------
+# "advisory": the map only adds notes; it never changes entry permission.
+# "active"  : when the map's own ledger has PROVEN the wall effect for an asset
+#             (n >= 30 independent days, t >= 2), a long into a near call wall /
+#             short into a near put wall in +gamma loses entry permission.
+# The map never grants entry and never changes direction.
+DEALER_GAMMA_POLICY = "advisory"

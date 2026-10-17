@@ -1,3 +1,31 @@
+# 2026-10-17 — v15.1: Karar Özeti + önerilen stop + piyasa yapısı; bot/lab kalıntıları silindi
+
+- Sistem bir al-sat botu değildir: işlem katmanı (paper broker, signals.json, SL/TP/tradeable/OKX),
+  7 strateji laboratuvarı, sentetik backtest'ler ve 8 lab workflow'u silindi. `bot_loop.py` → `engine_loop.py`.
+- Arayüz: en üstte "🎯 Karar Özeti" — Giriş önerilir/önerilmez · Kısa vade · Uzun vade · Stop (kısa/uzun) · Zamanlama.
+- YENİ `stop_levels.py`: yapısal seviyenin ötesine likidite avı payıyla stop; kendini kalibre eden stop defteri.
+- YENİ `market_structure.py`: seans saati, OPEX/VIX/çeyrek sonu takvimi, likidite seviyeleri, likidite avı,
+  CTA ve vol-control akış tahminleri, 5 dk veri. `dealer_gamma.py`: vanna/charm akışı, Deribit (BTC/ETH).
+- Yeni durum faktörleri: `cta_trend_position`, `vol_control_flow`, `liquidity_sweep` (yön oyu yok; replay sınar).
+- Ayrıntı: `README_V151_STRUCTURE.md`.
+
+---
+
+# 2026-10-17 — v15.0: Piyasa yapıcı mantığı (dealer gamma haritası + "volatilite yön değildir")
+
+- YENİ `dealer_gamma.py`: CBOE/yfinance opsiyon zincirinden dealer gamma rejimi, gamma flip,
+  yapısal ve 0DTE call/put duvarları, 0DTE pin, beklenen 1 günlük hareket, seviye testi sayacı.
+  Kendi defteri (`dealer_gamma_history.csv`) haritayı 24 saat sonra notlar; kanıt (n ≥ 30, t ≥ 2)
+  oluşmadan giriş iznini değiştirmez (`config.DEALER_GAMMA_POLICY = "advisory"`).
+- Mantık düzeltmesi: SPX/NQ'da `vix_term`, `vix_term_lead`, `vix_strain`, `asset_direction` artık
+  `"role": "state"` — hesaplanır, gösterilir, öğrenilmiş modele verilir; elle ağırlıklı yön skoruna
+  oy vermez. Kanıt: 3 dönemin 3'ünde ters işaretli IC; `vix_term`≡`vix_term_lead` (ρ=1.00);
+  SPX/NQ skor IC'si 12/12 hücrede iyileşti. Ayrıntı: `README_V150_MARKET_MAKER.md`.
+- Replay raporu: faktör IC tablosuna 3 dönem kararlılık tanısı (`⛔ 3/3 TERS`).
+- Test: `test_dealer_gamma.py` (13 yeni test).
+
+---
+
 # 2026-09-28 — v3.2.1: FRED uygulamada, BTC/ETH ortak-faktör uzlaştırması, replay düzeltmesi
 
 ## 1) Streamlit uygulamasında FRED faktörleri "None" çıkıyordu

@@ -108,6 +108,49 @@ def run_background_cycle() -> Dict[str, Any]:
     except Exception as exc:
         print(f"Final entry gate atlandı: {exc}")
 
+    # v15.1: market structure (session, options calendar, liquidity levels,
+    # sweeps, CTA / vol-control proxies) + 5-minute bars for level tests.
+    import market_structure as MS
+    frames = {a: StatefulAdaptiveController._asset_df(gk.grid_1h, a) for a in ASSET_MATRICES}
+    daily = {a: gk.grid_daily.get(a, gk.grid_daily.get(str(ASSET_MATRICES[a].get("benchmark_symbol"))))
+             for a in ASSET_MATRICES}
+    intraday: Dict[str, Any] = {}
+    for a, sym in MS.FIVE_MIN_SYMBOLS.items():
+        df5 = MS.fetch_5m(sym)
+        if df5 is not None:
+            intraday[a] = df5
+    contexts: Dict[str, Any] = {}
+    for a in ASSET_MATRICES:
+        try:
+            contexts[a] = MS.build_context(a, frames.get(a), daily.get(a), intraday.get(a))
+        except Exception as exc:
+            print(f"[yapı] {a} atlandı: {exc}")
+    calendar = MS.options_calendar()
+
+    # v15.0: dealer gamma map (options-market levels + hedge-flow regime).
+    # Timing context only; it never changes direction and never grants entry.
+    dealer_gamma: Dict[str, Any] = {}
+    try:
+        import dealer_gamma as DG
+        dealer_gamma = DG.run_cycle(gk.grid_1h, verdicts, frames, intraday_frames=intraday)
+        print(f"[gamma] harita: {list(dealer_gamma.get('snapshots', {}))} · "
+              f"defter {dealer_gamma.get('history_rows')} satır")
+    except Exception as exc:
+        dealer_gamma = {"error": str(exc)}
+        print(f"Dealer gamma atlandı: {exc}")
+
+    # v15.1: suggested stop per horizon (analysis output, not an order).
+    stop_stats: Dict[str, Any] = {}
+    try:
+        import stop_levels as SL
+        stop_stats = SL.run_cycle(verdicts, contexts, dealer_gamma.get("snapshots", {}), frames)
+    except Exception as exc:
+        stop_stats = {"error": str(exc)}
+        print(f"Stop önerisi atlandı: {exc}")
+    for a, v in verdicts.items():
+        if a in contexts:
+            v["market_structure"] = contexts[a]
+
     # Out-of-sample scoreboard: settle earlier calls, record this cycle's
     # FINAL decisions, refresh performance_report.md. Pure observer -- it
     # never feeds back into the model, so it cannot destabilize it.
@@ -177,6 +220,9 @@ def run_background_cycle() -> Dict[str, Any]:
             if k in FRED_ONLY_METRIC_KEYS or k in ("fred_fetched_at", "source")
         },
         "data_health": data_health,
+        "dealer_gamma": dealer_gamma,
+        "market_calendar": calendar,
+        "stop_calibration": stop_stats,
     }
     _save_json(STATE_FILE, payload)
 

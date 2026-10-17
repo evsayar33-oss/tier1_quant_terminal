@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from config import ASSET_MATRICES, REGIME_DYNAMIC_THRESHOLDS
+from config import ASSET_MATRICES, REGIME_DYNAMIC_THRESHOLDS, is_directional
 from stateful_memory_store import MAX_SCORE_BINS, SCORE_MAX, StatefulMemoryStore
 
 
@@ -205,7 +205,7 @@ class AdaptiveScoreModel:
             if isinstance(row, dict)
         }
 
-        configured_weight = float(sum(float(f.get("base_weight", 0.0)) for f in matrix.get("factors", [])))
+        configured_weight = float(sum(float(f.get("base_weight", 0.0)) for f in matrix.get("factors", []) if is_directional(f)))
         weighted_sum = 0.0
         total_weight = 0.0
         cluster_scores: Dict[str, float] = {}
@@ -244,6 +244,15 @@ class AdaptiveScoreModel:
 
             raw_f = float(np.clip(raw_f, -1.8, 1.8))
             sign = float(factor.get("base_sign", 1.0))
+            if not is_directional(factor):
+                # v15.0: state factor -> no vote in the direction score.
+                factor_runtime[fid] = {
+                    "name": fname, "status": "STATE", "raw_value": round(raw_f, 6),
+                    "base_weight": float(factor.get("base_weight", 0.0)), "base_sign": sign,
+                    "weight_multiplier": 0.0, "effective_weight": 0.0,
+                    "ic": 0.0, "factor_n": 0.0, "final_contribution": 0.0,
+                }
+                continue
             base_weight = float(factor.get("base_weight", 0.0))
             multiplier_node = weight_map.get(fid, {})
             multiplier = float(multiplier_node.get("multiplier", 1.0)) if isinstance(multiplier_node, dict) else 1.0

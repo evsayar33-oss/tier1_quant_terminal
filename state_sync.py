@@ -36,15 +36,11 @@ STATE_FILES = [
     "data_freshness_state.json",
     "timeframe_confluence_state.json",
     "performance_ledger.json",
+    "dealer_gamma_history.csv",  # v15.0: dealer gamma map ledger (self-graded evidence)
+    "stop_ledger.csv",           # v15.1: suggested-stop ledger (self-calibrating buffer)
     "performance_report.md",
     "terminal_history_stateful.csv",
-    "signals.json",          # v3.8: bot contract
-    "paper_ledger.json",     # v3.9: paper trading
-    "paper_report.md",
-    "lab_playbook.json",     # v4.0: strategy lab (weekly research -> live candidate)
-    "lab_report.md",
-    "lab_results.json",
-    "bot_status.json",       # v3.8: engine heartbeat
+    "engine_status.json",    # engine heartbeat (v15.1: bot/lab files removed)
 ]
 STATE_DIRS = ["ohlcv_history"]
 REPORT_FILES = [  # copied from the `reports` branch, needed by app + tracker
@@ -121,10 +117,7 @@ def publish(branch: str, paths: List[str], root: str = ".", message: str = "") -
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-# v5.0: needed by the engine only (published on the `state` branch, NOT in the
-# app's download bundle, so the page stays fast)
-ENGINE_ONLY_FILES = ["signal_history.csv", "alt_recent.csv.gz", "alt_recent_meta.json"]
-STATE_PUBLISH_PATHS = STATE_FILES + ENGINE_ONLY_FILES + STATE_DIRS + ["state_backups", BUNDLE]
+STATE_PUBLISH_PATHS = STATE_FILES + STATE_DIRS + ["state_backups", BUNDLE]
 
 
 def build_bundle(root: str = ".", out: Optional[str] = None) -> str:
