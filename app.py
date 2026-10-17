@@ -1583,6 +1583,33 @@ if details:
 # etkilemez.
 
 st.divider()
+# v15.0: dealer gamma map (read-only, from the published state)
+try:
+    _dg = (load_persisted_state() or {}).get("dealer_gamma") or {}
+    _snaps = _dg.get("snapshots") or {}
+    if _snaps:
+        with st.expander("🧲 Dealer Gamma Haritası (opsiyon piyasasının gizli seviyeleri)", expanded=False):
+            st.caption("Gama YÖN söylemez. Hareketin NASIL (sıkışma / hızlanma) ve NEREDE durabileceğini "
+                       "söyler. Kanıt oluşana kadar sadece not düşer, giriş iznini kaldırmaz.")
+            _rows = []
+            for _a, _m in _snaps.items():
+                _ev = (_dg.get("evidence") or {}).get(_a) or {}
+                _rows.append({
+                    "Varlık": _a, "Rejim": _m.get("regime"), "Vadeli": _m.get("future_price"),
+                    "Gamma flip": _m.get("gamma_flip"), "Call duvarı": _m.get("call_wall"),
+                    "Put duvarı": _m.get("put_wall"), "0DTE pin": _m.get("pin_0dte"),
+                    "Beklenen 1g hareket": _m.get("expected_move_1d"),
+                    "0DTE payı": _m.get("share_0dte"), "Kaynak": _m.get("source"),
+                    "Kanıt": _ev.get("verdict"),
+                })
+            st.dataframe(pd.DataFrame(_rows), use_container_width=True, hide_index=True)
+            for _a, _m in _snaps.items():
+                _i = _m.get("interpretation") or {}
+                st.markdown(f"**{_a}** — {_i.get('hedge_flow', '')}  \n{_i.get('flip', '')}  \n"
+                            f"{_i.get('levels', '')} · {_i.get('share_0dte', '')}")
+except Exception as _dg_exc:
+    st.caption(f"Dealer gamma haritası okunamadı ({_dg_exc})")
+
 for _title, _path in (
     ("📊 Canlı Performans Karnesi (gerçekleşen fiyatla notlanan sinyaller)", "performance_report.md"),
     ("🧪 Tarihsel Doğrulama Raporu (walk-forward)", os.path.join("validation_reports", "historical_replay_report.md")),

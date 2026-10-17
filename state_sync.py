@@ -36,6 +36,7 @@ STATE_FILES = [
     "data_freshness_state.json",
     "timeframe_confluence_state.json",
     "performance_ledger.json",
+    "dealer_gamma_history.csv",  # v15.0: dealer gamma map ledger (self-graded evidence)
     "performance_report.md",
     "terminal_history_stateful.csv",
     "signals.json",          # v3.8: bot contract

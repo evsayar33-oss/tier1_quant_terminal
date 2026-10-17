@@ -1,3 +1,18 @@
+# 2026-10-17 — v15.0: Piyasa yapıcı mantığı (dealer gamma haritası + "volatilite yön değildir")
+
+- YENİ `dealer_gamma.py`: CBOE/yfinance opsiyon zincirinden dealer gamma rejimi, gamma flip,
+  yapısal ve 0DTE call/put duvarları, 0DTE pin, beklenen 1 günlük hareket, seviye testi sayacı.
+  Kendi defteri (`dealer_gamma_history.csv`) haritayı 24 saat sonra notlar; kanıt (n ≥ 30, t ≥ 2)
+  oluşmadan giriş iznini değiştirmez (`config.DEALER_GAMMA_POLICY = "advisory"`).
+- Mantık düzeltmesi: SPX/NQ'da `vix_term`, `vix_term_lead`, `vix_strain`, `asset_direction` artık
+  `"role": "state"` — hesaplanır, gösterilir, öğrenilmiş modele verilir; elle ağırlıklı yön skoruna
+  oy vermez. Kanıt: 3 dönemin 3'ünde ters işaretli IC; `vix_term`≡`vix_term_lead` (ρ=1.00);
+  SPX/NQ skor IC'si 12/12 hücrede iyileşti. Ayrıntı: `README_V150_MARKET_MAKER.md`.
+- Replay raporu: faktör IC tablosuna 3 dönem kararlılık tanısı (`⛔ 3/3 TERS`).
+- Test: `test_dealer_gamma.py` (13 yeni test).
+
+---
+
 # 2026-09-28 — v3.2.1: FRED uygulamada, BTC/ETH ortak-faktör uzlaştırması, replay düzeltmesi
 
 ## 1) Streamlit uygulamasında FRED faktörleri "None" çıkıyordu

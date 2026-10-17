@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 from typing import Dict, Any, Optional
 
-from config import ASSET_MATRICES, CLUSTERS, REGIME_DYNAMIC_THRESHOLDS
+from config import ASSET_MATRICES, CLUSTERS, REGIME_DYNAMIC_THRESHOLDS, is_directional
 
 try:
     from config import ENTRY_FILTER_CONFIG
@@ -590,6 +590,14 @@ class PreTradeGatekeeper:
                     "faktör": factor["name"], "küme": cluster,
                     "ham_deger": None, "puan": None,
                     "durum": "VERİ YETERSİZ / KATKI DIŞI"
+                })
+                continue
+            if not is_directional(factor):
+                # v15.0: volatility/momentum STATE -- shown and logged, not voted.
+                details.append({
+                    "faktör": factor["name"], "küme": cluster,
+                    "ham_deger": round(float(val), 2), "puan": 0.0,
+                    "durum": "DURUM DEĞİŞKENİ (yön skoruna katılmaz)"
                 })
                 continue
             f_score = float(np.clip(float(val), -1.8, 1.8)) * sign * weight

@@ -18,7 +18,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from config import ASSET_MATRICES
+from config import ASSET_MATRICES, is_directional
 from quant_processor import RobustQuantProcessor
 from dynamic_pair_model import DynamicPairModel, XAG_XAU_MODEL, ETH_BTC_MODEL
 
@@ -256,7 +256,8 @@ def sanitize_factor_rows(asset_key: str, detail_rows: Iterable[Dict[str, Any]], 
     zero_ids: List[str] = []
 
     for factor in ASSET_MATRICES.get(asset_key, {}).get("factors", []):
-        configured_weight += float(factor.get("base_weight", 0.0))
+        if is_directional(factor):
+            configured_weight += float(factor.get("base_weight", 0.0))
 
     rows_by_name = {
         str(row.get("faktör")): row
@@ -302,7 +303,8 @@ def sanitize_factor_rows(asset_key: str, detail_rows: Iterable[Dict[str, Any]], 
             else:
                 row["veri_durumu"] = "MEVCUT"
             row["veri_kaynagi"] = source_desc
-            valid_weight += float(factor.get("base_weight", 0.0))
+            if is_directional(factor):
+                valid_weight += float(factor.get("base_weight", 0.0))
             # Display score is reconstructed later by AdaptiveScoreModel.
             row["puan"] = row.get("puan") if row.get("puan") is not None else None
 

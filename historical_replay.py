@@ -409,6 +409,29 @@ def _run_replay_inner(cache_dir, out_dir, days, step_hours, max_cycles, end):
     return {"cycles": len(times), "errors": errors, "report": report_path}
 
 
+def _ic_by_period(grp) -> List[Optional[float]]:
+    out: List[Optional[float]] = []
+    for k in range(3):
+        gg = grp[grp["third"] == k][["x", "r24"]].dropna()
+        out.append(float(gg["x"].rank().corr(gg["r24"].rank()))
+                   if len(gg) >= 20 and gg["x"].nunique() >= 3 else None)
+    return out
+
+
+def stability_verdict(per: List[Optional[float]], floor: float = 0.02) -> str:
+    """Pre-registered rule, the same in every replay: all 3 periods beyond
+    ±floor with one sign -> stable; all 3 below -floor -> inverted (move the
+    factor to role 'state' or fix its logic); otherwise -> unstable."""
+    v = [x for x in per if x is not None]
+    if len(v) < 3:
+        return "—"
+    if all(x <= -floor for x in v):
+        return "⛔ 3/3 TERS (rol: durum?)"
+    if all(x >= floor for x in v):
+        return "✅ 3/3 kararlı"
+    return "〰️ kararsız"
+
+
 def _factor_ic_section(factor_rows, g, asset_matrices, frame_lookup) -> List[str]:
     import numpy as np
     import pandas as pd
@@ -436,9 +459,15 @@ def _factor_ic_section(factor_rows, g, asset_matrices, frame_lookup) -> List[str
         df[f"r{h}"] = df.apply(fwd, axis=1)
     for asset in sorted(df.asset.unique()):
         lines.append(f"### {asset}")
-        lines.append("| Faktör | Küme | IC 24s | IC 72s | t(72s) | n |")
-        lines.append("|---|---|---|---|---|---|")
-        sub = df[df.asset == asset]
+        lines.append("| Faktör | Küme | IC 24s | IC 72s | t(72s) | n | 3 dönem IC 24s | Tanı |")
+        lines.append("|---|---|---|---|---|---|---|---|")
+        sub = df[df.asset == asset].copy()
+        # v15.0: stability across 3 equal time periods. A factor whose IC has
+        # the WRONG sign in all 3 periods is not noise: its logic is inverted
+        # or it measures a state (size of move), not a direction.
+        _tt = pd.to_datetime(sub["t"], utc=True)
+        _edges = _tt.quantile([1 / 3, 2 / 3]).tolist()
+        sub["third"] = (_tt > _edges[0]).astype(int) + (_tt > _edges[1]).astype(int)
         rows = []
         for (fid, name, cl), grp in sub.groupby(["fid", "name", "cluster"]):
             vals = {}
@@ -452,11 +481,13 @@ def _factor_ic_section(factor_rows, g, asset_matrices, frame_lookup) -> List[str
             span_h = (pd.Timestamp(grp.t.max()) - pd.Timestamp(grp.t.min())).total_seconds() / 3600.0
             n_ind = max(1.0, span_h / 72.0)
             tstat = None if vals[72] is None else vals[72] * math.sqrt(n_ind)
-            rows.append((vals[72] if vals[72] is not None else -9, name, cl, vals[24], vals[72], tstat, n))
-        for _, name, cl, i24, i72, ts, n in sorted(rows, key=lambda r: -r[0]):
+            per = _ic_by_period(grp)
+            rows.append((vals[72] if vals[72] is not None else -9, name, cl, vals[24], vals[72], tstat, n, per))
+        for _, name, cl, i24, i72, ts, n, per in sorted(rows, key=lambda r: -r[0]):
             f = lambda v: "—" if v is None else f"{v:+.3f}"
             ft = "—" if ts is None else f"{ts:+.1f}"
-            lines.append(f"| {name} | {cl} | {f(i24)} | {f(i72)} | {ft} | {n} |")
+            lines.append(f"| {name} | {cl} | {f(i24)} | {f(i72)} | {ft} | {n} | "
+                         f"{' '.join(f(v) for v in per)} | {stability_verdict(per)} |")
         lines.append("")
     return lines
 
