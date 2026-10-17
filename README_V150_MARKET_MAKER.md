@@ -104,14 +104,10 @@ Gece 03:00 UTC barı ile 13:30 UTC nakit açılış barı aynı muameleyi görü
 * Model hâlâ kanıtlı bir avantaja sahip değil. Düzeltme, SPX/NQ skorunun IC'sini negatiften küçük pozitife taşıdı. Bu, t ≥ 2 eşiğini geçmez.
 * Bu sürüm sistemin **mantık hatasını** düzeltir ve **eksik veriyi** toplamaya başlar. Avantajın kanıtı defterden ve haftalık replay'den gelecek.
 
-## 6) Kalan eksik parçalar (öncelik sırasıyla)
+## 6) Kalan eksik parçalar
 
-1. **Gün içi zaman ölçeği.** 5 dakikalık bar ve seans yapısı: nakit açılış (13:30 UTC), öğle sakinliği, son 2 saat (0DTE gaması hızla düşer, charm akışı), kapanış imbalance'ı. Videodaki "birkaç dakikada kırılım" saatlik barda görünmez.
-2. **Opsiyon takvimi.** Aylık OPEX (3. Cuma), VIX vadesi (Çarşamba), çeyrek sonu JPM collar yenilemesi. OPEX sonrası gama "serbest kalır" ve volatilite artar.
-3. **Vanna ve charm akışları.** IV düşünce ve zaman geçince dealer hedge'i değişir. Bu, ralli/tükeniş yönünü açıklar. Harita bu alanlara genişletilebilir.
-4. **Likidite seviyeleri.** Önceki gün tepe/dip, gece aralığı, VWAP, yuvarlak sayılar. Stop emirleri bu seviyelerde birikir. Seviye kırılınca stoplar tetiklenir (likidite avı).
-5. **Sistematik akışlar.** CTA tetik seviyeleri ve volatilite hedefli fonlar. Bu fonlar gerçekleşen volatiliteye göre mekanik alım/satım yapar.
-6. **Kripto gaması.** Deribit BTC/ETH opsiyonları aynı mantıkla haritalanabilir.
+v15.1'de eklendi: gün içi zaman ölçeği (5 dk bar + seans), opsiyon takvimi, vanna/charm, likidite seviyeleri,
+CTA/vol-control akış tahminleri, kripto gaması. Ayrıntı: `README_V151_STRUCTURE.md`.
 
 ## 7) Telefondan yapılacaklar
 

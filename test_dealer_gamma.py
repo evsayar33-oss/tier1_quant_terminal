@@ -200,7 +200,8 @@ def test_state_factors_do_not_move_the_direction_score():
 
     factors = ASSET_MATRICES["NQ"]["factors"]
     states = {f["id"] for f in factors if not is_directional(f)}
-    assert states == {"asset_direction", "vix_strain", "vix_term", "vix_term_lead"}
+    assert states == {"asset_direction", "vix_strain", "vix_term", "vix_term_lead",
+                      "cta_trend_position", "liquidity_sweep", "vol_control_flow"}
 
     def rows(state_value):
         return [{"faktör": f["name"], "faktor_id": f["id"],

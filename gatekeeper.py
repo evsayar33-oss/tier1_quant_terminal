@@ -7,6 +7,7 @@ import pandas as pd
 from typing import Dict, Any, Optional
 
 from config import ASSET_MATRICES, CLUSTERS, REGIME_DYNAMIC_THRESHOLDS, is_directional
+import market_structure
 
 try:
     from config import ENTRY_FILTER_CONFIG
@@ -561,6 +562,13 @@ class PreTradeGatekeeper:
                     # 2022) rather than merely following them. Shared by
                     # SPX and NQ (single US-equity tail-risk read).
                     val = compute_relative_vol_premium_lead(self._vol_history("SKEW"))
+                elif f_id == "cta_trend_position":
+                    # v15.1 state factor: generic trend-follower position proxy (daily).
+                    val = market_structure.cta_factor(df_daily_htf)
+                elif f_id == "vol_control_flow":
+                    val = market_structure.vol_control_factor(df_daily_htf)
+                elif f_id == "liquidity_sweep":
+                    val = market_structure.sweep_factor(df_ast, asset_key, df_daily_htf)
                 elif f_id == "usd_strength":
                     val = self.dxy_velocity
                 elif f_id == "net_dollar_liquidity":

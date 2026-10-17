@@ -58,7 +58,14 @@ HISTORY_FILE = "dealer_gamma_history.csv"
 GAMMA_SOURCES: Dict[str, Dict[str, Any]] = {
     "NQ": {"future": "NQ=F", "cboe": ["_NDX", "QQQ"], "yf": ["QQQ"]},
     "SPX": {"future": "ES=F", "cboe": ["_SPX", "SPY"], "yf": ["SPY"]},
+    # v15.1: kripto opsiyonlarının ~%85'i Deribit'te. Dealer işaret varsayımı
+    # kriptoda daha zayıftır (müşteri call satışı + put alışı daha karışık);
+    # defter bunu da ölçer.
+    "BTC": {"future": "BTC-USD", "deribit": "BTC"},
+    "ETH": {"future": "ETH-USD", "deribit": "ETH"},
 }
+DERIBIT_URL = "https://www.deribit.com/api/v2/public/get_book_summary_by_currency?currency={ccy}&kind=option"
+_DERIBIT = re.compile(r"^([A-Z]+)-(\d{1,2}[A-Z]{3}\d{2})-(\d+(?:d\d+)?)-([CP])$")
 
 def _policy_from_config() -> str:
     try:
@@ -98,6 +105,30 @@ def bs_gamma(spot: Any, strike: Any, t_years: Any, iv: Any, r: float = 0.04) -> 
         d1 = (np.log(S / K) + (r + 0.5 * v * v) * T) / (v * np.sqrt(T))
         g = np.exp(-0.5 * d1 * d1) / (math.sqrt(2.0 * math.pi) * S * v * np.sqrt(T))
     return np.where(np.isfinite(g), g, 0.0)
+
+
+def _d1d2(spot, strike, t_years, iv, r):
+    S = np.asarray(spot, dtype=float)
+    K = np.asarray(strike, dtype=float)
+    T = np.maximum(np.asarray(t_years, dtype=float), 1e-9)
+    v = np.maximum(np.asarray(iv, dtype=float), 1e-6)
+    sq = v * np.sqrt(T)
+    d1 = (np.log(S / K) + (r + 0.5 * v * v) * T) / sq
+    return d1, d1 - sq, v, T, sq
+
+
+def bs_vanna(spot, strike, t_years, iv, r: float = 0.04) -> np.ndarray:
+    """∂Δ/∂σ (σ birim: 1.00 = %100). Call ve put için aynı."""
+    d1, d2, v, T, sq = _d1d2(spot, strike, t_years, iv, r)
+    out = -np.exp(-0.5 * d1 * d1) / math.sqrt(2 * math.pi) * d2 / v
+    return np.where(np.isfinite(out), out, 0.0)
+
+
+def bs_charm(spot, strike, t_years, iv, r: float = 0.04) -> np.ndarray:
+    """∂Δ/∂t, zaman İLERLEDİKÇE (yıl başına). q=0'da call ve put için aynı."""
+    d1, d2, v, T, sq = _d1d2(spot, strike, t_years, iv, r)
+    out = -np.exp(-0.5 * d1 * d1) / math.sqrt(2 * math.pi) * (2 * r * T - d2 * sq) / (2 * T * sq)
+    return np.where(np.isfinite(out), out, 0.0)
 
 
 def _expiry_close_utc(expiry: pd.Timestamp) -> pd.Timestamp:
@@ -159,6 +190,40 @@ def fetch_cboe_chain(symbol: str, timeout: float = 20.0) -> Tuple[Optional[pd.Da
         return None, None
 
 
+def parse_deribit_payload(payload: Dict[str, Any]) -> Tuple[Optional[pd.DataFrame], Optional[float]]:
+    """Deribit özet listesi → zincir. Sözleşme = 1 coin (mult=1), vade 08:00 UTC."""
+    rows, unders = [], []
+    for o in (payload or {}).get("result") or []:
+        m = _DERIBIT.match(str(o.get("instrument_name", "")))
+        if not m:
+            continue
+        _, dstr, k, cp = m.groups()
+        try:
+            exp = pd.Timestamp(datetime.strptime(dstr.rjust(7, "0"), "%d%b%y"))
+            rows.append({"root": "DERIBIT", "expiry": exp, "expiry_utc": exp.tz_localize("UTC") + pd.Timedelta(hours=8),
+                         "type": cp, "strike": float(k.replace("d", ".")),
+                         "iv": float(o.get("mark_iv") or 0.0) / 100.0, "oi": float(o.get("open_interest") or 0.0),
+                         "volume": float(o.get("volume") or 0.0), "mult": 1.0})
+            if o.get("underlying_price"):
+                unders.append(float(o["underlying_price"]))
+        except (TypeError, ValueError):
+            continue
+    if not rows:
+        return None, None
+    return pd.DataFrame(rows), (float(np.median(unders)) if unders else None)
+
+
+def fetch_deribit_chain(ccy: str, timeout: float = 20.0) -> Tuple[Optional[pd.DataFrame], Optional[float]]:
+    try:
+        import requests
+        r = requests.get(DERIBIT_URL.format(ccy=ccy), timeout=timeout)
+        if r.status_code != 200:
+            return None, None
+        return parse_deribit_payload(r.json())
+    except Exception:
+        return None, None
+
+
 def fetch_yf_chain(symbol: str, max_expiries: int = 10) -> Tuple[Optional[pd.DataFrame], Optional[float]]:
     try:
         import yfinance as yf
@@ -199,13 +264,23 @@ def _prepare(chain: pd.DataFrame, now: pd.Timestamp, cfg: Dict[str, Any]) -> pd.
     if c.empty:
         return c
     exp = pd.to_datetime(c["expiry"])
-    uniq = exp.drop_duplicates()
-    t_of = {e: (_expiry_close_utc(e) - now).total_seconds() / (365.0 * 86400.0) for e in uniq}
-    c = c.assign(t=exp.map(t_of).to_numpy(float), expiry=exp)
+    if "expiry_utc" in c.columns:
+        t_years = (pd.to_datetime(c["expiry_utc"], utc=True) - now).dt.total_seconds() / (365.0 * 86400.0)
+        c = c.assign(t=t_years.to_numpy(float), expiry=exp)
+    else:
+        uniq = exp.drop_duplicates()
+        t_of = {e: (_expiry_close_utc(e) - now).total_seconds() / (365.0 * 86400.0) for e in uniq}
+        c = c.assign(t=exp.map(t_of).to_numpy(float), expiry=exp)
+    if "mult" not in c.columns:
+        c["mult"] = 100.0
+    c["mult"] = pd.to_numeric(c["mult"], errors="coerce").fillna(100.0)
     c = c[(c["t"] > -1e-6) & (c["t"] <= cfg["max_expiry_days"] / 365.0)].copy()
     c["t"] = np.maximum(c["t"], cfg["min_t_years"])
     today = _today_ny(now)
-    c["is_0dte"] = c["expiry"].dt.date == today
+    if "expiry_utc" in c.columns:      # 7/24 piyasa (Deribit): önümüzdeki 24 saatte biten seriler
+        c["is_0dte"] = c["t"] <= 1.0 / 365.0
+    else:
+        c["is_0dte"] = c["expiry"].dt.date == today
     c["sgn"] = np.where(c["type"] == "C", 1.0, -1.0)
     return c
 
@@ -214,7 +289,7 @@ def _dollar_gex(c: pd.DataFrame, spot_src: Any, r: float) -> np.ndarray:
     """$ dealer gaması / fiyatta %1 hareket, satır bazında (dealer işareti dahil)."""
     g = bs_gamma(spot_src, c["strike"].to_numpy(), c["t"].to_numpy(), c["iv"].to_numpy(), r)
     s = np.asarray(spot_src, dtype=float)
-    return c["sgn"].to_numpy() * g * c["oi"].to_numpy() * 100.0 * s * s * 0.01
+    return c["sgn"].to_numpy() * g * c["oi"].to_numpy() * c["mult"].to_numpy() * s * s * 0.01
 
 
 def build_gamma_map(
@@ -250,7 +325,16 @@ def build_gamma_map(
 
     per_strike = []
     net = gex0 = abs_total = 0.0
+    vanna_flow = charm_flow = charm_flow_0dte = 0.0
     for c, s_src, k in prepared:
+        # Dealer hedge akışı ($, + = dealer ALIR): hedge = −(dealer opsiyon deltası değişimi).
+        pos = c["sgn"].to_numpy() * c["oi"].to_numpy() * c["mult"].to_numpy()
+        va = bs_vanna(s_src, c["strike"].to_numpy(), c["t"].to_numpy(), c["iv"].to_numpy(), r)
+        vanna_flow += float((pos * va * 0.01 * s_src).sum())          # IV 1 puan DÜŞERSE
+        ch = bs_charm(s_src, c["strike"].to_numpy(), c["t"].to_numpy(), c["iv"].to_numpy(), r)
+        cf = -pos * ch / 365.0 * s_src                                 # 1 gün GEÇERSE
+        charm_flow += float(cf.sum())
+        charm_flow_0dte += float(cf[c["is_0dte"].to_numpy()].sum())
         g = _dollar_gex(c, s_src, r)
         c = c.assign(gex=g)
         net += float(g.sum())
@@ -259,7 +343,7 @@ def build_gamma_map(
         # Duvar gücü = fiyat strike'a GELDİĞİNDE oradaki dealer gaması (Γ @ S=K).
         # Spot'taki gama kullanılırsa 0DTE ATM her şeyi ezer ve duvar spot'a çöker.
         g_at_k = c["sgn"].to_numpy() * bs_gamma(c["strike"], c["strike"], c["t"], c["iv"], r) \
-            * c["oi"].to_numpy() * 100.0 * c["strike"].to_numpy() ** 2 * 0.01
+            * c["oi"].to_numpy() * c["mult"].to_numpy() * c["strike"].to_numpy() ** 2 * 0.01
         c = c.assign(gex_at_k=g_at_k)
         per_strike.append(c[["strike_f", "type", "gex", "gex_at_k", "oi", "is_0dte", "iv", "t"]])
     ps = pd.concat(per_strike, ignore_index=True)
@@ -298,7 +382,7 @@ def build_gamma_map(
             prof[i] += float(_dollar_gex(c, Sf / k, r).sum())
     flip = _nearest_zero_crossing(grid, prof, F)
 
-    em_1d, atm_iv = _expected_move(prepared, F, now)
+    em_1d, atm_iv = _expected_move(prepared, F, now, float(cfg.get("periods_per_year", 252.0)))
     # Rejim = dealer net gamasının SPOT'taki işareti. Flip sadece bu işaretin
     # değiştiği en yakın seviyedir (oraya varılınca hedge akışı tersine döner).
     regime = "POZİTİF GAMA" if net > 0 else "NEGATİF GAMA"
@@ -315,6 +399,9 @@ def build_gamma_map(
         "put_wall_0dte": _r(put_wall_0dte, tick),
         "pin_strike": _r(pin, tick),
         "pin_0dte": _r(pin_0dte, tick),
+        "vanna_flow_iv_down_1pt_usd": round(vanna_flow, 0),
+        "charm_flow_1d_usd": round(charm_flow, 0),
+        "charm_flow_0dte_usd": round(charm_flow_0dte, 0),
         "atm_iv": round(atm_iv, 4) if atm_iv else None,
         "expected_move_1d": round(em_1d, 4) if em_1d else None,
         "regime": regime,
@@ -352,7 +439,7 @@ def _nearest_zero_crossing(grid: np.ndarray, prof: np.ndarray, spot: float) -> O
     return float(xs[np.argmin(np.abs(xs - spot))])
 
 
-def _expected_move(prepared, F: float, now: pd.Timestamp) -> Tuple[Optional[float], Optional[float]]:
+def _expected_move(prepared, F: float, now: pd.Timestamp, periods: float = 252.0) -> Tuple[Optional[float], Optional[float]]:
     """Piyasa yapıcının fiyatladığı 1 günlük hareket: ATM IV / √252 (≥1 gün vadeli en yakın seri)."""
     best = None
     for c, s_src, k in prepared:
@@ -368,7 +455,7 @@ def _expected_move(prepared, F: float, now: pd.Timestamp) -> Tuple[Optional[floa
     if best is None:
         return None, None
     iv = best[1]
-    return F * iv / math.sqrt(252.0), iv
+    return F * iv / math.sqrt(periods), iv
 
 
 def interpret(m: Dict[str, Any]) -> Dict[str, str]:
@@ -392,30 +479,48 @@ def interpret(m: Dict[str, Any]) -> Dict[str, str]:
                      f"{m.get('put_wall_0dte') or '—'} / {m.get('call_wall_0dte') or '—'}")
     if m.get("pin_0dte"):
         walls.append(f"0DTE pin {m['pin_0dte']:.0f} (gün sonuna doğru çekim; vade kapanışında etkisi biter)")
+    def _usd(x):
+        return f"{x / 1e9:+.2f} mlr $" if abs(x) >= 1e8 else f"{x / 1e6:+.0f} mn $"
+    flows = []
+    if m.get("vanna_flow_iv_down_1pt_usd") is not None:
+        v = float(m["vanna_flow_iv_down_1pt_usd"])
+        flows.append(f"Vanna: IV 1 puan düşerse dealer {'ALIR' if v > 0 else 'SATAR'} ({_usd(v)}).")
+    if m.get("charm_flow_1d_usd") is not None:
+        c = float(m["charm_flow_1d_usd"])
+        flows.append(f"Charm: zaman geçtikçe (1 gün) dealer {'ALIR' if c > 0 else 'SATAR'} ({_usd(c)}).")
     return {"hedge_flow": hedge, "flip": where, "levels": " · ".join(walls) or "—",
+            "vanna_charm": " ".join(flows) or "—",
             "share_0dte": f"0DTE gama payı %{100 * float(m.get('share_0dte') or 0):.0f}"}
 
 
 def snapshot_asset(asset: str, future_price: float, now: Optional[pd.Timestamp] = None,
-                   fetch_cboe=fetch_cboe_chain, fetch_yf=fetch_yf_chain) -> Optional[Dict[str, Any]]:
+                   fetch_cboe=fetch_cboe_chain, fetch_yf=fetch_yf_chain,
+                   fetch_deribit=fetch_deribit_chain) -> Optional[Dict[str, Any]]:
     src = GAMMA_SOURCES.get(asset)
     if not src or not future_price:
         return None
     chains = []
-    for sym in src["cboe"]:
+    origin = "—"
+    if src.get("deribit"):
+        ch, spot = fetch_deribit(src["deribit"])
+        if ch is not None and spot:
+            chains.append((ch, spot))
+            origin = "Deribit"
+    for sym in src.get("cboe", []):
         ch, spot = fetch_cboe(sym)
         if ch is not None and spot:
             chains.append((ch, spot))
-    origin = "CBOE (15 dk gecikmeli)"
+            origin = "CBOE (15 dk gecikmeli)"
     if not chains:
-        for sym in src["yf"]:
+        for sym in src.get("yf", []):
             ch, spot = fetch_yf(sym)
             if ch is not None and spot:
                 chains.append((ch, spot))
-        origin = "yfinance"
+                origin = "yfinance"
     if not chains:
         return None
-    m = build_gamma_map(chains, float(future_price), now=now)
+    m = build_gamma_map(chains, float(future_price), now=now,
+                        cfg={"periods_per_year": 365.0 if src.get("deribit") else 252.0})
     if m is not None:
         m["source"] = origin
         m["asset"] = asset
@@ -619,7 +724,8 @@ def _side_of(verdict: Dict[str, Any]) -> int:
 def annotate_verdicts(verdicts: Dict[str, Dict[str, Any]], snapshots: Dict[str, Any],
                       evidence: Optional[Dict[str, Dict[str, Any]]] = None,
                       price_frames: Optional[Dict[str, pd.DataFrame]] = None,
-                      policy: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
+                      policy: Optional[str] = None,
+                      intraday_frames: Optional[Dict[str, pd.DataFrame]] = None) -> Dict[str, Dict[str, Any]]:
     """Her SPX/NQ kararına gama bağlamı ekler. Giriş iznini sadece KALDIRABİLİR,
     asla vermez; ve bunu sadece politika 'active' VE defterde kanıt varsa yapar."""
     policy = policy or GAMMA_CONFIG["policy"]
@@ -646,12 +752,17 @@ def annotate_verdicts(verdicts: Dict[str, Dict[str, Any]], snapshots: Dict[str, 
                 notes.append(f"⚠️ +Γ: satış put duvarına ({wall_dn:.0f}) çok yakın; dealer alışı testi emebilir.")
         else:
             notes.append("⚡ −Γ: dealer hedge'i hareketi büyütür; stop mesafesi beklenen hareketle uyumlu olmalı.")
-        df = price_frames.get(asset)
+        df5 = (intraday_frames or {}).get(asset)
+        df = df5 if isinstance(df5, pd.DataFrame) and len(df5) >= 40 else price_frames.get(asset)
         pressure = None
         if df is not None and side != 0:
             lvl = wall_up if side > 0 else wall_dn
-            pressure = level_pressure(df, lvl, "above" if side > 0 else "below",
+            # 5 dk barda son 6 saat (72 bar), 1H barda son 24 saat.
+            lb = 72 if df is df5 else 24
+            pressure = level_pressure(df, lvl, "above" if side > 0 else "below", lookback=lb,
                                       touch_atr=GAMMA_CONFIG["touch_atr"])
+            if pressure:
+                pressure["timeframe"] = "5dk" if df is df5 else "1s"
             if pressure and pressure["touches"] >= 3 and pressure["compression"] > 0.05:
                 notes.append(f"🔁 Seviye yoruluyor: {pressure['note']} (emilim azalıyor, kırılım hızlı olabilir).")
         ev = evidence.get(asset) or {}
@@ -675,7 +786,8 @@ def annotate_verdicts(verdicts: Dict[str, Dict[str, Any]], snapshots: Dict[str, 
 
 def run_cycle(grid_1h: Dict[str, Any], verdicts: Dict[str, Dict[str, Any]],
               price_frames: Dict[str, pd.DataFrame], path: str = HISTORY_FILE,
-              now: Optional[pd.Timestamp] = None, **fetch_kw) -> Dict[str, Any]:
+              now: Optional[pd.Timestamp] = None, intraday_frames: Optional[Dict[str, pd.DataFrame]] = None,
+              **fetch_kw) -> Dict[str, Any]:
     """Arka plan döngüsü için tek giriş noktası: harita → defter → not → kanıt."""
     snapshots = build_snapshots(grid_1h, now=now, **fetch_kw)
     led = DealerGammaLedger(path)
@@ -683,6 +795,6 @@ def run_cycle(grid_1h: Dict[str, Any], verdicts: Dict[str, Dict[str, Any]],
     led.grade(price_frames, now=now)
     evidence = {a: led.evidence(a) for a in GAMMA_SOURCES}
     led.save()
-    annotate_verdicts(verdicts, snapshots, evidence, price_frames)
+    annotate_verdicts(verdicts, snapshots, evidence, price_frames, intraday_frames=intraday_frames)
     return {"snapshots": snapshots, "evidence": evidence,
             "policy": GAMMA_CONFIG["policy"], "history_rows": int(len(led.df))}

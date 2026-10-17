@@ -61,7 +61,10 @@ ASSET_MATRICES = {
             {"id": "usd_jpy_carry", "name": "USD/JPY Carry & Küresel Likidite", "cluster": "A", "base_weight": 0.55, "base_sign": 1.0},
             {"id": "nq_relative_divergence", "name": "🎯 SPX/NQ Adaptif Ayrışma (Rezidüel)", "cluster": "E", "base_weight": 0.40, "base_sign": 1.0},
             {"id": "vix_term_lead", "name": "🔮 VIX Vade Yapısı Öncü Sinyali (Backwardation/Contango)", "cluster": "E", "base_weight": 0.70, "base_sign": 1.0, "role": "state"},
-            {"id": "tail_risk_skew_lead", "name": "🔮 CBOE SKEW Kuyruk Riski Fiyatlaması (Öncü)", "cluster": "E", "base_weight": 0.95, "base_sign": 1.0}
+            {"id": "tail_risk_skew_lead", "name": "🔮 CBOE SKEW Kuyruk Riski Fiyatlaması (Öncü)", "cluster": "E", "base_weight": 0.95, "base_sign": 1.0},
+            {"id": "cta_trend_position", "name": "🤖 CTA Trend Fonu Pozisyonu (Tahmini)", "cluster": "E", "base_weight": 0.40, "base_sign": 1.0, "role": "state"},
+            {"id": "liquidity_sweep", "name": "🪤 Likidite Avı (Stop Süpürme) Sinyali", "cluster": "E", "base_weight": 0.40, "base_sign": 1.0, "role": "state"},
+            {"id": "vol_control_flow", "name": "⚖️ Volatilite Hedefli Fon Akışı (Tahmini)", "cluster": "C", "base_weight": 0.40, "base_sign": 1.0, "role": "state"}
         ]
     },
     "NQ": {
@@ -91,7 +94,10 @@ ASSET_MATRICES = {
             {"id": "spx_relative_divergence", "name": "🎯 NQ/SPX Adaptif Ayrışma (Rezidüel)", "cluster": "E", "base_weight": 0.50, "base_sign": 1.0},
             {"id": "vix_term_lead", "name": "🔮 VIX Vade Yapısı Öncü Sinyali (Backwardation/Contango)", "cluster": "E", "base_weight": 0.60, "base_sign": 1.0, "role": "state"},
             {"id": "tech_vol_premium_lead", "name": "🔮 VXN/VIX Teknoloji Volatilite Primi (Öncü)", "cluster": "E", "base_weight": 0.55, "base_sign": 1.0},
-            {"id": "tail_risk_skew_lead", "name": "🔮 CBOE SKEW Kuyruk Riski Fiyatlaması (Öncü)", "cluster": "E", "base_weight": 0.85, "base_sign": 1.0}
+            {"id": "tail_risk_skew_lead", "name": "🔮 CBOE SKEW Kuyruk Riski Fiyatlaması (Öncü)", "cluster": "E", "base_weight": 0.85, "base_sign": 1.0},
+            {"id": "cta_trend_position", "name": "🤖 CTA Trend Fonu Pozisyonu (Tahmini)", "cluster": "E", "base_weight": 0.40, "base_sign": 1.0, "role": "state"},
+            {"id": "liquidity_sweep", "name": "🪤 Likidite Avı (Stop Süpürme) Sinyali", "cluster": "E", "base_weight": 0.40, "base_sign": 1.0, "role": "state"},
+            {"id": "vol_control_flow", "name": "⚖️ Volatilite Hedefli Fon Akışı (Tahmini)", "cluster": "C", "base_weight": 0.40, "base_sign": 1.0, "role": "state"}
         ]
     },
     "XAU": {
@@ -112,7 +118,9 @@ ASSET_MATRICES = {
             {"id": "copper_gold", "name": "Bakır/Altın Sanayi Döngüsü", "cluster": "D", "base_weight": 0.55, "base_sign": -1.0},
             {"id": "gsr_velocity", "name": "Altın/Gümüş Rasyosu (GSR)", "cluster": "D", "base_weight": 0.55, "base_sign": 1.0},
             {"id": "usd_strength", "name": "DXY Spot Dolar Baskısı", "cluster": "A", "base_weight": 0.75, "base_sign": -1.0},
-            {"id": "net_dollar_liquidity", "name": "Dolar Rezerv / Net Likidite İvmesi", "cluster": "A", "base_weight": 0.65, "base_sign": 1.0}
+            {"id": "net_dollar_liquidity", "name": "Dolar Rezerv / Net Likidite İvmesi", "cluster": "A", "base_weight": 0.65, "base_sign": 1.0},
+            {"id": "cta_trend_position", "name": "🤖 CTA Trend Fonu Pozisyonu (Tahmini)", "cluster": "E", "base_weight": 0.40, "base_sign": 1.0, "role": "state"},
+            {"id": "liquidity_sweep", "name": "🪤 Likidite Avı (Stop Süpürme) Sinyali", "cluster": "E", "base_weight": 0.40, "base_sign": 1.0, "role": "state"}
         ]
     },
     "XAG": {
@@ -133,7 +141,9 @@ ASSET_MATRICES = {
             {"id": "breakeven_infl", "name": "Enflasyon Beklenti Kalkanı", "cluster": "B", "base_weight": 0.60, "base_sign": 1.0},
             {"id": "credit_spread", "name": "Küresel Kredi & Sanayi İştahı", "cluster": "C", "base_weight": 0.60, "base_sign": 1.0},
             {"id": "usd_strength", "name": "USD Gücü & Dolar Baskısı", "cluster": "A", "base_weight": 0.65, "base_sign": -1.0},
-            {"id": "net_dollar_liquidity", "name": "Fed Net Dolar Likiditesi (NDL)", "cluster": "A", "base_weight": 0.60, "base_sign": 1.0}
+            {"id": "net_dollar_liquidity", "name": "Fed Net Dolar Likiditesi (NDL)", "cluster": "A", "base_weight": 0.60, "base_sign": 1.0},
+            {"id": "cta_trend_position", "name": "🤖 CTA Trend Fonu Pozisyonu (Tahmini)", "cluster": "E", "base_weight": 0.40, "base_sign": 1.0, "role": "state"},
+            {"id": "liquidity_sweep", "name": "🪤 Likidite Avı (Stop Süpürme) Sinyali", "cluster": "E", "base_weight": 0.40, "base_sign": 1.0, "role": "state"}
         ]
     },
     "BTC": {
@@ -155,7 +165,9 @@ ASSET_MATRICES = {
             {"id": "vix_strain", "name": "Sistemik Volatilite Baskısı", "cluster": "C", "base_weight": 0.50, "base_sign": -1.0},
             {"id": "usd_strength", "name": "DXY Dolar Likidite Baskısı", "cluster": "A", "base_weight": 0.65, "base_sign": -1.0},
             {"id": "net_dollar_liquidity", "name": "Fed Net Dolar Likiditesi (NDL)", "cluster": "A", "base_weight": 0.80, "base_sign": 1.0},
-            {"id": "usd_jpy_carry", "name": "USD/JPY Carry & Risk-On Likiditesi", "cluster": "A", "base_weight": 0.55, "base_sign": 1.0}
+            {"id": "usd_jpy_carry", "name": "USD/JPY Carry & Risk-On Likiditesi", "cluster": "A", "base_weight": 0.55, "base_sign": 1.0},
+            {"id": "cta_trend_position", "name": "🤖 CTA Trend Fonu Pozisyonu (Tahmini)", "cluster": "E", "base_weight": 0.40, "base_sign": 1.0, "role": "state"},
+            {"id": "liquidity_sweep", "name": "🪤 Likidite Avı (Stop Süpürme) Sinyali", "cluster": "E", "base_weight": 0.40, "base_sign": 1.0, "role": "state"}
         ]
     },
     "ETH": {
@@ -184,7 +196,9 @@ ASSET_MATRICES = {
             {"id": "vix_strain", "name": "Sistemik Volatilite Baskısı", "cluster": "C", "base_weight": 0.50, "base_sign": -1.0},
             {"id": "usd_strength", "name": "DXY Dolar Likidite Baskısı", "cluster": "A", "base_weight": 0.65, "base_sign": -1.0},
             {"id": "net_dollar_liquidity", "name": "Fed Net Dolar Likiditesi (NDL)", "cluster": "A", "base_weight": 0.75, "base_sign": 1.0},
-            {"id": "usd_jpy_carry", "name": "USD/JPY Carry Likiditesi", "cluster": "A", "base_weight": 0.50, "base_sign": 1.0}
+            {"id": "usd_jpy_carry", "name": "USD/JPY Carry Likiditesi", "cluster": "A", "base_weight": 0.50, "base_sign": 1.0},
+            {"id": "cta_trend_position", "name": "🤖 CTA Trend Fonu Pozisyonu (Tahmini)", "cluster": "E", "base_weight": 0.40, "base_sign": 1.0, "role": "state"},
+            {"id": "liquidity_sweep", "name": "🪤 Likidite Avı (Stop Süpürme) Sinyali", "cluster": "E", "base_weight": 0.40, "base_sign": 1.0, "role": "state"}
         ]
     }
 }

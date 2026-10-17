@@ -1,3 +1,16 @@
+# 2026-10-17 — v15.1: Karar Özeti + önerilen stop + piyasa yapısı; bot/lab kalıntıları silindi
+
+- Sistem bir al-sat botu değildir: işlem katmanı (paper broker, signals.json, SL/TP/tradeable/OKX),
+  7 strateji laboratuvarı, sentetik backtest'ler ve 8 lab workflow'u silindi. `bot_loop.py` → `engine_loop.py`.
+- Arayüz: en üstte "🎯 Karar Özeti" — Giriş önerilir/önerilmez · Kısa vade · Uzun vade · Stop (kısa/uzun) · Zamanlama.
+- YENİ `stop_levels.py`: yapısal seviyenin ötesine likidite avı payıyla stop; kendini kalibre eden stop defteri.
+- YENİ `market_structure.py`: seans saati, OPEX/VIX/çeyrek sonu takvimi, likidite seviyeleri, likidite avı,
+  CTA ve vol-control akış tahminleri, 5 dk veri. `dealer_gamma.py`: vanna/charm akışı, Deribit (BTC/ETH).
+- Yeni durum faktörleri: `cta_trend_position`, `vol_control_flow`, `liquidity_sweep` (yön oyu yok; replay sınar).
+- Ayrıntı: `README_V151_STRUCTURE.md`.
+
+---
+
 # 2026-10-17 — v15.0: Piyasa yapıcı mantığı (dealer gamma haritası + "volatilite yön değildir")
 
 - YENİ `dealer_gamma.py`: CBOE/yfinance opsiyon zincirinden dealer gamma rejimi, gamma flip,
