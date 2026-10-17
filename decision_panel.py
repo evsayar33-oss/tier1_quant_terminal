@@ -16,7 +16,13 @@ from stop_levels import long_side, short_side
 _ARROW = {1: "🟢", -1: "🔴", 0: "⚪"}
 
 
+def market_closed(v: Dict[str, Any]) -> bool:
+    return ((v.get("market_structure") or {}).get("session") or {}).get("phase") == "Kapalı"
+
+
 def short_label(v: Dict[str, Any]) -> str:
+    if market_closed(v):
+        return "⏸️ Piyasa kapalı"
     lbl = str(v.get("current_direction") or "⚪ VERİ YETERSİZ")
     return re.sub(r"\s*\([^)]*%[^)]*\)", "", lbl).strip()
 
@@ -54,6 +60,8 @@ def entry_reason_short(v: Dict[str, Any]) -> str:
 
 
 def entry_label(v: Dict[str, Any]) -> str:
+    if market_closed(v):
+        return "⏸️ Piyasa kapalı — giriş yok"
     if long_side(v) == 0 and short_side(v) == 0:
         return "⚪ Yön yok — giriş yok"
     if v.get("entry_allowed"):
@@ -95,7 +103,7 @@ def build_rows(verdicts: Dict[str, Dict[str, Any]], order: List[str]) -> List[Di
             "Giriş": entry_label(v),
             "Kısa vade (1-4 saat)": short_label(v),
             "Uzun vade (24 saat-1 hafta)": long_label(v),
-            "Stop · kısa vade": stop_label(st.get("kisa"), dg),
+            "Stop · kısa vade": "—" if market_closed(v) else stop_label(st.get("kisa"), dg),
             "Stop · uzun vade": stop_label(st.get("uzun"), dg),
             "Zamanlama": timing_label(v),
         })
