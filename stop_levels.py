@@ -205,7 +205,8 @@ def run_cycle(verdicts: Dict[str, Dict[str, Any]], contexts: Dict[str, Dict[str,
         price = (lv or {}).get("price")
         g = (gamma_snapshots or {}).get(asset)
         out = {}
-        for h, side in (("kisa", short_side(v)), ("uzun", long_side(v))):
+        closed = (ctx.get("session") or {}).get("phase") == "Kapalı"
+        for h, side in (("kisa", 0 if closed else short_side(v)), ("uzun", long_side(v))):
             s = suggest_stop(side, h, price, ctx.get("atr_1h"), ctx.get("atr_1d"),
                              (g or {}).get("expected_move_1d"), lv, g, stats[h]["buffer_mult"])
             out[h] = s

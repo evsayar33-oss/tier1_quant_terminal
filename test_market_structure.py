@@ -206,3 +206,17 @@ def test_decision_panel_rows():
     assert rows["SPX"]["Giriş"].startswith("⚪ Yön yok")
     v["NQ"]["entry_allowed"] = True
     assert DP.entry_label(v["NQ"]) == "✅ Giriş önerilir"
+
+
+def test_closed_session_shows_market_closed_and_no_short_stop():
+    v = {"NQ": {"current_direction": "🔴 HAFİF AŞAĞI (son 1s %+0.04)", "verdict": "SAT",
+                "market_structure": {"session": {"phase": "Kapalı"}, "levels": {"price": 100.0}},
+                "stop_suggestion": {"kisa": {"stop": 101.0, "side": -1, "distance_pct": 1.0, "atr_1h_mult": 1.0}}}}
+    r = DP.build_rows(v, ["NQ"])[0]
+    assert r["Kısa vade (1-4 saat)"] == "⏸️ Piyasa kapalı" and r["Stop · kısa vade"] == "—"
+    assert r["Giriş"].startswith("⏸️ Piyasa kapalı")
+    assert r["Uzun vade (24 saat-1 hafta)"].startswith("🔴 SAT")
+    ctx = {"NQ": {"session": {"phase": "Kapalı"}, "levels": LEVELS, "atr_1h": 1.0}}
+    vv = {"NQ": {"current_direction": "🔴 AŞAĞI", "verdict": "NÖTR (BEKLE)"}}
+    SL.run_cycle(vv, ctx, {}, {}, path=os.path.join(tempfile.mkdtemp(), "s.csv"))
+    assert vv["NQ"]["stop_suggestion"]["kisa"] is None
