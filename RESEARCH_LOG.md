@@ -11,7 +11,7 @@ Bu sayı ancak bütün denemeler kayıtlıysa doğru olur.
 | 3 | 2026-10-17 | Aynı panel | "Korkuda al" (VIX işareti ters) | Sadece 2. dönemde güçlü (Nisan 2025 olayı) | Reddedildi (tek olay) |
 | 4 | 2026-10-17 | Aynı panel | Gama/stres durumuna göre momentum ↔ geri dönüş | IC +0.02…+0.07, kararsız | Reddedildi |
 | 5 | 2026-10-20 | Aynı panel | Varlıklar arası HAVUZLANMIŞ ridge (ortak ağırlık + varlık sabitleri), tüm faktörler ve ortak faktörler, 24s/72s | Bütün varlıklarda Hep AL'ın altında; 72s'de BTC/ETH IC −0.08…−0.09 | Reddedildi. Sonuç: saatlik faktör kütüphanesi 24-72s YÖNÜ için bilgi taşımıyor |
-| 6 | 2026-10-20 | — | Günlük veri yön araştırması kuruldu (direction_research.py): 7 parametresiz kural × 2 ufuk, Hep AL'a göre zamanlama alfası, Bonferroni + 3 dönem kuralı | İlk gerçek sonuç GitHub Actions'ta çıkacak | Bekleniyor |
+| 6 | 2026-10-20 | Günlük veri, son 10 yıl (BTC 2014+, ETH 2017+) | 7 parametresiz kural (momentum 20/60/120/250 + topluluk, 200g trend al/sat ve al/bekle, stres geri dönüşü) × 1/5 gün; Hep AL'a göre zamanlama alfası; 16 test/varlık, gerekli t 2.96 | Hiçbir varlıkta kanıt yok. En iyi: XAU stres geri dönüşü t +1.19 (3/3 dönem pozitif ama zayıf), BTC momentum t ≈ +0.7. Hisse/metallerde trend kuralları Hep AL'ın altında | Reddedildi. Uzun vade için en iyi bilinen tahmin taban orandır (tarihsel yükseliş sıklığı); arayüzde "taban" olarak gösterilir |
 
 ## Sağlam bulgular (yön dışı)
 * Volatilite/gama faktörleri bir sonraki hareketin BÜYÜKLÜĞÜNÜ 3/3 dönemde tahmin ediyor (IC −0.06…−0.30). Stop mesafeleri bu bilgiyi kullanıyor.

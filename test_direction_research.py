@@ -60,3 +60,13 @@ def test_proven_rule_drives_long_label_and_long_stop_side():
     assert DP.long_label(v) == "🟢 AL · kanıtlı (Momentum 120 gün)"
     assert SL.long_side(v) == 1
     assert SL.long_side({"verdict": "SAT"}) == -1
+
+
+def test_base_rate_is_reported_and_shown():
+    import decision_panel as DP
+    rng = np.random.default_rng(5)
+    res = {"assets": {"NQ": DR.research_asset(_series(rng.normal(0.0005, 0.01, 4000)))}}
+    b = DR.base_rate("NQ", res)
+    assert b and 0.4 < b["up"] < 0.7 and b["horizon_d"] == 5
+    lbl = DP.long_label({"verdict": "NÖTR (BEKLE)", "base_rate": b})
+    assert "taban: %" in lbl and lbl.startswith("⚪ NÖTR")

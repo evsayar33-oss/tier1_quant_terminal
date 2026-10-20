@@ -115,6 +115,14 @@ def research_asset(c: pd.Series, vix: Optional[pd.Series] = None, test_years: in
             r = evaluate(sig, c, h, start)
             if r:
                 rows.append({"rule": name, "horizon_d": h, **r})
+    # Taban oran: kural yokken bilinen en iyi yön tahmini, tarihsel yükseliş sıklığıdır.
+    fwd_base = {}
+    for h in HORIZONS_D:
+        r = np.log(c.shift(-h) / c)
+        r = r[r.index >= start].dropna().iloc[::h]
+        if len(r) >= MIN_OBS:
+            fwd_base[str(h)] = {"up": round(float((r > 0).mean()), 4), "mean_bps": round(float(r.mean()) * 1e4, 2),
+                                "n": int(len(r))}
     n_tests = max(len(rows), 1)
     t_req = required_t(n_tests)
     for r in rows:
@@ -122,7 +130,7 @@ def research_asset(c: pd.Series, vix: Optional[pd.Series] = None, test_years: in
                            and r["hit"] == r["hit"] and r["hit"] >= 0.50)
     rows.sort(key=lambda r: -r["t_alpha"])
     best = rows[0] if rows else None
-    return {"status": "OK", "n_tests": n_tests, "t_required": round(t_req, 2),
+    return {"status": "OK", "n_tests": n_tests, "t_required": round(t_req, 2), "base_rates": fwd_base,
             "best": best, "proven": [r for r in rows if r["proven"]], "all": rows,
             "data_from": str(c.index[0].date()), "data_to": str(c.index[-1].date())}
 
@@ -147,6 +155,12 @@ def load_result(path: str = os.path.join("validation_reports", RESULT_FILE)) -> 
             return json.load(fh)
     except Exception:
         return None
+
+
+def base_rate(asset: str, result: Optional[Dict[str, Any]], horizon_d: int = 5) -> Optional[Dict[str, Any]]:
+    node = ((result or {}).get("assets") or {}).get(asset) or {}
+    b = (node.get("base_rates") or {}).get(str(horizon_d))
+    return dict(b, horizon_d=horizon_d) if b else None
 
 
 def live_direction(asset: str, df_daily: Any, result: Optional[Dict[str, Any]],

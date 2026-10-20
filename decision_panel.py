@@ -42,6 +42,9 @@ def long_label(v: Dict[str, Any]) -> str:
     out = f"{_ARROW[side]} {strong}{word}"
     if side and "NOT_PROVEN" in str(v.get("learned_model_status", "")):
         out += " · kanıtsız"
+    b = v.get("base_rate")
+    if isinstance(b, dict) and b.get("up") is not None:
+        out += f" · taban: %{100 * b['up']:.0f} yükseliş ({b.get('horizon_d', 5)}g, 10 yıl)"
     return out
 
 
