@@ -56,6 +56,9 @@ def short_side(verdict: Dict[str, Any]) -> int:
 
 
 def long_side(verdict: Dict[str, Any]) -> int:
+    rd = verdict.get("research_direction")
+    if isinstance(rd, dict) and rd.get("side") is not None:
+        return int(rd["side"])           # v16.0: proven daily rule overrides the unproven model
     v = str(verdict.get("verdict", ""))
     if "SAT" in v:
         return -1

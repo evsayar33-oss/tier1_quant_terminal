@@ -57,6 +57,10 @@ jobs:
             --step-hours "${{ github.event.inputs.step_hours || '2' }}" \
             --out validation_reports
 
+      - name: Direction research (daily data, timing alpha vs always-long)
+        continue-on-error: true
+        run: python direction_research.py --out validation_reports
+
       - name: Download links + report on the run page
         if: always()
         run: |
@@ -65,8 +69,8 @@ jobs:
             echo ""
             echo "- **Tek tıkla hepsi (zip):** https://github.com/${GITHUB_REPOSITORY}/archive/refs/heads/reports.zip"
             echo "- Bu sayfanın en altında **Artifacts → historical-validation-results**"
-            echo "- Sistem sinyal paneli hazır: şimdi **Tier-1 Strategy Lab (strateji testi)** iş akışını çalıştırın."
             echo ""
+            if [ -f validation_reports/direction_research_report.md ]; then cat validation_reports/direction_research_report.md; fi
             if [ -f validation_reports/historical_replay_report.md ]; then head -150 validation_reports/historical_replay_report.md; fi
           } >> "$GITHUB_STEP_SUMMARY"
 

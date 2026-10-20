@@ -47,6 +47,8 @@ REPORT_FILES = [  # copied from the `reports` branch, needed by app + tracker
     "validation_reports/learned_model.json",
     "validation_reports/historical_replay_report.md",
     "validation_reports/historical_replay_summary.json",
+    "validation_reports/direction_research.json",
+    "validation_reports/direction_research_report.md",
 ]
 BUNDLE = "state_bundle.tar.gz"
 

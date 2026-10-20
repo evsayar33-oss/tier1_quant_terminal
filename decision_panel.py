@@ -31,6 +31,11 @@ def long_label(v: Dict[str, Any]) -> str:
     verdict = str(v.get("verdict") or "NÖTR (BEKLE)")
     if "KRİZ" in verdict:
         return "⛔ KRİZ KİLİDİ"
+    rd = v.get("research_direction")
+    if isinstance(rd, dict):
+        from direction_research import RULE_TR
+        word = {1: "AL", -1: "SAT"}.get(rd.get("side"), "BEKLE")
+        return f"{_ARROW[rd.get('side', 0)]} {word} · kanıtlı ({RULE_TR.get(rd.get('rule'), rd.get('rule'))})"
     side = long_side(v)
     word = {1: "AL", -1: "SAT"}.get(side, "NÖTR")
     strong = "GÜÇLÜ " if "GÜÇLÜ" in verdict else ""
