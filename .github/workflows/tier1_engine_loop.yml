@@ -11,7 +11,10 @@ name: Tier-1 Engine Loop (sürekli motor)
 
 on:
   schedule:
-    - cron: '9 * * * *'
+    # v16.1: GitHub drops most scheduled runs (observed: 1 run per 3-7 h).
+    # Four slots per hour; engine_loop --min-gap-minutes 45 makes the extra
+    # runs exit in seconds, so normally exactly one cycle runs per hour.
+    - cron: '4,19,34,49 * * * *'
   workflow_dispatch:
 
 concurrency:
@@ -54,4 +57,4 @@ jobs:
           CHAT_ID: ${{ secrets.CHAT_ID }}
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python engine_loop.py --once
+        run: python engine_loop.py --once --min-gap-minutes 45
