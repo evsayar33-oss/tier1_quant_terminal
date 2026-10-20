@@ -220,3 +220,23 @@ def test_closed_session_shows_market_closed_and_no_short_stop():
     vv = {"NQ": {"current_direction": "🔴 AŞAĞI", "verdict": "NÖTR (BEKLE)"}}
     SL.run_cycle(vv, ctx, {}, {}, path=os.path.join(tempfile.mkdtemp(), "s.csv"))
     assert vv["NQ"]["stop_suggestion"]["kisa"] is None
+
+
+def test_bar_cannot_sweep_a_level_it_created_itself():
+    idx = pd.date_range("2026-10-19T00:00:00Z", periods=30, freq="h")
+    c = np.linspace(100, 101, 30)
+    d = pd.DataFrame({"Open": c, "High": c + 0.2, "Low": c - 0.2, "Close": c, "Volume": 1.0}, index=idx)
+    d.iloc[-1, d.columns.get_loc("Low")] = 95.0            # new low made by the LAST bar, close stays up
+    ctx = MS.build_context("XAU", d, None, now=idx[-1])
+    assert ctx["sweep"] is None or ctx["sweep"]["level"] != 95.0
+
+
+def test_far_otm_put_is_not_a_structural_wall():
+    spot = 7700.0
+    exp = pd.Timestamp("2026-10-14") + pd.Timedelta(days=30)
+    rows = [{"root": "SPX", "expiry": exp, "type": t, "strike": k, "iv": 0.15, "oi": 1000.0}
+            for k in range(7400, 8000, 25) for t in "CP"]
+    rows.append({"root": "SPX", "expiry": exp, "type": "P", "strike": 6450.0, "iv": 0.15, "oi": 5_000_000.0})
+    rows.append({"root": "SPX", "expiry": exp, "type": "P", "strike": 7600.0, "iv": 0.15, "oi": 50_000.0})
+    m = DG.build_gamma_map([(pd.DataFrame(rows), spot)], spot, now=pd.Timestamp("2026-10-14T15:00:00Z"))
+    assert m["put_wall"] == 7600.0

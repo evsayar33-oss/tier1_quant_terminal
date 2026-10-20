@@ -360,8 +360,13 @@ def build_gamma_map(
         pw = float(w["P"].idxmin()) if "P" in w and (w["P"] < 0).any() else None
         return cw, pw
 
-    # Yapısal duvarlar: ≥1 gün vadeli seriler (gün içinde kaybolmazlar).
-    call_wall, put_wall = _walls(ps[~ps["is_0dte"]])
+    # Yapısal duvarlar: ≥1 gün vadeli seriler (gün içinde kaybolmazlar). Sadece
+    # bir haftalık beklenen hareketin 3 katı içindeki strike'lar: çok uzaktaki
+    # çeyreklik koruma put'ları (SPX'te −%16 gibi) gün içi seviye değildir.
+    em_w, _ = _expected_move(prepared, F, now, float(cfg.get("periods_per_year", 252.0)))
+    reach = 3.0 * em_w * math.sqrt(5.0) if em_w else F * cfg["profile_span"]
+    near = ps[(ps["lvl"] - F).abs() <= reach]
+    call_wall, put_wall = _walls(near[~near["is_0dte"]])
     # Gün içi duvarlar: sadece bugün vadeli (0DTE) seriler; 20:00 UTC'de biter.
     zero = ps[ps["is_0dte"]]
     call_wall_0dte, put_wall_0dte = _walls(zero)

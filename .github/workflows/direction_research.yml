@@ -1,0 +1,54 @@
+name: Tier-1 Yön Araştırması (manuel)
+
+# Runs ONLY the daily-data direction research and re-publishes the `reports`
+# branch with every existing file kept (the weekly replay also runs it).
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: tier1-historical-validation
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Restore current reports
+        run: |
+          if git fetch --depth 1 origin reports 2>/dev/null; then git archive FETCH_HEAD validation_reports | tar -x || true; fi
+      - name: Direction research
+        run: python direction_research.py --out validation_reports
+      - name: Report on the run page
+        if: always()
+        run: if [ -f validation_reports/direction_research_report.md ]; then cat validation_reports/direction_research_report.md >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: Publish to the reports branch (all files kept)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          OUT="$RUNNER_TEMP/reports_pub"
+          rm -rf "$OUT" && mkdir -p "$OUT"
+          cp -r validation_reports "$OUT/"
+          cd "$OUT"
+          git init -q
+          git checkout -q -b reports
+          git config user.email "quantbot@github.com"
+          git config user.name "QuantBot Tier-1"
+          git add -A
+          git commit -q -m "yön araştırması $(date -u +%Y-%m-%dT%H:%MZ)"
+          for i in 1 2 3; do
+            git push -q -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" reports && exit 0
+            sleep 5
+          done
+          exit 1

@@ -402,9 +402,19 @@ def build_context(asset: str, df_1h: Any, df_daily: Any, df_5m: Any = None, now:
     now = _ts(now or now_utc())
     lv = liquidity_levels(df_1h, asset, df_daily, now=now)
     sweep = None
-    if lv is not None:
-        sweep = detect_sweep(df_5m, lv, lookback=12) if _ohlc(df_5m) is not None else None
-        sweep = sweep or detect_sweep(df_1h, lv)
+    d1 = _ohlc(df_1h)
+    if lv is not None and d1 is not None:
+        # Sweep seviyeleri, test edilen barlardan ÖNCE kapanmış barlardan kurulur.
+        # Yoksa bir bar kendi oluşturduğu dibi/tepeyi "süpürmüş" görünür.
+        d5 = _ohlc(df_5m)
+        if d5 is not None and len(d5) >= 12:
+            cut = d5.index[-12]
+            pre = d1[d1.index + pd.Timedelta(hours=1) <= cut]
+            lv5 = liquidity_levels(pre, asset, df_daily, now=cut) if len(pre) >= 10 else None
+            sweep = detect_sweep(d5, lv5, lookback=12) if lv5 else None
+        if sweep is None and len(d1) > 13:
+            lv1 = liquidity_levels(d1.iloc[:-3], asset, df_daily, now=d1.index[-4])
+            sweep = detect_sweep(d1, lv1, lookback=3) if lv1 else None
     ctx = {"session": session_phase(now, asset), "levels": lv, "sweep": sweep,
            "cta": cta_model(df_daily), "atr_1h": atr(df_1h), "atr_1d": atr(df_daily),
            "has_5m": _ohlc(df_5m) is not None}

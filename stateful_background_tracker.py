@@ -127,6 +127,15 @@ def run_background_cycle() -> Dict[str, Any]:
             print(f"[yapı] {a} atlandı: {exc}")
     calendar = MS.options_calendar()
 
+    # v16.0: proven daily-data direction rule (weekly research) for the long horizon.
+    try:
+        import direction_research as DR
+        research = DR.load_result()
+        for a, v in verdicts.items():
+            v["research_direction"] = DR.live_direction(a, daily.get(a), research, gk.grid_daily.get("VIX"))
+    except Exception as exc:
+        print(f"Yön araştırması atlandı: {exc}")
+
     # v15.0: dealer gamma map (options-market levels + hedge-flow regime).
     # Timing context only; it never changes direction and never grants entry.
     dealer_gamma: Dict[str, Any] = {}
