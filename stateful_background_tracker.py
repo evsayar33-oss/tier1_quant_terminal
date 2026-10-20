@@ -133,6 +133,7 @@ def run_background_cycle() -> Dict[str, Any]:
         research = DR.load_result()
         for a, v in verdicts.items():
             v["research_direction"] = DR.live_direction(a, daily.get(a), research, gk.grid_daily.get("VIX"))
+            v["base_rate"] = DR.base_rate(a, research)
     except Exception as exc:
         print(f"Yön araştırması atlandı: {exc}")
 

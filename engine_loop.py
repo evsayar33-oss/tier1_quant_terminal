@@ -40,11 +40,29 @@ def run_cycle() -> bool:
     return r.returncode == 0
 
 
+def recent_cycle(min_gap_minutes: float, path: str = "engine_status.json", now: datetime = None) -> bool:
+    """GitHub drops most scheduled runs, so the workflow is scheduled several
+    times per hour; whichever run arrives first does the cycle, the others exit."""
+    if min_gap_minutes <= 0:
+        return False
+    try:
+        with open(path, encoding="utf-8") as fh:
+            last = datetime.fromisoformat(json.load(fh)["last_success"])
+    except Exception:
+        return False
+    return ((now or _now()) - last) < timedelta(minutes=min_gap_minutes)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--max-minutes", type=float, default=340.0)
     ap.add_argument("--once", action="store_true", help="tek döngü")
+    ap.add_argument("--min-gap-minutes", type=float, default=0.0,
+                    help="son başarılı döngü bundan yeniyse hiçbir şey yapmadan çık")
     args = ap.parse_args()
+    if recent_cycle(args.min_gap_minutes):
+        print(f"[loop] son döngü {args.min_gap_minutes:.0f} dk'dan yeni; atlandı", flush=True)
+        return
     started = _now()
     deadline = started + timedelta(minutes=args.max_minutes)
     cycles, last_ok = 0, None
