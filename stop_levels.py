@@ -80,7 +80,8 @@ def _candidates(levels: Optional[Dict[str, Any]], gamma: Optional[Dict[str, Any]
 
 def suggest_stop(side: int, horizon: str, price: float, atr_1h: Optional[float], atr_1d: Optional[float] = None,
                  em_1d: Optional[float] = None, levels: Optional[Dict[str, Any]] = None,
-                 gamma: Optional[Dict[str, Any]] = None, buffer_mult: float = 1.0) -> Optional[Dict[str, Any]]:
+                 gamma: Optional[Dict[str, Any]] = None, buffer_mult: float = 1.0,
+                 move_factor: float = 1.0) -> Optional[Dict[str, Any]]:
     if side == 0 or not price or not atr_1h or atr_1h <= 0:
         return None
     h = HORIZONS[horizon]
@@ -92,6 +93,8 @@ def suggest_stop(side: int, horizon: str, price: float, atr_1h: Optional[float],
         unit, unit_name = float(atr_1d), "günlük ATR"
     else:
         unit, unit_name = float(atr_1h) * math.sqrt(23.0), "1s ATR × √23"
+    # v16.2: tarihsel GEX kanıtı — yüksek dealer gamasında hareket küçük, düşükte büyük.
+    unit *= float(move_factor or 1.0)
     buf = h["buffer"] * unit * float(buffer_mult)
     neg_gamma = (gamma or {}).get("regime") == "NEGATİF GAMA"
     if neg_gamma:
@@ -124,7 +127,7 @@ def suggest_stop(side: int, horizon: str, price: float, atr_1h: Optional[float],
             "stop": round(float(stop), 4), "distance": round(float(dist), 4),
             "distance_pct": round(100.0 * dist / price, 3), "atr_1h_mult": round(dist / atr_1h, 2),
             "unit": unit_name, "basis": basis, "anchor": anchor, "negative_gamma": neg_gamma,
-            "buffer_mult": round(float(buffer_mult), 3)}
+            "buffer_mult": round(float(buffer_mult), 3), "move_factor": round(float(move_factor or 1.0), 3)}
 
 
 class StopLedger:
@@ -211,7 +214,8 @@ def run_cycle(verdicts: Dict[str, Dict[str, Any]], contexts: Dict[str, Dict[str,
         closed = (ctx.get("session") or {}).get("phase") == "Kapalı"
         for h, side in (("kisa", 0 if closed else short_side(v)), ("uzun", long_side(v))):
             s = suggest_stop(side, h, price, ctx.get("atr_1h"), ctx.get("atr_1d"),
-                             (g or {}).get("expected_move_1d"), lv, g, stats[h]["buffer_mult"])
+                             (g or {}).get("expected_move_1d"), lv, g, stats[h]["buffer_mult"],
+                             ctx.get("move_factor", 1.0))
             out[h] = s
             if s:
                 led.record(asset, s, now=now)

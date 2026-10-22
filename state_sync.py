@@ -37,7 +37,8 @@ STATE_FILES = [
     "timeframe_confluence_state.json",
     "performance_ledger.json",
     "dealer_gamma_history.csv",  # v15.0: dealer gamma map ledger (self-graded evidence)
-    "stop_ledger.csv",           # v15.1: suggested-stop ledger (self-calibrating buffer)
+    "stop_ledger.csv",
+    "gex_history.csv",           # v16.2: SqueezeMetrics daily SPX GEX/DIX cache           # v15.1: suggested-stop ledger (self-calibrating buffer)
     "performance_report.md",
     "terminal_history_stateful.csv",
     "engine_status.json",    # engine heartbeat (v15.1: bot/lab files removed)

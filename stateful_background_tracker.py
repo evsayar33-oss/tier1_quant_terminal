@@ -127,6 +127,20 @@ def run_background_cycle() -> Dict[str, Any]:
             print(f"[yapı] {a} atlandı: {exc}")
     calendar = MS.options_calendar()
 
+    # v16.2: 15-year SPX dealer-gamma history -> move-size factor (proven, magnitude only).
+    gex_hist = None
+    try:
+        import gex_history as GH
+        gex_hist = GH.run()
+        if gex_hist:
+            for a in GH.APPLIES_TO:
+                if a in contexts:
+                    contexts[a]["move_factor"] = gex_hist["move_factor"]
+                    contexts[a]["gex_history"] = gex_hist
+            print(f"[gex] {gex_hist['note']}")
+    except Exception as exc:
+        print(f"GEX geçmişi atlandı: {exc}")
+
     # v16.0: proven daily-data direction rule (weekly research) for the long horizon.
     try:
         import direction_research as DR
@@ -232,6 +246,7 @@ def run_background_cycle() -> Dict[str, Any]:
         "data_health": data_health,
         "dealer_gamma": dealer_gamma,
         "market_calendar": calendar,
+        "gex_history": gex_hist,
         "stop_calibration": stop_stats,
     }
     _save_json(STATE_FILE, payload)
