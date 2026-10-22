@@ -934,6 +934,10 @@ try:
                 st.markdown(f"**{_a}** seans: {_ss.get('phase')} — {_ss.get('note')}")
         if _cal_bits:
             st.markdown("📅 " + " · ".join(_cal_bits))
+        _gh = active_data.get("gex_history") or {}
+        if _gh.get("note"):
+            st.markdown(f"🧲 **SPX dealer gaması (15 yıllık kanıt):** {_gh['note']}. "
+                        f"Stop mesafeleri SPX/NQ için bu çarpanla ölçeklenir.")
 except Exception as _dp_exc:
     st.caption(f"Karar özeti gösterilemedi ({_dp_exc})")
 
