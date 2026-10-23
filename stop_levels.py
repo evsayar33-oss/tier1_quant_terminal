@@ -220,5 +220,10 @@ def run_cycle(verdicts: Dict[str, Dict[str, Any]], contexts: Dict[str, Dict[str,
             if s:
                 led.record(asset, s, now=now)
         v["stop_suggestion"] = out
+        em, a1d = (g or {}).get("expected_move_1d"), ctx.get("atr_1d")
+        unit = em or a1d
+        if unit and price:
+            v["day_range"] = {"move": float(unit) * float(ctx.get("move_factor", 1.0) or 1.0), "price": float(price),
+                              "source": "opsiyon" if em else "günlük ATR"}
     led.save()
     return stats
