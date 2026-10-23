@@ -223,3 +223,18 @@ def test_replay_stability_verdict():
     assert stability_verdict([0.05, 0.03, 0.04]).startswith("✅")
     assert stability_verdict([0.05, -0.03, 0.04]).startswith("〰️")
     assert stability_verdict([None, -0.1, -0.1]) == "—"
+
+
+def test_walls_respect_side_of_price():
+    import pandas as pd
+    payload = {"result": [
+        {"instrument_name": "BTC-16OCT26-110000-P", "open_interest": 5000, "mark_iv": 50.0, "underlying_price": 101000},
+        {"instrument_name": "BTC-16OCT26-95000-P", "open_interest": 300, "mark_iv": 50.0, "underlying_price": 101000},
+        {"instrument_name": "BTC-16OCT26-92000-C", "open_interest": 5000, "mark_iv": 50.0, "underlying_price": 101000},
+        {"instrument_name": "BTC-16OCT26-108000-C", "open_interest": 300, "mark_iv": 50.0, "underlying_price": 101000},
+    ]}
+    ch, spot = DG.parse_deribit_payload(payload)
+    m = DG.snapshot_asset("BTC", 101000.0, now=pd.Timestamp("2026-10-14T15:00:00Z"),
+                          fetch_deribit=lambda c: (ch, spot), fetch_cboe=lambda s: (None, None),
+                          fetch_yf=lambda s: (None, None))
+    assert m["put_wall"] == 95000.0 and m["call_wall"] == 108000.0     # ITM yığınlar duvar sayılmaz

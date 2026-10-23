@@ -42,6 +42,7 @@ Sonra şu dosyaları okur:
 * GitHub token Claude ile paylaşılmaz; yalnız cron-job.org'dadır.
 
 ## Son değişiklikler
+* 2026-10-23: HATA DÜZELTMESİ (kilit içinde izinli): dealer gama duvarları fiyatın tarafına bakmıyordu (SPX put duvarı 8040 > fiyat 7666). Artık call duvarı ≥ fiyat, put duvarı ≤ fiyat. Stoplar etkilenmedi (dayanaklar zaten doğru taraftan seçiliyordu); arayüz metni ve gölge H14 verisi düzeldi. 14:00 UTC gölge satırlarında SPX put_wall hatalı.
 * 2026-10-23: Gölge defter (`shadow_ledger.py`, shadow-v1): charm/vanna, duvar/pin, hacim profili (POC/VAH/VAL) ham verisi saatlik kaydediliyor; karara KARIŞMAZ, LOGIC_VERSION değişmedi. 23 Kasım'da `python shadow_eval.py --ledger ../st/shadow_ledger.csv` ile H13-H15 test edilir.
 * 2026-10-23: Mantık sürümü etiketi (`LOGIC_VERSION`) bütün defterlere eklendi; `decision_log.csv` (arayüzün saatlik görüntüsü). Şok radarı: seansı kapalı gösterge artık hata sayılmaz (`closed`), sadece verisi olmayan sayılır. Mantık kilidi başladı.
 * 2026-10-23: İki motorlu şok aklı. Motor A (`shock_monitor.py`, gün içi): 16 gösterge (DAX, Nikkei, Hang Seng, EEM, HYG eklendi), desen (küresel dolar dışı, kredi, jeopolitik...) ve kaynak bölge; sadece risk/aralık. Motor B (`shock_direction.py`, günlük 10 yıl olay çalışması, RESEARCH_LOG #12): sadece kanıtlı kural yön verir; yön önceliğinde en üstte. Araştırma `direction_research.yml` içinde çalışır.

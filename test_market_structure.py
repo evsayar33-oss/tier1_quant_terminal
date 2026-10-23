@@ -121,16 +121,17 @@ def test_vanna_flow_sign_dealers_short_otm_puts_buy_when_iv_falls():
 def test_deribit_payload_parses_and_maps_to_spot_futures():
     payload = {"result": [
         {"instrument_name": "BTC-16OCT26-100000-C", "open_interest": 500, "mark_iv": 45.0, "underlying_price": 101000},
+        {"instrument_name": "BTC-16OCT26-105000-C", "open_interest": 300, "mark_iv": 45.0, "underlying_price": 101000},
         {"instrument_name": "BTC-6NOV26-90000-P", "open_interest": 800, "mark_iv": 55.0, "underlying_price": 101200},
         {"instrument_name": "BTC-PERPETUAL", "open_interest": 1},
     ]}
     ch, spot = DG.parse_deribit_payload(payload)
-    assert len(ch) == 2 and spot == 101100.0 and set(ch["mult"]) == {1.0}
+    assert len(ch) == 3 and spot == 101000.0          # üç seçeneğin dayanak fiyatının medyanı and set(ch["mult"]) == {1.0}
     assert ch["expiry_utc"].iloc[0] == pd.Timestamp("2026-10-16T08:00:00Z")
     m = DG.snapshot_asset("BTC", 101300.0, now=pd.Timestamp("2026-10-14T15:00:00Z"),
                           fetch_deribit=lambda c: (ch, spot), fetch_cboe=lambda s: (None, None),
                           fetch_yf=lambda s: (None, None))
-    assert m["source"] == "Deribit" and m["call_wall"] is not None
+    assert m["source"] == "Deribit" and m["call_wall"] > 101300.0 > m["put_wall"]     # taraf kuralı (spot ölçekli)
     assert abs(m["expected_move_1d"] - 101300 * 0.45 / math.sqrt(365)) < 1e-6 * 101300
 
 
