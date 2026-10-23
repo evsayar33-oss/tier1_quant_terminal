@@ -3,12 +3,15 @@ import decision_panel as D
 
 def test_simple_rows_plain_language():
     v = {"entry_allowed": False, "entry_reason": "Kanıt yok", "current_direction": "🔴 AŞAĞI",
-         "base_rate": {"up": 0.61}, "dealer_gamma": {"regime": "NEGATİF GAMA"},
+         "base_rates": {1: {"up": 0.5625, "n": 2514}, 5: {"up": 0.52, "n": 502}},
+         "dealer_gamma": {"regime": "NEGATİF GAMA"},
+         "vol_state": {"ratio": 1.4, "today_pct": 2.0, "recent_pct": 1.6, "normal_pct": 1.43, "move_factor": 1.24},
          "stop_suggestion": {"kisa": {"stop": 100.0, "side": 1, "distance_pct": 1.2}}}
     r = D.simple_rows({"NQ": v}, ["NQ"], {"move_factor": 1.24})[0]
     assert r["Şimdi ne yapmalı?"].startswith("✋ Bekle")
-    assert "10 haftadan 6 tanesi" in r["Önümüzdeki hafta"]
-    assert "%24 büyük" in r["Piyasa sakin mi?"]
+    assert "Sonraki gün: %56 yükseliş (anlamlı eğilim)" in r["Yarın ve bu hafta"]
+    assert r["Piyasa sakin mi?"].startswith("🌪️ Normalden hareketli — son 20 gün ±%1.6/gün, son 1 yıl ±%1.4/gün")
+    assert "×1.24" in r["Piyasa sakin mi?"] and "dealer gaması negatif" in r["Piyasa sakin mi?"]
     assert "altında geçersiz" in r["Fikir nerede bozulur?"]
 
 
@@ -34,3 +37,20 @@ def test_metal_divergence_is_not_invented():
                          "learned_model_status": "NOT_PROVEN_ADVISORY", "short_term_parts": {"price_z": pz}}
     rows = D.simple_rows({"XAU": mk(0.5598, -0.06), "XAG": mk(0.5458, 0.21)}, ["XAU", "XAG"])
     assert rows[0]["Girersen hangi yön daha iyi?"] == rows[1]["Girersen hangi yön daha iyi?"] == "⚪ Belirgin yön yok"
+
+
+def test_remaining_days_and_recent_move():
+    import datetime as dt
+    import numpy as np
+    import pandas as pd
+    import stop_levels as SL
+    thu = dt.datetime(2026, 10, 22, tzinfo=dt.timezone.utc)
+    assert D._remaining_days("SPX", thu) == 1 and D._remaining_days("BTC", thu) == 3
+    b = {1: {"up": 0.53, "n": 2500}, 3: {"up": 0.52, "n": 1000}, 5: {"up": 0.6, "n": 500}}
+    txt = D.simple_days({"base_rates": b}, "BTC", thu)
+    assert "Hafta sonuna kadar (3 gün): %52 yükseliş (yazı-tura)" in txt and "yazı-tura" in txt
+    c = pd.Series(100 * np.exp(np.cumsum(np.r_[np.random.default_rng(0).normal(0, 0.002, 200), [0.01] * 4])))
+    rm = SL.recent_move(pd.DataFrame({"Close": c}))
+    assert rm["z"] > 3 and rm["ret_pct"] > 3.9
+    v = {"learned_model_status": "NOT_PROVEN_ADVISORY", "recent_move": rm}
+    assert SL.evidence_short_side(v) == 1

@@ -37,6 +37,7 @@ import pandas as pd
 SYMBOLS = {"SPX": "ES=F", "NQ": "NQ=F", "XAU": "GC=F", "XAG": "SI=F", "BTC": "BTC-USD", "ETH": "ETH-USD"}
 VIX = "^VIX"
 HORIZONS_D = (1, 5)
+BASE_HORIZONS_D = (1, 2, 3, 4, 5)   # taban oran: yarın ve haftanın kalan günleri (kural testi değil)
 TEST_YEARS = 10
 MIN_OBS = 150
 RESULT_FILE = "direction_research.json"
@@ -117,7 +118,7 @@ def research_asset(c: pd.Series, vix: Optional[pd.Series] = None, test_years: in
                 rows.append({"rule": name, "horizon_d": h, **r})
     # Taban oran: kural yokken bilinen en iyi yön tahmini, tarihsel yükseliş sıklığıdır.
     fwd_base = {}
-    for h in HORIZONS_D:
+    for h in BASE_HORIZONS_D:
         r = np.log(c.shift(-h) / c)
         r = r[r.index >= start].dropna().iloc[::h]
         if len(r) >= MIN_OBS:

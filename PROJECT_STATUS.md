@@ -37,6 +37,7 @@ Sonra şu dosyaları okur:
 * GitHub token Claude ile paylaşılmaz; yalnız cron-job.org'dadır.
 
 ## Son değişiklikler
+* 2026-10-23: Kısa vade = son 4 saatlik getiri / normal 4s oynaklık (|z| ≥ 0.75). Sakin mi = son 20 gün ↔ son 1 yıl (medyan tabanlı σ, × GEX çarpanı). Taban oran: örneklem zaten örtüşmesiz (önceki n/5 düzeltmesi YANLIŞTI), eşik z ≥ 3 (Bonferroni ~30 test). "Önümüzdeki hafta" → "Yarın ve bu hafta" (1-5 gün taban oranları).
 * 2026-10-23: Detaylı Karar Özeti ve stoplar da kanıt mantığına geçti (`stop_levels.evidence_*_side`). Kanıtsız model yön/stop yönü belirlemez; sadece "model X diyor, kanıtsız" notu olarak görünür. Yön yoksa iki senaryo stopu gösterilir.
 * 2026-10-23: Basit Özet düzeltmesi: XAU/XAG sahte ayrışması giderildi. Kısa vade eğilimi kanıtsız modelden değil fiyattan; taban oran yönü sadece z ≥ 2 ise.
 * 2026-10-23: Arayüze "🟢 Basit Özet" tablosu eklendi (yeni başlayanlar için sade dil).

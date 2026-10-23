@@ -67,25 +67,63 @@ def long_side(verdict: Dict[str, Any]) -> int:
     return 0
 
 
+Z_BASE = 3.0   # taban oran anlamlılığı: 6 varlık × 5 ufuk ≈ 30 test, Bonferroni (iki yönlü %5) ≈ 3.1
+RECENT_Z = 0.75  # son 4 saatlik hareket, 4 saatlik normal oynaklığın en az 0.75 katı olmalı
+
+
+def daily_vol(df: Any) -> Optional[Dict[str, float]]:
+    """Günlük kapanıştan kapanışa oynaklık (1σ): son 20 gün ve son 1 yıl.
+    Sağlam tahmin: medyan(|r|)/0.6745. Tek bir kriz günü (ör. 30 Ocak 2026 gümüş −%31)
+    standart sapmayı aylarca şişirir ve her günü "sakin" gösterirdi."""
+    try:
+        c = pd.to_numeric(df["Close"], errors="coerce").dropna()
+        r = np.log(c / c.shift(1)).dropna()
+        if len(r) < 60:
+            return None
+        rs = lambda x: float(x.abs().median() / 0.6745)
+        return {"s20": rs(r.tail(20)), "s252": rs(r.tail(252))}
+    except Exception:
+        return None
+
+
+def recent_move(df: Any, bars: int = 4) -> Optional[Dict[str, float]]:
+    """Son `bars` saatlik getiri ve bunun normal 4 saatlik oynaklığa oranı (z)."""
+    try:
+        c = pd.to_numeric(df["Close"], errors="coerce").dropna()
+        r = np.log(c / c.shift(1)).dropna().tail(240)
+        if len(r) < 48:
+            return None
+        ret = float(np.log(c.iloc[-1] / c.iloc[-1 - bars]))
+        sd = float(r.abs().median() / 0.6745) * math.sqrt(bars)
+        return {"ret_pct": round(100 * (math.exp(ret) - 1), 3), "z": round(ret / sd, 2) if sd > 0 else 0.0, "bars": bars}
+    except Exception:
+        return None
+
+
 def model_proven(verdict: Dict[str, Any]) -> bool:
     return "NOT_PROVEN" not in str(verdict.get("learned_model_status", ""))
 
 
 def base_rate_side(b: Optional[Dict[str, Any]]) -> int:
-    """Taban oran sadece istatistiksel olarak anlamlıysa yön verir.
-    5 günlük pencereler örtüşür: etkin örnek ≈ n/5. Gerekli |z| ≥ 2."""
+    """Taban oran sadece istatistiksel olarak anlamlıysa (|z| ≥ Z_BASE) yön verir."""
     b = b or {}
     up, n = b.get("up"), b.get("n") or 0
     if up is None or n < 50:
         return 0
-    z = (float(up) - 0.5) / math.sqrt(0.25 / max(n / int(b.get("horizon_d") or 5), 1))
-    return 1 if z >= 2 else -1 if z <= -2 else 0
+    # Örnekler zaten örtüşmeyen pencerelerden gelir (direction_research: iloc[::h]).
+    z = (float(up) - 0.5) / math.sqrt(0.25 / n)
+    return 1 if z >= Z_BASE else -1 if z <= -Z_BASE else 0
 
 
 def evidence_short_side(verdict: Dict[str, Any]) -> int:
-    """Kısa vade yönü. Model kanıtsızsa (RESEARCH_LOG #1, #5) sadece fiyatın kendi hareketi."""
+    """Kısa vade yönü. Model kanıtsızsa (RESEARCH_LOG #1, #5) sadece fiyatın kendi hareketi:
+    son 4 saatlik getiri, normal 4 saatlik oynaklığın RECENT_Z katını geçmeli."""
     if model_proven(verdict):
         return short_side(verdict)
+    rm = verdict.get("recent_move")
+    if isinstance(rm, dict) and rm.get("z") is not None:
+        z = float(rm["z"])
+        return 1 if z >= RECENT_Z else -1 if z <= -RECENT_Z else 0
     try:
         pz = float((verdict.get("short_term_parts") or {}).get("price_z"))
     except (TypeError, ValueError):
@@ -245,6 +283,9 @@ def run_cycle(verdicts: Dict[str, Dict[str, Any]], contexts: Dict[str, Dict[str,
     stats = {h: led.stats(h) for h in HORIZONS}
     for asset, v in verdicts.items():
         ctx = contexts.get(asset) or {}
+        rm = recent_move(frames.get(asset))
+        if rm:
+            v["recent_move"] = rm
         lv = ctx.get("levels")
         price = (lv or {}).get("price")
         g = (gamma_snapshots or {}).get(asset)
@@ -262,10 +303,26 @@ def run_cycle(verdicts: Dict[str, Dict[str, Any]], contexts: Dict[str, Dict[str,
                 # Yön yok: iki senaryonun geçersizlik seviyesi gösterilir (deftere yazılmaz).
                 out[h + "_iki_yon"] = {"al": suggest_stop(*args(1, h)), "sat": suggest_stop(*args(-1, h))}
         v["stop_suggestion"] = out
-        em, a1d = (g or {}).get("expected_move_1d"), ctx.get("atr_1d")
-        unit = em or a1d
-        if unit and price:
-            v["day_range"] = {"move": float(unit) * float(ctx.get("move_factor", 1.0) or 1.0), "price": float(price),
-                              "source": "opsiyon" if em else "günlük ATR"}
+        # Bugünkü 1σ kapanış aralığı: opsiyon beklenen hareketi, yoksa son 20 günün oynaklığı
+        # (ATR değil: ATR gün içi aralıktır, kapanışın 2/3 olasılık aralığı değildir).
+        em, vol = (g or {}).get("expected_move_1d"), ctx.get("vol") or {}
+        mf = float(ctx.get("move_factor", 1.0) or 1.0)
+        if price:
+            if em:
+                sig, src = float(em) / float(price), "opsiyon"
+            elif vol.get("s20"):
+                sig, src = float(vol["s20"]), "son 20 gün"
+            else:
+                sig, src = None, None
+            if sig:
+                sig *= mf
+                v["day_range"] = {"move": sig * float(price), "price": float(price), "source": src}
+            if vol.get("s20") and vol.get("s252"):
+                # Sakin/hareketli: aynı türden iki ölçüyü karşılaştır (gerçekleşen ↔ gerçekleşen).
+                # Opsiyon beklenen hareketi oynaklık risk primi içerir; 1 yıllık gerçekleşenle kıyaslanmaz.
+                exp = float(vol["s20"]) * mf
+                v["vol_state"] = {"ratio": round(exp / vol["s252"], 2), "today_pct": round(100 * exp, 2),
+                                  "recent_pct": round(100 * vol["s20"], 2), "normal_pct": round(100 * vol["s252"], 2),
+                                  "move_factor": round(mf, 3)}
     led.save()
     return stats
