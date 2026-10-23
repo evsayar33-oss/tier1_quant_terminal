@@ -189,6 +189,57 @@ def simple_stop(v: Dict[str, Any]) -> str:
     return f"Düşüş fikri {lvl} üstünde geçersiz (%{s['distance_pct']:.1f} yukarıda)"
 
 
+def _lean(v: Dict[str, Any]) -> Dict[str, int]:
+    rd = v.get("research_direction")
+    b = v.get("base_rate") or {}
+    hist = rd.get("side", 0) if isinstance(rd, dict) else (1 if (b.get("up") or 0.5) > 0.55 else -1 if (b.get("up") or 0.5) < 0.45 else 0)
+    return {"now": 0 if market_closed(v) else short_side(v), "hist": hist}
+
+
+def simple_today(v: Dict[str, Any]) -> str:
+    if market_closed(v):
+        return "⏸️ Piyasa kapalı"
+    r = v.get("day_range") or {}
+    now = _lean(v)["now"]
+    tilt = {1: "🟢 hafif yukarı eğilim", -1: "🔴 hafif aşağı eğilim"}.get(now, "⚪ belirgin eğilim yok")
+    if not r.get("move") or not r.get("price"):
+        return tilt
+    p, m, dg = r["price"], r["move"], _digits(r["price"])
+    return (f"Büyük olasılıkla {p - m:,.{dg}f} – {p + m:,.{dg}f} arasında (±%{100 * m / p:.1f}) · {tilt}")
+
+
+def simple_risk(v: Dict[str, Any]) -> str:
+    if market_closed(v):
+        return "—"
+    if "KRİZ" in str(v.get("verdict", "")):
+        return "🔴 Çok riskli — kriz sinyali"
+    neg = "NEGAT" in str((v.get("dealer_gamma") or {}).get("regime") or "")
+    l = _lean(v)
+    mixed = l["now"] and l["hist"] and l["now"] != l["hist"]
+    if v.get("entry_allowed") and not neg:
+        return "🟢 Düşük risk — koşullar uygun"
+    if neg or mixed:
+        why = "fiyat sert oynayabilir" if neg else "sinyaller birbiriyle çelişiyor"
+        return f"🔴 Riskli — {why}"
+    return "🟡 Orta risk — net bir fırsat yok"
+
+
+def simple_side(v: Dict[str, Any]) -> str:
+    if market_closed(v):
+        return "—"
+    l = _lean(v)
+    word = {1: "🟢 Yükseliş (AL) yönü", -1: "🔴 Düşüş (SAT) yönü"}
+    if l["now"] and l["now"] == l["hist"]:
+        return f"{word[l['now']]} — kısa vade ve geçmiş eğilim aynı"
+    if l["now"] and l["hist"]:
+        return f"⚖️ Çelişkili — kısa vade {'yükseliş' if l['now'] > 0 else 'düşüş'}, geçmiş eğilim {'yükseliş' if l['hist'] > 0 else 'düşüş'}. Girmemek daha iyi"
+    if l["hist"]:
+        return f"{word[l['hist']]} — sadece geçmiş eğilime göre (zayıf)"
+    if l["now"]:
+        return f"{word[l['now']]} — sadece kısa vadeye göre (zayıf)"
+    return "⚪ Belirgin yön yok"
+
+
 def simple_rows(verdicts: Dict[str, Dict[str, Any]], order: List[str],
                 gex: Optional[Dict[str, Any]] = None) -> List[Dict[str, str]]:
     rows = []
@@ -196,7 +247,9 @@ def simple_rows(verdicts: Dict[str, Dict[str, Any]], order: List[str],
         v = verdicts.get(k) or {}
         rows.append({"Varlık": k,
                      "Şimdi ne yapmalı?": simple_action(v),
-                     "Şu an fiyat": simple_now(v),
+                     "Bugün fiyat ne yapabilir?": simple_today(v),
+                     "Şimdi girmek riskli mi?": simple_risk(v),
+                     "Girersen hangi yön daha iyi?": simple_side(v),
                      "Önümüzdeki hafta": simple_week(v),
                      "Piyasa sakin mi?": simple_calm(v, gex, k),
                      "Fikir nerede bozulur?": simple_stop(v)})
@@ -206,7 +259,9 @@ def simple_rows(verdicts: Dict[str, Dict[str, Any]], order: List[str],
 SIMPLE_GUIDE = """
 **Bu tablo nasıl okunur?**
 - **Şimdi ne yapmalı?** — Sistem bütün kontrolleri yapar. Hepsi uygunsa ✅ yazar. Çoğu zaman ✋ Bekle yazar; bu normaldir. İyi fırsat az olur.
-- **Şu an fiyat** — Sadece son birkaç saatte ne olduğunu söyler. Geleceği söylemez.
+- **Bugün fiyat ne yapabilir?** — Opsiyon piyasasının fiyatladığı günlük aralıktır. Fiyat günlerin yaklaşık 2/3'ünde bu aralıkta kalır. Eğilim sadece son saatlerin yönüdür; zayıf bir bilgidir.
+- **Şimdi girmek riskli mi?** — 🟢 düşük, 🟡 orta, 🔴 yüksek. Sert piyasa veya çelişen sinyaller riski yükseltir.
+- **Girersen hangi yön daha iyi?** — Kısa vade ve geçmiş eğilim aynı yönü gösterirse o yön yazılır. Çelişirse "girmemek daha iyi" yazılır.
 - **Önümüzdeki hafta** — Hiç kimse yönü kesin bilemez. Sistem bunu test etti ve kanıt bulamadı. Bu yüzden geçmişteki yükseliş sıklığını gösterir.
 - **Piyasa sakin mi?** — Sistemin en güçlü bilgisi budur (15 yıllık veride kanıtlı). Hareketli piyasada küçük pozisyon ve geniş stop gerekir.
 - **Fikir nerede bozulur?** — Fiyat bu seviyeyi geçerse fikriniz yanlıştır. Bu bir emir değil, risk sınırıdır.

@@ -16,3 +16,12 @@ def test_simple_rows_closed_market():
     v = {"market_structure": {"session": {"phase": "Kapalı"}}}
     r = D.simple_rows({"SPX": v}, ["SPX"])[0]
     assert r["Şimdi ne yapmalı?"] == "⏸️ Piyasa kapalı" and r["Fikir nerede bozulur?"] == "—"
+
+
+def test_today_risk_side():
+    v = {"current_direction": "🔴 AŞAĞI", "verdict": "SAT", "base_rate": {"up": 0.61},
+         "dealer_gamma": {"regime": "NEGATİF GAMA"}, "day_range": {"move": 460.0, "price": 29000.0}}
+    r = D.simple_rows({"NQ": v}, ["NQ"])[0]
+    assert "28,540 – 29,460" in r["Bugün fiyat ne yapabilir?"]
+    assert r["Şimdi girmek riskli mi?"].startswith("🔴")
+    assert "Çelişkili" in r["Girersen hangi yön daha iyi?"]
