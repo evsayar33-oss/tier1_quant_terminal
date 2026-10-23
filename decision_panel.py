@@ -32,6 +32,8 @@ def short_label(v: Dict[str, Any]) -> str:
     side = evidence_short_side(v)
     rm = v.get("recent_move") or {}
     tag = f" (son 4s %{rm['ret_pct']:+.2f})" if rm.get("ret_pct") is not None else " (fiyat)"
+    if rm.get("pair") == "ayrışma":
+        tag += " · eşinden ayrışıyor"
     out = {1: "🟢 YUKARI", -1: "🔴 AŞAĞI"}.get(side, "⚪ YATAY") + tag
     m = short_side(v)
     if m and m != side:
@@ -262,6 +264,8 @@ def simple_today(v: Dict[str, Any]) -> str:
     rm = v.get("recent_move") or {}
     if rm.get("ret_pct") is not None:
         tilt += f" (%{rm['ret_pct']:+.2f})"
+    if rm.get("pair") == "ayrışma":
+        tilt += " · eşinden ayrışıyor"
     if not r.get("move") or not r.get("price"):
         return tilt
     p, m, dg = r["price"], r["move"], _digits(r["price"])

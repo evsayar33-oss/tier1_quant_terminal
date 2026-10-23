@@ -50,7 +50,23 @@ def test_remaining_days_and_recent_move():
     txt = D.simple_days({"base_rates": b}, "BTC", thu)
     assert "Hafta sonuna kadar (3 gün): %52 yükseliş (yazı-tura)" in txt and "yazı-tura" in txt
     c = pd.Series(100 * np.exp(np.cumsum(np.r_[np.random.default_rng(0).normal(0, 0.002, 200), [0.01] * 4])))
-    rm = SL.recent_move(pd.DataFrame({"Close": c}))
+    rm = SL.recent_move(pd.DataFrame({"Close": c.values}, index=pd.date_range("2026-01-01", periods=len(c), freq="h", tz="UTC")))
     assert rm["z"] > 3 and rm["ret_pct"] > 3.9
     v = {"learned_model_status": "NOT_PROVEN_ADVISORY", "recent_move": rm}
     assert SL.evidence_short_side(v) == 1
+
+
+def test_pair_consistency_and_partial_bar():
+    import numpy as np
+    import pandas as pd
+    import stop_levels as SL
+    mv = {"SPX": {"z_own": -0.9, "z": -0.9}, "NQ": {"z_own": -0.5, "z": -0.5},
+          "XAU": {"z_own": 1.0, "z": 1.0}, "XAG": {"z_own": -0.9, "z": -0.9}}
+    SL.pair_consistent(mv)
+    assert mv["SPX"]["z"] == mv["NQ"]["z"] == -0.7 and mv["SPX"]["pair"] == "ortak"
+    assert mv["XAU"]["z"] == 1.0 and mv["XAG"]["z"] == -0.9 and mv["XAU"]["pair"] == "ayrışma"
+    idx = list(pd.date_range("2026-01-01", periods=100, freq="h", tz="UTC"))
+    close = list(100 * np.exp(np.cumsum(np.random.default_rng(2).normal(0, 0.002, 100))))
+    df = pd.DataFrame({"Close": close + [close[-1]]}, index=idx + [idx[-1] + pd.Timedelta(minutes=4)])
+    rm = SL.recent_move(df)
+    assert abs(rm["ret_pct"] - 100 * (close[-1] / close[-5] - 1)) < 1e-3   # 4 saat zamana göre (yarım bar pencereyi kısaltmaz)

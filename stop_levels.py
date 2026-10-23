@@ -86,18 +86,48 @@ def daily_vol(df: Any) -> Optional[Dict[str, float]]:
         return None
 
 
+PAIRS = {"SPX": "NQ", "NQ": "SPX", "XAU": "XAG", "XAG": "XAU", "BTC": "ETH", "ETH": "BTC"}
+
+
 def recent_move(df: Any, bars: int = 4) -> Optional[Dict[str, float]]:
-    """Son `bars` saatlik getiri ve bunun normal 4 saatlik oynaklığa oranı (z)."""
+    """Son `bars` saatlik getiri ve bunun normal 4 saatlik oynaklığa oranı (z).
+    Başlangıç fiyatı ZAMANA göre alınır (son kayıt − 4 saat). Kaynak bazen yarım
+    bir son bar ekler (ör. 11:04); bar saymak pencereyi 3 saate kısaltırdı."""
     try:
-        c = pd.to_numeric(df["Close"], errors="coerce").dropna()
-        r = np.log(c / c.shift(1)).dropna().tail(240)
+        s = pd.to_numeric(df["Close"], errors="coerce")
+        s.index = pd.to_datetime(df.index, utc=True)
+        s = s.dropna().sort_index()
+        hourly = s[(s.index.minute == 0) & (s.index.second == 0)]
+        r = np.log(hourly / hourly.shift(1)).dropna().tail(240)
         if len(r) < 48:
             return None
-        ret = float(np.log(c.iloc[-1] / c.iloc[-1 - bars]))
+        t_end = s.index[-1]
+        start = s[s.index <= t_end - pd.Timedelta(hours=bars)]
+        if start.empty:
+            return None
+        ret = float(np.log(s.iloc[-1] / start.iloc[-1]))
         sd = float(r.abs().median() / 0.6745) * math.sqrt(bars)
-        return {"ret_pct": round(100 * (math.exp(ret) - 1), 3), "z": round(ret / sd, 2) if sd > 0 else 0.0, "bars": bars}
+        return {"ret_pct": round(100 * (math.exp(ret) - 1), 3), "z": round(ret / sd, 2) if sd > 0 else 0.0,
+                "z_own": round(ret / sd, 2) if sd > 0 else 0.0, "bars": bars, "asof": t_end.isoformat()}
     except Exception:
         return None
+
+
+def pair_consistent(moves: Dict[str, Dict[str, Any]]) -> None:
+    """SPX/NQ, XAU/XAG, BTC/ETH aynı ortak faktörle hareket eder (korelasyon ~0.8-0.9).
+    Aynı yöndeki küçük hareketler eşik kenarında farklı etiket almasın: işaretler aynıysa
+    ikisi de çiftin ortalama z'sini kullanır (ortak hareket). İşaretler zıtsa ve en az biri
+    belirginse bu GERÇEK bir ayrışmadır; her varlık kendi z'sini korur ve not düşülür."""
+    for a, b in PAIRS.items():
+        if a > b or a not in moves or b not in moves:
+            continue
+        za, zb = float(moves[a]["z_own"]), float(moves[b]["z_own"])
+        if za * zb > 0:
+            m = round((za + zb) / 2.0, 2)
+            moves[a]["z"] = moves[b]["z"] = m
+            moves[a]["pair"] = moves[b]["pair"] = "ortak"
+        elif max(abs(za), abs(zb)) >= RECENT_Z:
+            moves[a]["pair"] = moves[b]["pair"] = "ayrışma"
 
 
 def model_proven(verdict: Dict[str, Any]) -> bool:
@@ -281,11 +311,12 @@ def run_cycle(verdicts: Dict[str, Dict[str, Any]], contexts: Dict[str, Dict[str,
     led = StopLedger(path)
     led.grade(frames, now=now)
     stats = {h: led.stats(h) for h in HORIZONS}
+    moves = {a: m for a in verdicts if (m := recent_move(frames.get(a)))}
+    pair_consistent(moves)
     for asset, v in verdicts.items():
         ctx = contexts.get(asset) or {}
-        rm = recent_move(frames.get(asset))
-        if rm:
-            v["recent_move"] = rm
+        if asset in moves:
+            v["recent_move"] = moves[asset]
         lv = ctx.get("levels")
         price = (lv or {}).get("price")
         g = (gamma_snapshots or {}).get(asset)
