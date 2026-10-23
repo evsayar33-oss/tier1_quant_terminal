@@ -162,6 +162,23 @@ def run_background_cycle() -> Dict[str, Any]:
         macro_cal = {"error": str(exc)}
         print(f"Makro takvim atlandı: {exc}")
 
+    # v16.6: Şok dedektörü — 11 göstergenin 5 dk verisinde ani hareket (haber okumadan).
+    shock: Dict[str, Any] = {}
+    try:
+        import shock_monitor as SM
+        shock = SM.run(intraday)
+        for a, v in verdicts.items():
+            f = SM.factor(shock, a)
+            if a in contexts and f > 1.0:
+                contexts[a]["move_factor"] = float(contexts[a].get("move_factor", 1.0) or 1.0) * f
+                contexts[a]["shock_factor"] = round(f, 3)
+            v["shock_note"] = SM.note(shock, a)
+            v["shock_active"] = bool(shock.get("active") and a in (shock.get("affected") or []))
+        print(f"[şok] aktif={shock.get('active')} {shock.get('desc', '')}")
+    except Exception as exc:
+        shock = {"error": str(exc)}
+        print(f"Şok dedektörü atlandı: {exc}")
+
     # v16.0: proven daily-data direction rule (weekly research) for the long horizon.
     try:
         import direction_research as DR
@@ -281,6 +298,7 @@ def run_background_cycle() -> Dict[str, Any]:
         "stop_calibration": stop_stats,
         "forecast_scorecard": forecast_cards,
         "macro_calendar": macro_cal,
+        "shock": shock,
     }
     # v16.3: the system checks its own health and logs problems permanently.
     try:

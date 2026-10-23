@@ -910,6 +910,11 @@ except Exception:
 
 try:
     import decision_panel as _DP
+    _sh = active_data.get("shock") or {}
+    if _sh.get("active"):
+        st.error(f"⚡ ŞOK HAREKET ({'piyasa geneli' if _sh.get('broad') else 'yerel'} · {_sh.get('pattern')}): "
+                 f"{_sh.get('desc')} — etkilenen: {', '.join(_sh.get('affected') or [])}. "
+                 "Sonraki 4 saat aralık ve stoplar genişletildi.")
     st.subheader("🟢 Basit Özet")
     st.dataframe(pd.DataFrame(_DP.simple_rows(verdicts, list(ASSET_MATRICES.keys()),
                                               active_data.get("gex_history"))),

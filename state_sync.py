@@ -39,7 +39,8 @@ STATE_FILES = [
     "dealer_gamma_history.csv",  # v15.0: dealer gamma map ledger (self-graded evidence)
     "stop_ledger.csv",
     "forecast_ledger.csv",
-    "macro_calendar.csv",        # v16.5: FRED ABD veri takvimi önbelleği       # v16.4: Tahmin Karnesi (arayüz tahminleri + notlar)
+    "macro_calendar.csv",
+    "shock_ledger.csv",          # v16.6: şok olayları + 4 saat sonrası notları        # v16.5: FRED ABD veri takvimi önbelleği       # v16.4: Tahmin Karnesi (arayüz tahminleri + notlar)
     "gex_history.csv",
     "health_log.csv",            # v16.3: permanent problem log (BAŞLADI / DÜZELDİ)
     "health_report.md",           # v16.2: SqueezeMetrics daily SPX GEX/DIX cache           # v15.1: suggested-stop ledger (self-calibrating buffer)
