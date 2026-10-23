@@ -37,6 +37,7 @@ Sonra şu dosyaları okur:
 * GitHub token Claude ile paylaşılmaz; yalnız cron-job.org'dadır.
 
 ## Son değişiklikler
+* 2026-10-23: Detaylı Karar Özeti ve stoplar da kanıt mantığına geçti (`stop_levels.evidence_*_side`). Kanıtsız model yön/stop yönü belirlemez; sadece "model X diyor, kanıtsız" notu olarak görünür. Yön yoksa iki senaryo stopu gösterilir.
 * 2026-10-23: Basit Özet düzeltmesi: XAU/XAG sahte ayrışması giderildi. Kısa vade eğilimi kanıtsız modelden değil fiyattan; taban oran yönü sadece z ≥ 2 ise.
 * 2026-10-23: Arayüze "🟢 Basit Özet" tablosu eklendi (yeni başlayanlar için sade dil).
 * 2026-10-23: `system_health.py` eklendi. Sistem kendi hatalarını `health_log.csv` dosyasına yazar.

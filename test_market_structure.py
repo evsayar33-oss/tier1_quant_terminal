@@ -193,6 +193,7 @@ def test_stop_ledger_widens_buffer_when_stops_get_hunted():
 def test_decision_panel_rows():
     v = {"NQ": {"current_direction": "🟢 YUKARI (%+0.31)", "verdict": "SAT",
                 "learned_model_status": "NOT_PROVEN_ADVISORY", "entry_allowed": False,
+                "short_term_parts": {"price_z": 0.8}, "base_rate": {"up": 0.61, "n": 502, "horizon_d": 5},
                 "entry_reason": "⛔ Kanıt yok (örneklem dışı t=0.4 < 2.0) → giriş kapalı.", "entry_grade": "C",
                 "stop_suggestion": {"kisa": {"stop": 24810.0, "side": 1, "distance_pct": 0.42, "atr_1h_mult": 1.1,
                                              "label": "Kısa vade (1-4 saat)", "basis": "x"}, "uzun": None},
@@ -200,10 +201,12 @@ def test_decision_panel_rows():
          "SPX": {"current_direction": "⚪ YATAY / DENGELİ (%+0.01)", "verdict": "NÖTR (BEKLE)"}}
     rows = {r["Varlık"]: r for r in DP.build_rows(v, ["NQ", "SPX"])}
     nq = rows["NQ"]
-    assert nq["Kısa vade (1-4 saat)"] == "🟢 YUKARI" and nq["Uzun vade (24 saat-1 hafta)"] == "🔴 SAT · kanıtsız"
+    assert nq["Kısa vade (1-4 saat)"] == "🟢 YUKARI (fiyat)"
+    assert nq["Uzun vade (24 saat-1 hafta)"] == ("🟢 AL eğilimi (geçmiş) · model SAT diyor, kanıtsız · "
+                                                 "taban: %61 yükseliş (5g, anlamlı)")
     assert nq["Giriş"] == "⛔ Önerilmez · model kanıtı yok (t < 2)"
     assert nq["Stop · kısa vade"] == "24,810 (-0.42% · 1.1×ATR)" and nq["Stop · uzun vade"] == "—"
-    assert rows["SPX"]["Giriş"].startswith("⚪ Yön yok")
+    assert rows["SPX"]["Giriş"].startswith("⚪ Kanıtlı yön yok")
     v["NQ"]["entry_allowed"] = True
     assert DP.entry_label(v["NQ"]) == "✅ Giriş önerilir"
 
@@ -240,3 +243,14 @@ def test_far_otm_put_is_not_a_structural_wall():
     rows.append({"root": "SPX", "expiry": exp, "type": "P", "strike": 7600.0, "iv": 0.15, "oi": 50_000.0})
     m = DG.build_gamma_map([(pd.DataFrame(rows), spot)], spot, now=pd.Timestamp("2026-10-14T15:00:00Z"))
     assert m["put_wall"] == 7600.0
+
+
+def test_unproven_model_does_not_set_stop_side():
+    import stop_levels as SL
+    v = {"verdict": "SAT", "current_direction": "🔴 AŞAĞI", "learned_model_status": "NOT_PROVEN_ADVISORY",
+         "short_term_parts": {"price_z": 0.1}, "base_rate": {"up": 0.55, "n": 502, "horizon_d": 5}}
+    assert SL.evidence_short_side(v) == 0 and SL.evidence_long_side(v) == 0
+    v["base_rate"]["up"] = 0.63
+    assert SL.evidence_long_side(v) == 1
+    st = {"uzun": None, "uzun_iki_yon": {"al": {"stop": 90.0}, "sat": {"stop": 110.0}}}
+    assert DP._stop_cell(st, "uzun", 0) == "Yön yok · AL ise 90 / SAT ise 110"
