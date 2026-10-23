@@ -23,6 +23,8 @@ Sonra şu dosyaları okur:
 * Hiçbir yön kuralı "Hep AL"ı geçmedi (#1, #5, #6, #8). Uzun vade için taban oran gösterilir.
 
 ## Açık işler
+* 2026 sonunda `macro_calendar.FOMC_DATES` listesine 2027 FOMC tarihleri eklenmeli (sağlık kontrolü uyarır).
+* Veri günü etkisini 10 yıllık günlük veriyle ve olay türüne göre (TÜFE/NFP/FOMC ayrı) test et; 1 yıllık havuzlanmış test zayıf.
 * Tahmin Karnesi (RESEARCH_LOG #9): ~30 gün sonra ilk not; haftalık kontrol `forecast_scorecard` alanını okusun.
 * Kanıt defterleri (`dealer_gamma_history.csv`, `stop_ledger.csv`) ~30 gün veri biriktiriyor (başlangıç 2026-10).
 * Yeni bir yön yöntemi denenirse: önce RESEARCH_LOG.md'ye hipotez yaz, sonra test et.
@@ -38,6 +40,7 @@ Sonra şu dosyaları okur:
 * GitHub token Claude ile paylaşılmaz; yalnız cron-job.org'dadır.
 
 ## Son değişiklikler
+* 2026-10-23: Makro takvim düzeltmesi: FRED 'FOMC Press Release' her günü veriyordu → FOMC karar günleri Fed takviminden (2025-2026 listesi, `macro_calendar.FOMC_DATES`). Yılda >20 tarihli olay türü veri hatası sayılır. İlk ölçüm (1 yıl, 61 veri günü): hiçbir varlıkta kanıtlı etki yok (SPX ×1.09, t 0.65).
 * 2026-10-23: `macro_calendar.py`: FRED ABD veri takvimi (TÜFE, NFP, ÜFE, GSYH, PCE, perakende, FOMC). Olay günü etkisi her döngüde ölçülür (RESEARCH_LOG #10); kanıtlıysa aralık/stop çarpanı. Bugün veri varsa Basit Özet uyarır, açıklanmadan önce risk 🔴. FRED adı uyuşmazsa veya gelecek FOMC kalmazsa sağlık günlüğüne yazılır.
 * 2026-10-23: Kısa vade çift tutarlılığı: SPX/NQ, XAU/XAG, BTC/ETH aynı yöndeyse ortak (ortalama) z; zıt ve belirginse "eşinden ayrışıyor" notu. 4s getiri zamana göre (yarım son bar pencereyi kısaltmaz).
 * 2026-10-23: `forecast_ledger.py` (Tahmin Karnesi) eklendi. Arayüz tahminleri önceden kaydedilir, 4s/24s sonra notlanır; aralık 30 günden sonra kendini kalibre eder. Hipotezler RESEARCH_LOG #9.

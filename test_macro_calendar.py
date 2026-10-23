@@ -39,3 +39,12 @@ def test_fallback_without_key(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     cal = MC.load(api_key="")
     assert (cal["event"] == "FOMC kararı").all() and cal.attrs["problems"]
+
+
+def test_daily_fomc_series_rejected():
+    rows = [{"date": d.strftime("%Y-%m-%d"), "event": "X", "time_et": "08:30"} for d in pd.bdate_range("2025-01-01", "2025-12-31")]
+    df = pd.DataFrame(rows)
+    yr = pd.to_datetime(df["date"]).dt.year
+    assert df.groupby([df["event"], yr]).size().max() > MC.MAX_PER_YEAR
+    cal = MC.load(api_key="")
+    assert (cal["event"] == "FOMC kararı").sum() == len(MC.FOMC_DATES)
