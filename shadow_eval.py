@@ -91,6 +91,52 @@ def pin_test(d: pd.DataFrame, rng: np.random.Generator) -> Dict[str, Any]:
             "p": round(float((perm >= actual).mean()), 4)}
 
 
+def head_to_head(d: pd.DataFrame) -> Dict[str, Any]:
+    """Şampiyon (ekrandaki sistem) ↔ meydan okuyan (yeni fikirlerle birleşik sistem), aynı saatler."""
+    out: Dict[str, Any] = {}
+    m = d.dropna(subset=["ret_4h"]).copy()
+    m["t"] = pd.to_datetime(m["ts"], utc=True)
+    m = m.sort_values("t")
+    keep, last = [], {}
+    for i, r in m.iterrows():                       # varlık başına en az 4 saat arayla (örtüşmesiz)
+        if r["asset"] not in last or r["t"] - last[r["asset"]] >= pd.Timedelta(hours=4):
+            keep.append(i)
+            last[r["asset"]] = r["t"]
+    m = m.loc[keep]
+
+    def lean_stats(col):
+        x = m[m[col].fillna(0) != 0]
+        if len(x) < MIN_N:
+            return {"n": int(len(x)), "status": "VERİ YETERSİZ"}
+        hit = float((np.sign(x[col]) == np.sign(x["ret_4h"])).mean())
+        return {"n": int(len(x)), "hit": round(hit, 3),
+                "mean_bps": round(float((np.sign(x[col]) * x["ret_4h"]).mean()) * 1e4, 2)}
+
+    out["Yön · şampiyon"] = lean_stats("champ_lean")
+    out["Yön · birleşik"] = lean_stats("chal_lean")
+    diff = m[(m["chal_lean"].fillna(0) != m["champ_lean"].fillna(0)) & (m["chal_lean"].fillna(0) != 0)]
+    if len(diff) >= MIN_N:
+        out["Yön · sadece farklı saatler (charm katkısı)"] = sign_test(diff["chal_lean"], diff["ret_4h"])
+    else:
+        out["Yön · sadece farklı saatler (charm katkısı)"] = {"n": int(len(diff)), "status": "VERİ YETERSİZ"}
+    for side, nm in ((1, "long"), (-1, "short")):
+        s = m.dropna(subset=[f"champ_stop_{nm}", f"chal_stop_{nm}", "hi_4h", "lo_4h"])
+        s = s[s[f"champ_stop_{nm}"] != s[f"chal_stop_{nm}"]]
+        if len(s) < MIN_N:
+            out[f"Stop {nm} · şampiyon ↔ birleşik"] = {"n_farklı": int(len(s)), "status": "VERİ YETERSİZ"}
+            continue
+        res = {}
+        for who in ("champ", "chal"):
+            st = s[f"{who}_stop_{nm}"].to_numpy(float)
+            hit = (s["lo_4h"].to_numpy(float) <= st) if side > 0 else (s["hi_4h"].to_numpy(float) >= st)
+            fav = np.sign(s["ret_4h"].to_numpy(float)) == side
+            dist = np.abs(s["price"].to_numpy(float) - st) / s["price"].to_numpy(float)
+            res[who] = {"tetiklenme": round(float(hit.mean()), 3), "avlanma": round(float((hit & fav).mean()), 3),
+                        "uzaklık_%": round(100 * float(dist.mean()), 3)}
+        out[f"Stop {nm} · şampiyon ↔ birleşik"] = {"n_farklı": int(len(s)), "şampiyon": res["champ"], "birleşik": res["chal"]}
+    return out
+
+
 def evaluate(path: str, seed: int = 7) -> Dict[str, Any]:
     d = pd.read_csv(path)
     d = d[(d["shadow"] == "shadow-v1") & (d["graded"] == 1)]
@@ -113,7 +159,8 @@ def evaluate(path: str, seed: int = 7) -> Dict[str, Any]:
     for v in out.values():
         if "p" in v:
             v["status"] = "KANITLANDI" if v["p"] < thr else "REDDEDİLDİ"
-    return {"tests": out, "n_tests": n_tests, "p_threshold": round(thr, 5), "rows": int(len(d))}
+    return {"tests": out, "n_tests": n_tests, "p_threshold": round(thr, 5), "rows": int(len(d)),
+            "head_to_head": head_to_head(d)}
 
 
 def report(res: Dict[str, Any]) -> List[str]:
@@ -123,6 +170,10 @@ def report(res: Dict[str, Any]) -> List[str]:
     for k, v in res["tests"].items():
         det = ", ".join(f"{a}={b}" for a, b in v.items() if a != "status")
         L.append(f"| {k} | {v.get('status')} | {det} |")
+    L += ["", "## Şampiyon (ekrandaki sistem) ↔ birleşik sistem (yeni fikirler dahil)", "",
+          "Daha iyi stop: aynı veya daha düşük tetiklenme/avlanma oranıyla daha yakın stop. "
+          "Daha iyi yön: daha yüksek isabet ve ortalama getiri.", ""]
+    L += [f"- **{k}**: {v}" for k, v in (res.get("head_to_head") or {}).items()]
     return L
 
 

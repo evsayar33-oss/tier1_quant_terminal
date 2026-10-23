@@ -11,6 +11,14 @@ H13 Charm/vanna sürüklenmesi (SPX, NQ): dealer charm/vanna akışının işare
 H14 Duvar ve pin (SPX, NQ, BTC, ETH): fiyat 24 saat içinde call/put duvarına
     değerse duvar tutar mı (kapanış duvarın içinde kalır mı)? 0DTE pin'e
     uzaklık seans sonunda kayıt anına göre küçülür mü (mıknatıs)?
+ŞAMPİYON / MEYDAN OKUYAN: her saat iki karar birlikte kaydedilir.
+    champ_*: ekrandaki mevcut sistem (kısa vade yönü, kısa vade stopu AL/SAT).
+    chal_*:  yeni fikirler eklenmiş BİRLEŞİK sistem —
+             yön: mevcut yön; mevcut sistem "yön yok" derken SPX/NQ'da ET 11-15
+                  arasında charm akışı güçlüyse charm yönü;
+             stop: aynı stop algoritması, dayanak adaylarına önceki seansın
+                  POC/VAH/VAL seviyeleri eklenmiş hali.
+    30 gün sonra aynı saatlerde ikisi aynı fiyat hareketine karşı karşılaştırılır.
 H15 Hacim profili (6 varlık): önceki seansın POC / değer alanı (VAH, VAL)
     seviyeleri, aynı uzaklıktaki rastgele seviyelere göre daha çok "dokun ve
     dön" üretir mi? (stop dayanağı adayı)
@@ -34,7 +42,9 @@ COLS = ["ts", "shadow", "asset", "price", "et_hour",
         "charm_1d", "charm_0dte", "vanna_ivdown", "net_gex", "regime",
         "call_wall", "put_wall", "call_wall_0dte", "put_wall_0dte", "pin_0dte", "flip",
         "poc", "vah", "val", "vp_session",
-        "ret_4h", "ret_close", "close_et16", "hi_24h", "lo_24h", "close_24h", "graded"]
+        "champ_lean", "chal_lean", "champ_stop_long", "chal_stop_long", "champ_stop_short", "chal_stop_short",
+        "ret_4h", "ret_close", "close_et16", "hi_4h", "lo_4h", "hi_24h", "lo_24h", "close_24h", "graded"]
+CHARM_MIN_USD = 1e9          # "güçlü" charm akışı eşiği (SPX/NQ, dolar)
 
 
 def volume_profile(df5: Any, now: pd.Timestamp, bins: int = 60, va: float = 0.70) -> Optional[Dict[str, Any]]:
@@ -71,6 +81,32 @@ def volume_profile(df5: Any, now: pd.Timestamp, bins: int = 60, va: float = 0.70
                 "session": str(prev[-1].date())}
     except Exception:
         return None
+
+
+def challenger(asset: str, v: Dict[str, Any], ctx: Dict[str, Any], g: Dict[str, Any],
+               vp: Optional[Dict[str, Any]], et_hour: int, price: float) -> Dict[str, Any]:
+    import stop_levels as SL
+    champ = 0 if ((v.get("market_structure") or ctx or {}).get("session") or {}).get("phase") == "Kapalı" \
+        else SL.evidence_short_side(v)
+    chal = champ
+    charm = g.get("charm_flow_1d_usd")
+    if champ == 0 and asset in ("SPX", "NQ") and 11 <= et_hour < 15 and charm and abs(float(charm)) >= CHARM_MIN_USD:
+        chal = 1 if float(charm) > 0 else -1
+    lv = (ctx or {}).get("levels") or ((v.get("market_structure") or {}).get("levels")) or {}
+    aug = dict(lv, levels=list(lv.get("levels") or []))
+    if vp:
+        aug["levels"] += [{"price": vp["val"], "kind": "SWL", "label": "Değer alanı dibi (VAL)"},
+                          {"price": vp["vah"], "kind": "SWH", "label": "Değer alanı tepesi (VAH)"},
+                          {"price": vp["poc"], "kind": "VWAP", "label": "POC"}]
+    args = lambda side, levels: SL.suggest_stop(side, "kisa", price, (ctx or {}).get("atr_1h"), (ctx or {}).get("atr_1d"),
+                                                g.get("expected_move_1d"), levels, g or None, 1.0,
+                                                (ctx or {}).get("move_factor", 1.0))
+    out = {"champ_lean": champ, "chal_lean": chal}
+    for side, nm in ((1, "long"), (-1, "short")):
+        a, b = args(side, lv), args(side, aug)
+        out[f"champ_stop_{nm}"] = a["stop"] if a else np.nan
+        out[f"chal_stop_{nm}"] = b["stop"] if b else np.nan
+    return out
 
 
 def _load(path: str) -> pd.DataFrame:
@@ -115,6 +151,10 @@ def grade(d: pd.DataFrame, frames: Dict[str, pd.DataFrame], now: pd.Timestamp) -
         p0 = float(row["price"])
         a4 = c[(c.index > t0) & (c.index <= t0 + pd.Timedelta(hours=4))]
         d.at[i, "ret_4h"] = float(np.log(a4.iloc[-1] / p0)) if len(a4) else np.nan
+        w4 = f[(f.index > t0) & (f.index <= t0 + pd.Timedelta(hours=4))]
+        if len(w4):
+            d.at[i, "hi_4h"] = float(pd.to_numeric(w4["High"]).max())
+            d.at[i, "lo_4h"] = float(pd.to_numeric(w4["Low"]).min())
         close16 = t0.tz_convert(ET).normalize() + pd.Timedelta(hours=16)
         cl = c[(c.index > t0) & (c.index <= close16.tz_convert("UTC"))]
         if len(cl) and close16.tz_convert("UTC") > t0:
@@ -129,7 +169,8 @@ def grade(d: pd.DataFrame, frames: Dict[str, pd.DataFrame], now: pd.Timestamp) -
 
 
 def run_cycle(verdicts: Dict[str, Dict[str, Any]], snapshots: Dict[str, Any], frames: Dict[str, pd.DataFrame],
-              intraday: Dict[str, pd.DataFrame], path: str = LEDGER, now: Any = None) -> Dict[str, Any]:
+              intraday: Dict[str, pd.DataFrame], path: str = LEDGER, now: Any = None,
+              contexts: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     now = pd.Timestamp(now or now_utc())
     now = now.tz_localize("UTC") if now.tzinfo is None else now.tz_convert("UTC")
     d = _load(path)
@@ -144,9 +185,15 @@ def run_cycle(verdicts: Dict[str, Dict[str, Any]], snapshots: Dict[str, Any], fr
             continue
         g = (snapshots or {}).get(a) or {}
         vp = volume_profile(intraday.get(a), now) if isinstance(intraday.get(a), pd.DataFrame) else None
-        d.loc[len(d)] = {
+        et_hour = int(now.tz_convert(ET).hour)
+        try:
+            cc = challenger(a, v, (contexts or {}).get(a) or {}, g, vp, et_hour, float(price))
+        except Exception:
+            cc = {}
+        d.loc[len(d)] = {**{k: cc.get(k, np.nan) for k in ("champ_lean", "chal_lean", "champ_stop_long", "chal_stop_long",
+                                                            "champ_stop_short", "chal_stop_short")},
             "ts": ts, "shadow": SHADOW_VERSION, "asset": a, "price": float(price),
-            "et_hour": int(now.tz_convert(ET).hour),
+            "et_hour": et_hour,
             "charm_1d": g.get("charm_flow_1d_usd"), "charm_0dte": g.get("charm_flow_0dte_usd"),
             "vanna_ivdown": g.get("vanna_flow_iv_down_1pt_usd"), "net_gex": g.get("net_gex_usd_1pct"),
             "regime": g.get("regime"), "call_wall": g.get("call_wall"), "put_wall": g.get("put_wall"),
@@ -154,7 +201,8 @@ def run_cycle(verdicts: Dict[str, Dict[str, Any]], snapshots: Dict[str, Any], fr
             "pin_0dte": g.get("pin_0dte"), "flip": g.get("gamma_flip"),
             "poc": (vp or {}).get("poc"), "vah": (vp or {}).get("vah"), "val": (vp or {}).get("val"),
             "vp_session": (vp or {}).get("session"),
-            "ret_4h": np.nan, "ret_close": np.nan, "close_et16": np.nan, "hi_24h": np.nan, "lo_24h": np.nan,
+            "ret_4h": np.nan, "ret_close": np.nan, "close_et16": np.nan, "hi_4h": np.nan, "lo_4h": np.nan,
+            "hi_24h": np.nan, "lo_24h": np.nan,
             "close_24h": np.nan, "graded": 0}
         added += 1
     d.tail(MAX_ROWS).to_csv(path, index=False)

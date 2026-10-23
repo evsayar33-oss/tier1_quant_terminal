@@ -36,3 +36,16 @@ def test_cycle_records_grades_and_eval_runs(tmp_path):
     assert res["n_tests"] >= 3
     assert "H14 call_wall tutma" in res["tests"] and "H13a charm_1d → seans sonu" in res["tests"]
     assert SE.report(res)[0].startswith("# 🧪")
+    assert "Yön · şampiyon" in res["head_to_head"]
+    assert {"champ_lean", "chal_lean", "champ_stop_long", "chal_stop_long"} <= set(d.columns)
+
+
+def test_challenger_adds_charm_and_vp_levels():
+    v = {"learned_model_status": "NOT_PROVEN", "recent_move": {"z": 0.1}}
+    ctx = {"atr_1h": 10.0, "atr_1d": 50.0, "levels": {"price": 7000.0, "levels": [], "round_step": None}}
+    g = {"charm_flow_1d_usd": 5e9}
+    vp = {"poc": 6990.0, "vah": 7010.0, "val": 6980.0}
+    cc = SH.challenger("SPX", v, ctx, g, vp, 12, 7000.0)
+    assert cc["champ_lean"] == 0 and cc["chal_lean"] == 1
+    assert cc["champ_stop_long"] != cc["chal_stop_long"]
+    assert SH.challenger("SPX", v, ctx, g, vp, 9, 7000.0)["chal_lean"] == 0        # 11:00 ET öncesi charm yok
