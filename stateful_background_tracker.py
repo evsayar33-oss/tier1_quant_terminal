@@ -235,6 +235,15 @@ def run_background_cycle() -> Dict[str, Any]:
         if a in contexts:
             v["market_structure"] = contexts[a]
 
+    # Gölge defter (shadow-v1): H13-H15 ham verisi; karara KARIŞMAZ (mantık kilidi korunur).
+    shadow_stats: Dict[str, Any] = {}
+    try:
+        import shadow_ledger as SHL
+        shadow_stats = SHL.run_cycle(verdicts, dealer_gamma.get("snapshots", {}), frames, intraday)
+    except Exception as exc:
+        shadow_stats = {"error": str(exc)}
+        print(f"Gölge defter atlandı: {exc}")
+
     # v16.8: Karar defteri — arayüzün gösterdiği her şey, mantık sürümüyle (saatte bir).
     try:
         import decision_log as DL
@@ -319,6 +328,7 @@ def run_background_cycle() -> Dict[str, Any]:
         "macro_calendar": macro_cal,
         "shock": shock,
         "shock_direction": shock_dir,
+        "shadow_ledger": shadow_stats,
     }
     # v16.3: the system checks its own health and logs problems permanently.
     try:
