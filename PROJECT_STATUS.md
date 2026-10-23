@@ -35,11 +35,14 @@ Sonra şu dosyaları okur:
 * Görev bir sorunu düzeltirse bu dosyanın "Son değişiklikler" bölümüne bir satır ekler.
 
 ## Kurallar
+* **MANTIK KİLİDİ (2026-10-23 → 2026-11-23): mantık sürümü `2026.10.23-v1`.** Bu süre kayıt toplama dönemidir. Yön/aralık/stop/şok mantığı DEĞİŞTİRİLMEZ. Sadece çökme, veri kesintisi gibi hatalar düzeltilir. Mantık değişirse `config.LOGIC_VERSION` mutlaka artırılır ve buraya yazılır; karne her sürümü ayrı ölçer.
+* Değerlendirme kaynakları: `decision_log.csv` (ne gösterildi), `forecast_ledger.csv` (tahmin notları), `stop_ledger.csv`, `shock_ledger.csv`, `dealer_gamma_history.csv`, `health_log.csv` — hepsi `state` dalında, hepsinde `logic` sütunu var (eski satırlarda boş).
 * Test sonrası şu dosyaları geri al: `git checkout -- adaptive_regime_thresholds_state.json timeframe_confluence_state.json`.
 * PR birleştirirken tam 40 karakterlik SHA kullan.
 * GitHub token Claude ile paylaşılmaz; yalnız cron-job.org'dadır.
 
 ## Son değişiklikler
+* 2026-10-23: Mantık sürümü etiketi (`LOGIC_VERSION`) bütün defterlere eklendi; `decision_log.csv` (arayüzün saatlik görüntüsü). Şok radarı: seansı kapalı gösterge artık hata sayılmaz (`closed`), sadece verisi olmayan sayılır. Mantık kilidi başladı.
 * 2026-10-23: İki motorlu şok aklı. Motor A (`shock_monitor.py`, gün içi): 16 gösterge (DAX, Nikkei, Hang Seng, EEM, HYG eklendi), desen (küresel dolar dışı, kredi, jeopolitik...) ve kaynak bölge; sadece risk/aralık. Motor B (`shock_direction.py`, günlük 10 yıl olay çalışması, RESEARCH_LOG #12): sadece kanıtlı kural yön verir; yön önceliğinde en üstte. Araştırma `direction_research.yml` içinde çalışır.
 * 2026-10-23: `shock_monitor.py` (Şok Dedektörü): 11 gösterge 5 dk verisi, |z15| ≥ 5 / |z60| ≥ 4, genişlik ≥ 3 → piyasa geneli; desen (risk-off/on, dolar, faiz, petrol, kripto). 4 saat aralık/stop ×√(gün içi oynaklık oranı), risk 🔴, üstte uyarı. `shock_ledger.csv` notlar (RESEARCH_LOG #11). Sınır: motor saatlik → gecikme ≤ ~1 saat.
 * 2026-10-23: Makro takvim düzeltmesi: FRED 'FOMC Press Release' her günü veriyordu → FOMC karar günleri Fed takviminden (2025-2026 listesi, `macro_calendar.FOMC_DATES`). Yılda >20 tarihli olay türü veri hatası sayılır. İlk ölçüm (1 yıl, 61 veri günü): hiçbir varlıkta kanıtlı etki yok (SPX ×1.09, t 0.65).

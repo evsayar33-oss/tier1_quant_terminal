@@ -437,3 +437,7 @@ STATE_REPO = "evsayar33-oss/tier1_quant_terminal"
 #             short into a near put wall in +gamma loses entry permission.
 # The map never grants entry and never changes direction.
 DEALER_GAMMA_POLICY = "advisory"
+
+# Mantık sürümü: her kayıt (tahmin, stop, şok, karar defteri) bu etiketi taşır.
+# Mantık değişince BU DEĞER DE DEĞİŞMELİ; böylece karne her sürümü ayrı ölçer.
+LOGIC_VERSION = "2026.10.23-v1"

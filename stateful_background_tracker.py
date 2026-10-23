@@ -235,6 +235,13 @@ def run_background_cycle() -> Dict[str, Any]:
         if a in contexts:
             v["market_structure"] = contexts[a]
 
+    # v16.8: Karar defteri — arayüzün gösterdiği her şey, mantık sürümüyle (saatte bir).
+    try:
+        import decision_log as DL
+        DL.record(verdicts, list(ASSET_MATRICES.keys()), gex_hist)
+    except Exception as exc:
+        print(f"Karar defteri atlandı: {exc}")
+
     # Out-of-sample scoreboard: settle earlier calls, record this cycle's
     # FINAL decisions, refresh performance_report.md. Pure observer -- it
     # never feeds back into the model, so it cannot destabilize it.

@@ -82,7 +82,7 @@ def scan(df: pd.DataFrame, now: pd.Timestamp, lookback_h: float = ACTIVE_H) -> O
             return None
         recent = r[r.index > now - pd.Timedelta(hours=lookback_h)]
         if recent.empty:
-            return None
+            return {"closed": True}                           # seans kapalı: veri var, son 4 saatte işlem yok
         z15 = (r.rolling(3).sum() / (sig * math.sqrt(3)))[recent.index]
         z60 = (r.rolling(12).sum() / (sig * math.sqrt(12)))[recent.index]
         i15, i60 = z15.abs().idxmax(), z60.abs().idxmax()
@@ -128,10 +128,13 @@ def classify(hits: Dict[str, Dict[str, Any]]) -> str:
 def detect(panel: Dict[str, pd.DataFrame], now: Any = None) -> Dict[str, Any]:
     now = pd.Timestamp(now or now_utc())
     now = now.tz_localize("UTC") if now.tzinfo is None else now.tz_convert("UTC")
-    scans = {k: s for k, df in panel.items() if (s := scan(df, now))}
+    raw = {k: scan(df, now) for k, df in panel.items()}
+    closed = sorted(k for k, s in raw.items() if s and s.get("closed"))
+    failed = sorted(k for k, s in raw.items() if not s)
+    scans = {k: s for k, s in raw.items() if s and not s.get("closed")}
     hits = {k: s for k, s in scans.items() if abs(s["z15"]) >= Z15 or abs(s["z60"]) >= Z60}
     if not hits:
-        return {"active": False, "scanned": sorted(scans), "n_panel": len(panel)}
+        return {"active": False, "scanned": sorted(scans), "closed": closed, "failed": failed, "n_panel": len(panel)}
     t_hit = {k: pd.Timestamp(h["t15"] if abs(h["z15"]) / Z15 >= abs(h["z60"]) / Z60 else h["t60"]) for k, h in hits.items()}
     t0 = max(t_hit.values())
     cluster = {k: h for k, h in hits.items() if abs((t_hit[k] - t0).total_seconds()) <= 1800}
@@ -144,7 +147,7 @@ def detect(panel: Dict[str, pd.DataFrame], now: Any = None) -> Dict[str, Any]:
     origin = REGION.get(first, NAME_TR.get(first, first))
     desc = ", ".join(f"{NAME_TR[k]} {'↑' if (h['z15'] if abs(h['z15']) >= abs(h['z60']) else h['z60']) > 0 else '↓'}"
                      f"{max(abs(h['z15']), abs(h['z60'])):.0f}σ" for k, h in sorted(hits.items(), key=lambda x: -max(abs(x[1]['z15']), abs(x[1]['z60']))))
-    return {"active": True, "broad": broad, "pattern": pattern, "origin": origin, "affected": affected, "time": t0.isoformat(),
+    return {"active": True, "closed": closed, "failed": failed, "broad": broad, "pattern": pattern, "origin": origin, "affected": affected, "time": t0.isoformat(),
             "hits": hits, "desc": desc, "n_panel": len(panel),
             "vol_now": {ASSET_OF[k]: s["vol_now_ratio"] for k, s in scans.items() if k in ASSET_OF}}
 
@@ -152,7 +155,15 @@ def detect(panel: Dict[str, pd.DataFrame], now: Any = None) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Defter: her şok kaydedilir, 4 saat sonra notlanır
 # ---------------------------------------------------------------------------
-COLS = ["t_shock", "inst", "asset", "z", "pattern", "broad", "price", "ret_4h", "mag_4h", "graded"]
+COLS = ["t_shock", "inst", "asset", "z", "pattern", "broad", "price", "ret_4h", "mag_4h", "graded", "logic"]
+
+
+def _logic() -> str:
+    try:
+        from config import LOGIC_VERSION
+        return LOGIC_VERSION
+    except Exception:
+        return "?"
 
 
 def _load(path: str) -> pd.DataFrame:
@@ -185,7 +196,8 @@ def ledger_cycle(shock: Dict[str, Any], panel: Dict[str, pd.DataFrame], path: st
             c = c[c.index <= pd.Timestamp(t)]
             p = float(c.iloc[-1]) if len(c) else None
         d.loc[len(d)] = {"t_shock": t, "inst": k, "asset": ASSET_OF.get(k, ""), "z": z, "pattern": shock.get("pattern"),
-                         "broad": bool(shock.get("broad")), "price": p, "ret_4h": np.nan, "mag_4h": np.nan, "graded": 0}
+                         "broad": bool(shock.get("broad")), "price": p, "ret_4h": np.nan, "mag_4h": np.nan, "graded": 0,
+                         "logic": _logic()}
     for i, row in d[d["graded"].fillna(0) == 0].iterrows():
         t1 = pd.Timestamp(row["t_shock"]) + pd.Timedelta(hours=4)
         df = panel.get(row["inst"])
@@ -222,9 +234,9 @@ def run(intraday: Optional[Dict[str, pd.DataFrame]] = None, now: Any = None, pat
         shock["ledger"] = ledger_cycle(shock, panel, path=path, now=now)
     except Exception as exc:
         shock["ledger"] = {"error": str(exc)}
-    n_scan = len(shock.get("scanned") or []) if not shock.get("active") else len(panel)
-    if len(panel) < 8 or n_scan < len(PANEL) - 4:   # Asya/Avrupa endeksleri kendi seansları dışında seyrek olabilir
-        shock["error"] = f"şok paneli eksik: {len(panel)}/{len(PANEL)} indirildi, {n_scan} tarandı"
+    missing = sorted(set(PANEL) - set(panel)) + list(shock.get("failed") or [])
+    if len(missing) > 2:                       # seansı kapalı gösterge sorun değildir; verisi olmayan sorundur
+        shock["error"] = f"şok paneli eksik: {', '.join(missing)}"
     return shock
 
 
