@@ -916,6 +916,15 @@ try:
                  use_container_width=True, hide_index=True)
     with st.expander("❓ Bu tablo nasıl okunur?", expanded=False):
         st.markdown(_DP.SIMPLE_GUIDE)
+    _mc = active_data.get("macro_calendar") or {}
+    if _mc.get("upcoming"):
+        with st.expander("🗓️ ABD veri takvimi (7 gün) ve etkisi", expanded=bool(_mc.get("today"))):
+            st.dataframe(pd.DataFrame([{"Saat (TSİ)": e["tsi"], "Veri": e["event"],
+                                        "Durum": "açıklandı" if e["passed"] else ("BUGÜN" if e["today"] else "")}
+                                       for e in _mc["upcoming"]]), use_container_width=True, hide_index=True)
+            _eff = _mc.get("effects") or {}
+            st.caption(" · ".join(f"{a}: veri günü hareketi ×{x['ratio']:.2f} (t={x['t']:.1f}, n={x['n_event']}, "
+                                  f"{'kanıtlı' if x['proven'] else 'kanıtsız'})" for a, x in _eff.items() if x))
     _fc = active_data.get("forecast_scorecard") or {}
     if _fc and "error" not in _fc:
         import forecast_ledger as _FL

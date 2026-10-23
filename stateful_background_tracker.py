@@ -143,6 +143,25 @@ def run_background_cycle() -> Dict[str, Any]:
     except Exception as exc:
         print(f"GEX geçmişi atlandı: {exc}")
 
+    # v16.5: ABD makro veri takvimi (FRED). Olay günü etkisi her döngüde ölçülür;
+    # sadece kanıtlıysa (t ≥ 3) o gün hareket çarpanına eklenir.
+    macro_cal: Dict[str, Any] = {}
+    try:
+        import macro_calendar as MC
+        macro_cal = MC.run(daily)
+        for a in ASSET_MATRICES:
+            eff = (macro_cal.get("effects") or {}).get(a) or {}
+            if a in contexts and macro_cal.get("today") and eff.get("proven"):
+                contexts[a]["move_factor"] = float(contexts[a].get("move_factor", 1.0) or 1.0) * float(eff["factor"])
+                contexts[a]["event_factor"] = eff["factor"]
+        for a, v in verdicts.items():
+            v["macro_note"] = MC.note(a, macro_cal)
+            v["macro_pending"] = any(not e["passed"] for e in macro_cal.get("today") or [])
+        print(f"[makro] bugün: {[e['event'] for e in macro_cal.get('today', [])]} · sorun: {macro_cal.get('problems')}")
+    except Exception as exc:
+        macro_cal = {"error": str(exc)}
+        print(f"Makro takvim atlandı: {exc}")
+
     # v16.0: proven daily-data direction rule (weekly research) for the long horizon.
     try:
         import direction_research as DR
@@ -261,6 +280,7 @@ def run_background_cycle() -> Dict[str, Any]:
         "gex_history": gex_hist,
         "stop_calibration": stop_stats,
         "forecast_scorecard": forecast_cards,
+        "macro_calendar": macro_cal,
     }
     # v16.3: the system checks its own health and logs problems permanently.
     try:
