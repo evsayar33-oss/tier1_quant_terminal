@@ -353,11 +353,19 @@ def build_gamma_map(
     ps = ps[(ps["lvl"] > F * (1 - 2 * cfg["profile_span"])) & (ps["lvl"] < F * (1 + 2 * cfg["profile_span"]))]
 
     def _walls(rows: pd.DataFrame) -> Tuple[Optional[float], Optional[float]]:
+        # Call duvarı fiyatın ÜSTÜNDE (direnç), put duvarı ALTINDA (destek) aranır.
+        # Taraf sınırı yokken derin ITM put'lar (ör. SPX 8040, fiyat 7666) "destek"
+        # diye fiyatın üstünde gösteriliyordu.
         if rows.empty:
             return None, None
         w = rows.groupby(["lvl", "type"])["gex_at_k"].sum().unstack(fill_value=0.0)
-        cw = float(w["C"].idxmax()) if "C" in w and (w["C"] > 0).any() else None
-        pw = float(w["P"].idxmin()) if "P" in w and (w["P"] < 0).any() else None
+        cw = pw = None
+        if "C" in w:
+            c = w["C"][w.index >= F]
+            cw = float(c.idxmax()) if (c > 0).any() else None
+        if "P" in w:
+            p = w["P"][w.index <= F]
+            pw = float(p.idxmin()) if (p < 0).any() else None
         return cw, pw
 
     # Yapısal duvarlar: ≥1 gün vadeli seriler (gün içinde kaybolmazlar). Sadece
