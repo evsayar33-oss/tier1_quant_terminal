@@ -8,6 +8,7 @@ yön ve giriş-zamanlaması analizidir.
 """
 from __future__ import annotations
 
+import math
 import re
 from typing import Any, Dict, List, Optional
 
@@ -189,11 +190,32 @@ def simple_stop(v: Dict[str, Any]) -> str:
     return f"Düşüş fikri {lvl} üstünde geçersiz (%{s['distance_pct']:.1f} yukarıda)"
 
 
+def _hist_side(b: Dict[str, Any]) -> int:
+    """Taban oran sadece istatistiksel olarak anlamlıysa yön verir.
+    5 günlük pencereler örtüşür: etkin örnek ≈ n/5. Gerekli z ≥ 2."""
+    up, n = b.get("up"), b.get("n") or 0
+    if up is None or n < 50:
+        return 0
+    z = (float(up) - 0.5) / math.sqrt(0.25 / max(n / int(b.get("horizon_d") or 5), 1))
+    return 1 if z >= 2 else -1 if z <= -2 else 0
+
+
+def _price_side(v: Dict[str, Any]) -> int:
+    """Kısa vade eğilimi. Model kanıtsızsa (RESEARCH_LOG #1, #5) sadece FİYATIN kendisine bakılır."""
+    if "NOT_PROVEN" not in str(v.get("learned_model_status", "")):
+        return short_side(v)
+    pz = (v.get("short_term_parts") or {}).get("price_z")
+    try:
+        pz = float(pz)
+    except (TypeError, ValueError):
+        return 0
+    return 1 if pz >= 0.5 else -1 if pz <= -0.5 else 0
+
+
 def _lean(v: Dict[str, Any]) -> Dict[str, int]:
     rd = v.get("research_direction")
-    b = v.get("base_rate") or {}
-    hist = rd.get("side", 0) if isinstance(rd, dict) else (1 if (b.get("up") or 0.5) > 0.55 else -1 if (b.get("up") or 0.5) < 0.45 else 0)
-    return {"now": 0 if market_closed(v) else short_side(v), "hist": hist}
+    hist = rd.get("side", 0) if isinstance(rd, dict) else _hist_side(v.get("base_rate") or {})
+    return {"now": 0 if market_closed(v) else _price_side(v), "hist": hist}
 
 
 def simple_today(v: Dict[str, Any]) -> str:
