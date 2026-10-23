@@ -249,6 +249,14 @@ def run_background_cycle() -> Dict[str, Any]:
         "gex_history": gex_hist,
         "stop_calibration": stop_stats,
     }
+    # v16.3: the system checks its own health and logs problems permanently.
+    try:
+        import system_health as SH
+        payload["system_health"] = SH.run(payload)
+        for e in payload["system_health"]["new_events"]:
+            print(f"[sağlık] {e['check']} {e['event']}: {e['detail']}")
+    except Exception as exc:
+        print(f"Sağlık kontrolü atlandı: {exc}")
     _save_json(STATE_FILE, payload)
 
     row = {
