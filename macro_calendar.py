@@ -36,11 +36,15 @@ EVENTS = {
     "GSYH": (53, "gross domestic product", "08:30"),
     "PCE": (54, "personal income", "08:30"),
     "Perakende Satışlar": (9, "retail", "08:30"),
-    "FOMC kararı": (101, "fomc", "14:00"),
 }
-# FRED erişilemezse son çare: Fed'in ilan ettiği 2026 FOMC karar günleri.
-FOMC_FALLBACK = ["2026-01-28", "2026-03-18", "2026-04-29", "2026-06-17",
-                 "2026-07-29", "2026-09-16", "2026-10-28", "2026-12-09"]
+# FOMC karar günleri Fed'in ilan ettiği takvimden alınır. FRED'deki "FOMC Press
+# Release" yayını her gün güncellenen veri içerir; karar günü listesi DEĞİLDİR
+# (ilk denemede her günü FOMC günü gösterdi). Liste biterse sağlık kontrolü uyarır.
+FOMC_DATES = ["2025-01-29", "2025-03-19", "2025-05-07", "2025-06-18", "2025-07-30", "2025-09-17",
+              "2025-10-29", "2025-12-10",
+              "2026-01-28", "2026-03-18", "2026-04-29", "2026-06-17", "2026-07-29", "2026-09-16",
+              "2026-10-28", "2026-12-09"]
+MAX_PER_YEAR = 20   # aylık veriden fazlası (ör. her gün) veri hatasıdır
 T_REQ, MIN_N = 3.0, 20
 
 
@@ -67,6 +71,12 @@ def fetch(api_key: str, timeout: float = 20.0) -> Optional[pd.DataFrame]:
     if not rows:
         return None
     df = pd.DataFrame(rows).drop_duplicates()
+    yr = pd.to_datetime(df["date"]).dt.year
+    per_year = df.groupby([df["event"], yr]).size().groupby(level=0).max()
+    for ev, n in per_year.items():
+        if n > MAX_PER_YEAR:
+            problems.append(f"{ev}: yılda {n} tarih (veri hatası, atlandı)")
+            df = df[df["event"] != ev]
     df.attrs["problems"] = problems
     return df
 
@@ -88,8 +98,11 @@ def load(api_key: Optional[str] = None, cache: str = CACHE) -> pd.DataFrame:
         except Exception:
             df = None
     if df is None:
-        problems.append("FRED takvimi alınamadı; sadece FOMC yedek listesi")
-        df = pd.DataFrame({"date": FOMC_FALLBACK, "event": "FOMC kararı", "time_et": "14:00"})
+        problems.append("FRED takvimi alınamadı; sadece FOMC listesi")
+        df = pd.DataFrame(columns=["date", "event", "time_et"])
+    df = df[df["event"] != "FOMC kararı"]
+    df = pd.concat([df, pd.DataFrame({"date": FOMC_DATES, "event": "FOMC kararı", "time_et": "14:00"})],
+                   ignore_index=True)
     df.attrs["problems"] = problems
     return df
 
@@ -111,7 +124,7 @@ def measure(daily: Any, cal: pd.DataFrame) -> Optional[Dict[str, Any]]:
             return None
         ev = m.index.isin(event_days(cal))
         a, b = m[ev], m[~ev]
-        if len(a) < 5:
+        if len(a) < 5 or len(b) < 20:
             return None
         t = (a.mean() - b.mean()) / math.sqrt(a.var(ddof=1) / len(a) + b.var(ddof=1) / len(b))
         ratio = float(a.mean() / b.mean())
