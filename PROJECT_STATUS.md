@@ -38,6 +38,7 @@ Sonra şu dosyaları okur:
 * GitHub token Claude ile paylaşılmaz; yalnız cron-job.org'dadır.
 
 ## Son değişiklikler
+* 2026-10-23: Kısa vade çift tutarlılığı: SPX/NQ, XAU/XAG, BTC/ETH aynı yöndeyse ortak (ortalama) z; zıt ve belirginse "eşinden ayrışıyor" notu. 4s getiri zamana göre (yarım son bar pencereyi kısaltmaz).
 * 2026-10-23: `forecast_ledger.py` (Tahmin Karnesi) eklendi. Arayüz tahminleri önceden kaydedilir, 4s/24s sonra notlanır; aralık 30 günden sonra kendini kalibre eder. Hipotezler RESEARCH_LOG #9.
 * 2026-10-23: Kısa vade = son 4 saatlik getiri / normal 4s oynaklık (|z| ≥ 0.75). Sakin mi = son 20 gün ↔ son 1 yıl (medyan tabanlı σ, × GEX çarpanı). Taban oran: örneklem zaten örtüşmesiz (önceki n/5 düzeltmesi YANLIŞTI), eşik z ≥ 3 (Bonferroni ~30 test). "Önümüzdeki hafta" → "Yarın ve bu hafta" (1-5 gün taban oranları).
 * 2026-10-23: Detaylı Karar Özeti ve stoplar da kanıt mantığına geçti (`stop_levels.evidence_*_side`). Kanıtsız model yön/stop yönü belirlemez; sadece "model X diyor, kanıtsız" notu olarak görünür. Yön yoksa iki senaryo stopu gösterilir.
