@@ -130,6 +130,14 @@ def pair_consistent(moves: Dict[str, Dict[str, Any]]) -> None:
             moves[a]["pair"] = moves[b]["pair"] = "ayrışma"
 
 
+def _logic_version() -> str:
+    try:
+        from config import LOGIC_VERSION
+        return LOGIC_VERSION
+    except Exception:
+        return "?"
+
+
 def model_proven(verdict: Dict[str, Any]) -> bool:
     return "NOT_PROVEN" not in str(verdict.get("learned_model_status", ""))
 
@@ -243,7 +251,7 @@ def suggest_stop(side: int, horizon: str, price: float, atr_1h: Optional[float],
 
 
 class StopLedger:
-    COLS = ["ts", "asset", "horizon", "side", "price", "stop", "hours", "stop_hit", "ret_dir", "hunted"]
+    COLS = ["ts", "asset", "horizon", "side", "price", "stop", "hours", "stop_hit", "ret_dir", "hunted", "logic"]
 
     def __init__(self, path: str = LEDGER_FILE):
         self.path = path
@@ -261,7 +269,8 @@ class StopLedger:
             return False
         self.df.loc[len(self.df)] = {"ts": ts, "asset": asset, "horizon": s["horizon"], "side": s["side"],
                                      "price": s["price"], "stop": s["stop"], "hours": HORIZONS[s["horizon"]]["hours"],
-                                     "stop_hit": np.nan, "ret_dir": np.nan, "hunted": np.nan}
+                                     "stop_hit": np.nan, "ret_dir": np.nan, "hunted": np.nan,
+                                     "logic": _logic_version()}
         return True
 
     def grade(self, frames: Dict[str, pd.DataFrame], now: Any = None) -> int:

@@ -32,9 +32,14 @@ import pandas as pd
 
 from system_clock import now_utc
 
+try:
+    from config import LOGIC_VERSION as LOGIC
+except Exception:
+    LOGIC = "?"
+
 LEDGER_FILE = "forecast_ledger.csv"
 COLS = ["ts", "asset", "price", "sigma_pct", "lean4h", "calm_ratio", "p_up_1d",
-        "ret_4h", "ret_24h", "graded_4h", "graded_24h"]
+        "ret_4h", "ret_24h", "graded_4h", "graded_24h", "logic"]
 TARGET_COVER = 0.6827
 MIN_DAYS = 30
 MIN_LEAN = 100
@@ -80,7 +85,7 @@ class ForecastLedger:
             "lean4h": evidence_short_side(v) if rm else np.nan,
             "calm_ratio": (v.get("vol_state") or {}).get("ratio", np.nan),
             "p_up_1d": b1.get("up", np.nan),
-            "ret_4h": np.nan, "ret_24h": np.nan, "graded_4h": 0, "graded_24h": 0}
+            "ret_4h": np.nan, "ret_24h": np.nan, "graded_4h": 0, "graded_24h": 0, "logic": LOGIC}
         return True
 
     def grade(self, frames: Dict[str, pd.DataFrame], now: Any = None) -> int:
@@ -112,10 +117,13 @@ class ForecastLedger:
         self.df.tail(MAX_ROWS).to_csv(self.path, index=False)
 
     # ------------------------------------------------------------------
-    def scorecard(self, asset: str) -> Dict[str, Any]:
+    def scorecard(self, asset: str, logic: Optional[str] = LOGIC) -> Dict[str, Any]:
+        """Karne SADECE verilen mantık sürümünün kayıtlarından hesaplanır (karışmasın)."""
         d = self.df[self.df["asset"] == asset].copy()
+        if logic is not None:
+            d = d[d["logic"].fillna("?") == logic]
         d["t"] = pd.to_datetime(d["ts"], utc=True)
-        out: Dict[str, Any] = {"n_records": int(len(d))}
+        out: Dict[str, Any] = {"n_records": int(len(d)), "logic": logic}
 
         # 1) Aralık kapsama: günde bir bağımsız örnek (her günün ilk kaydı)
         g = d[d["graded_24h"] == 1].copy()
