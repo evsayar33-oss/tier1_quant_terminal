@@ -234,6 +234,16 @@ def simple_calm(v: Dict[str, Any], gex: Optional[Dict[str, Any]] = None, asset: 
     return out
 
 
+def _with_macro(fn):
+    def wrap(v, *a, **k):
+        out = fn(v, *a, **k)
+        return out + str(v.get("macro_note") or "") if out != "—" else out
+    return wrap
+
+
+simple_calm = _with_macro(simple_calm)
+
+
 def simple_stop(v: Dict[str, Any]) -> str:
     st = v.get("stop_suggestion") or {}
     s = (None if market_closed(v) else st.get("kisa")) or st.get("uzun")
@@ -277,6 +287,8 @@ def simple_risk(v: Dict[str, Any]) -> str:
         return "—"
     if "KRİZ" in str(v.get("verdict", "")):
         return "🔴 Çok riskli — kriz sinyali"
+    if v.get("macro_pending"):
+        return "🔴 Riskli — bugün önemli ABD verisi açıklanacak"
     neg = _hot(v)
     l = _lean(v)
     mixed = l["now"] and l["hist"] and l["now"] != l["hist"]
@@ -328,6 +340,7 @@ SIMPLE_GUIDE = """
 - **Girersen hangi yön daha iyi?** — Kısa vade ve geçmiş eğilim aynı yönü gösterirse o yön yazılır. Çelişirse "girmemek daha iyi" yazılır.
 - **Yarın ve bu hafta** — Geçmiş 10 yılda sonraki günün ve haftanın kalan günlerinin yüzde kaçının yükselişle bittiğini gösterir. "Yazı-tura" yazıyorsa bu oran şanstan ayırt edilemez.
 - **Piyasa sakin mi?** — Son 20 günün günlük hareketini son 1 yılın normal günüyle karşılaştırır (SPX/NQ'da opsiyon pozisyonu çarpanıyla). Tek bir kriz günü ortalamayı bozmasın diye medyan kullanılır. Oynaklık kümelenir: bu, sistemin en güçlü bilgisidir (15 yıllık veride kanıtlı). Hareketli piyasada küçük pozisyon ve geniş stop gerekir.
+- **⚠️ Bugün veri** — TÜFE, istihdam, FOMC gibi ABD verileri açıklanan günlerde fiyat çok hızlı hareket edebilir. Sistem bu günlerin etkisini kendi verisinde ölçer. Etki kanıtlıysa beklenen aralığı ve stopları genişletir.
 - **Fikir nerede bozulur?** — Fiyat bu seviyeyi geçerse fikriniz yanlıştır. Bu bir emir değil, risk sınırıdır.
 
 ⚠️ Bu tablo yatırım tavsiyesi değildir.
