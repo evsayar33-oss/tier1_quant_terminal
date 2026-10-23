@@ -915,6 +915,12 @@ try:
         st.error(f"⚡ ŞOK HAREKET ({'piyasa geneli' if _sh.get('broad') else 'yerel'} · {_sh.get('pattern')}): "
                  f"{_sh.get('desc')} — etkilenen: {', '.join(_sh.get('affected') or [])}. "
                  "Sonraki 4 saat aralık ve stoplar genişletildi.")
+    _sdd = active_data.get("shock_direction") or {}
+    if _sdd.get("events") or _sdd.get("assets"):
+        st.warning("⚡ Son günlerin şokları: " + " · ".join(
+            f"{e['date']} {e['name']}{' (geçici)' if e.get('provisional') else ''}" for e in _sdd.get("events", []))
+            + ("" if not _sdd.get("assets") else " — kanıtlı şok sonrası yön: " + ", ".join(
+                f"{a} {'AL' if x['side'] > 0 else 'SAT'} ({x['days_left']} gün)" for a, x in _sdd["assets"].items())))
     st.subheader("🟢 Basit Özet")
     st.dataframe(pd.DataFrame(_DP.simple_rows(verdicts, list(ASSET_MATRICES.keys()),
                                               active_data.get("gex_history"))),

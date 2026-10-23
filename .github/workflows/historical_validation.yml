@@ -60,6 +60,8 @@ jobs:
       - name: Direction research (daily data, timing alpha vs always-long)
         continue-on-error: true
         run: python direction_research.py --out validation_reports
+      - name: Shock-direction research (Motor B)
+        run: python shock_direction.py --out validation_reports || echo "şok araştırması başarısız"
 
       - name: Download links + report on the run page
         if: always()

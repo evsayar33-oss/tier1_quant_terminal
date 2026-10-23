@@ -148,6 +148,9 @@ def base_rate_side(b: Optional[Dict[str, Any]]) -> int:
 def evidence_short_side(verdict: Dict[str, Any]) -> int:
     """Kısa vade yönü. Model kanıtsızsa (RESEARCH_LOG #1, #5) sadece fiyatın kendi hareketi:
     son 4 saatlik getiri, normal 4 saatlik oynaklığın RECENT_Z katını geçmeli."""
+    sd = verdict.get("shock_direction")
+    if isinstance(sd, dict) and sd.get("side") and int(sd.get("h", 5)) == 1:
+        return int(sd["side"])               # kanıtlı şok-sonrası 1 günlük kural
     if model_proven(verdict):
         return short_side(verdict)
     rm = verdict.get("recent_move")
@@ -162,9 +165,12 @@ def evidence_short_side(verdict: Dict[str, Any]) -> int:
 
 
 def evidence_long_side(verdict: Dict[str, Any]) -> int:
-    """Uzun vade yönü: kanıtlı kural > kanıtlı model > anlamlı taban oran > yön yok."""
+    """Uzun vade yönü: kanıtlı şok-sonrası kural > kanıtlı kural > kanıtlı model > anlamlı taban oran."""
     if "KRİZ" in str(verdict.get("verdict", "")):
         return 0
+    sd = verdict.get("shock_direction")
+    if isinstance(sd, dict) and sd.get("side"):
+        return int(sd["side"])
     rd = verdict.get("research_direction")
     if isinstance(rd, dict) and rd.get("side") is not None:
         return int(rd["side"])

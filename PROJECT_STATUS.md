@@ -40,6 +40,7 @@ Sonra şu dosyaları okur:
 * GitHub token Claude ile paylaşılmaz; yalnız cron-job.org'dadır.
 
 ## Son değişiklikler
+* 2026-10-23: İki motorlu şok aklı. Motor A (`shock_monitor.py`, gün içi): 16 gösterge (DAX, Nikkei, Hang Seng, EEM, HYG eklendi), desen (küresel dolar dışı, kredi, jeopolitik...) ve kaynak bölge; sadece risk/aralık. Motor B (`shock_direction.py`, günlük 10 yıl olay çalışması, RESEARCH_LOG #12): sadece kanıtlı kural yön verir; yön önceliğinde en üstte. Araştırma `direction_research.yml` içinde çalışır.
 * 2026-10-23: `shock_monitor.py` (Şok Dedektörü): 11 gösterge 5 dk verisi, |z15| ≥ 5 / |z60| ≥ 4, genişlik ≥ 3 → piyasa geneli; desen (risk-off/on, dolar, faiz, petrol, kripto). 4 saat aralık/stop ×√(gün içi oynaklık oranı), risk 🔴, üstte uyarı. `shock_ledger.csv` notlar (RESEARCH_LOG #11). Sınır: motor saatlik → gecikme ≤ ~1 saat.
 * 2026-10-23: Makro takvim düzeltmesi: FRED 'FOMC Press Release' her günü veriyordu → FOMC karar günleri Fed takviminden (2025-2026 listesi, `macro_calendar.FOMC_DATES`). Yılda >20 tarihli olay türü veri hatası sayılır. İlk ölçüm (1 yıl, 61 veri günü): hiçbir varlıkta kanıtlı etki yok (SPX ×1.09, t 0.65).
 * 2026-10-23: `macro_calendar.py`: FRED ABD veri takvimi (TÜFE, NFP, ÜFE, GSYH, PCE, perakende, FOMC). Olay günü etkisi her döngüde ölçülür (RESEARCH_LOG #10); kanıtlıysa aralık/stop çarpanı. Bugün veri varsa Basit Özet uyarır, açıklanmadan önce risk 🔴. FRED adı uyuşmazsa veya gelecek FOMC kalmazsa sağlık günlüğüne yazılır.

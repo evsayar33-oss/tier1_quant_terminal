@@ -45,6 +45,10 @@ def long_label(v: Dict[str, Any]) -> str:
     verdict = str(v.get("verdict") or "NÖTR (BEKLE)")
     if "KRİZ" in verdict:
         return "⛔ KRİZ KİLİDİ"
+    sd = v.get("shock_direction")
+    if isinstance(sd, dict) and sd.get("side"):
+        return (f"{_ARROW[sd['side']]} {'AL' if sd['side'] > 0 else 'SAT'} · kanıtlı şok sonrası: {sd['name']} "
+                f"({sd['event_date']}, {sd['h']}g, t={sd['t']:+.1f}, {sd['days_left']} gün kaldı)")
     rd = v.get("research_direction")
     if isinstance(rd, dict):
         from direction_research import RULE_TR
@@ -182,6 +186,10 @@ def _remaining_days(asset: str, now: Any = None) -> int:
 
 
 def simple_days(v: Dict[str, Any], asset: str = "", now: Any = None) -> str:
+    sd = v.get("shock_direction")
+    if isinstance(sd, dict) and sd.get("side"):
+        return (f"{'🟢 Yükseliş' if sd['side'] > 0 else '🔴 Düşüş'} — {sd['name']} sonrası tarihte "
+                f"%{100 * sd['hit']:.0f} isabet, ortalama {sd['alpha_bps']:+.0f} bps ({sd['n']} olay, kanıtlı)")
     rd = v.get("research_direction")
     if isinstance(rd, dict) and rd.get("side"):
         return ("🟢 Test edilmiş bir kural yükseliş diyor" if rd["side"] > 0
@@ -307,6 +315,9 @@ def simple_side(v: Dict[str, Any]) -> str:
         return "—"
     l = _lean(v)
     word = {1: "🟢 Yükseliş (AL) yönü", -1: "🔴 Düşüş (SAT) yönü"}
+    sd = v.get("shock_direction")
+    if isinstance(sd, dict) and sd.get("side"):
+        return f"{word[sd['side']]} — kanıtlı şok sonrası kural ({sd['name']}, {sd['days_left']} gün)"
     if l["now"] and l["now"] == l["hist"]:
         return f"{word[l['now']]} — kısa vade ve geçmiş eğilim aynı"
     if l["now"] and l["hist"]:
@@ -343,6 +354,7 @@ SIMPLE_GUIDE = """
 - **Yarın ve bu hafta** — Geçmiş 10 yılda sonraki günün ve haftanın kalan günlerinin yüzde kaçının yükselişle bittiğini gösterir. "Yazı-tura" yazıyorsa bu oran şanstan ayırt edilemez.
 - **Piyasa sakin mi?** — Son 20 günün günlük hareketini son 1 yılın normal günüyle karşılaştırır (SPX/NQ'da opsiyon pozisyonu çarpanıyla). Tek bir kriz günü ortalamayı bozmasın diye medyan kullanılır. Oynaklık kümelenir: bu, sistemin en güçlü bilgisidir (15 yıllık veride kanıtlı). Hareketli piyasada küçük pozisyon ve geniş stop gerekir.
 - **⚠️ Bugün veri** — TÜFE, istihdam, FOMC gibi ABD verileri açıklanan günlerde fiyat çok hızlı hareket edebilir. Sistem bu günlerin etkisini kendi verisinde ölçer. Etki kanıtlıysa beklenen aralığı ve stopları genişletir.
+- **Şok sonrası yön** — Ayrı bir motor, 10 yıllık veride her şok türünden (ABD/küresel hisse çöküşü, dolar, faiz, petrol, kredi, güvenli liman, kripto) sonra fiyatın ne yaptığını ölçer. Sadece kanıtlı kural varsa yön yazar.
 - **⚡ Şok** — Sistem 11 göstergeyi (hisse vadelileri, altın, gümüş, kripto, VIX, dolar, yen, faiz, petrol) 5 dakikalık veriyle izler. Bir gösterge normalin 4-5 katı hızlı hareket ederse bunu şok sayar. Şoktan sonra 4 saat aralık ve stoplar genişler, risk 🔴 olur.
 - **Fikir nerede bozulur?** — Fiyat bu seviyeyi geçerse fikriniz yanlıştır. Bu bir emir değil, risk sınırıdır.
 

@@ -179,6 +179,18 @@ def run_background_cycle() -> Dict[str, Any]:
         shock = {"error": str(exc)}
         print(f"Şok dedektörü atlandı: {exc}")
 
+    # v16.7: Motor B — şok sonrası yön aklı (10 yıllık olay çalışması; sadece kanıtlı kural yön verir).
+    shock_dir: Dict[str, Any] = {}
+    try:
+        import shock_direction as SD
+        shock_dir = SD.live(SD.fetch_live(), SD.load_result())
+        for a, v in verdicts.items():
+            v["shock_direction"] = (shock_dir.get("assets") or {}).get(a)
+        print(f"[şok-yön] olaylar: {[e['name'] for e in shock_dir.get('events', [])]} · etkin: {list((shock_dir.get('assets') or {}))}")
+    except Exception as exc:
+        shock_dir = {"error": str(exc)}
+        print(f"Şok yön aklı atlandı: {exc}")
+
     # v16.0: proven daily-data direction rule (weekly research) for the long horizon.
     try:
         import direction_research as DR
@@ -299,6 +311,7 @@ def run_background_cycle() -> Dict[str, Any]:
         "forecast_scorecard": forecast_cards,
         "macro_calendar": macro_cal,
         "shock": shock,
+        "shock_direction": shock_dir,
     }
     # v16.3: the system checks its own health and logs problems permanently.
     try:
