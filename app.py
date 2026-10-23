@@ -910,7 +910,13 @@ except Exception:
 
 try:
     import decision_panel as _DP
-    st.subheader("🎯 Karar Özeti")
+    st.subheader("🟢 Basit Özet")
+    st.dataframe(pd.DataFrame(_DP.simple_rows(verdicts, list(ASSET_MATRICES.keys()),
+                                              active_data.get("gex_history"))),
+                 use_container_width=True, hide_index=True)
+    with st.expander("❓ Bu tablo nasıl okunur?", expanded=False):
+        st.markdown(_DP.SIMPLE_GUIDE)
+    st.subheader("🎯 Karar Özeti (detaylı)")
     st.dataframe(pd.DataFrame(_DP.build_rows(verdicts, list(ASSET_MATRICES.keys()))),
                  use_container_width=True, hide_index=True)
     _cal = active_data.get("market_calendar") or {}
