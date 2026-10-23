@@ -156,6 +156,8 @@ def base_rate_side(b: Optional[Dict[str, Any]]) -> int:
 def evidence_short_side(verdict: Dict[str, Any]) -> int:
     """Kısa vade yönü. Model kanıtsızsa (RESEARCH_LOG #1, #5) sadece fiyatın kendi hareketi:
     son 4 saatlik getiri, normal 4 saatlik oynaklığın RECENT_Z katını geçmeli."""
+    if verdict.get("clone_short_side") is not None:    # klon sistem (clone_system.py) kendi kararını taşır
+        return int(verdict["clone_short_side"])
     sd = verdict.get("shock_direction")
     if isinstance(sd, dict) and sd.get("side") and int(sd.get("h", 5)) == 1:
         return int(sd["side"])               # kanıtlı şok-sonrası 1 günlük kural

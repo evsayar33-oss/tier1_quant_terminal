@@ -163,6 +163,34 @@ def evaluate(path: str, seed: int = 7) -> Dict[str, Any]:
             "head_to_head": head_to_head(d)}
 
 
+def compare_clone(state_dir: str) -> List[str]:
+    """Şampiyon (ekrandaki) ↔ klon sistem: AYNI ölçüm koduyla (forecast_ledger.scorecard, StopLedger.stats)."""
+    import os
+    import forecast_ledger as FL
+    import stop_levels as SL
+    from config import LOGIC_VERSION
+    L = ["", "## Şampiyon ↔ Klon (tam kopya, yeni fikirler dahil)", "",
+         "| Varlık | Sistem | Aralık isabeti (hedef %68) | 4s eğilim isabeti | Brier beceri |", "|---|---|---|---|---|"]
+    paths = {"Şampiyon": (os.path.join(state_dir, "forecast_ledger.csv"), LOGIC_VERSION),
+             "Klon": (os.path.join(state_dir, "clone", "forecast_ledger.csv"), LOGIC_VERSION + "+klon1")}
+    leds = {k: FL.ForecastLedger(p) for k, (p, _) in paths.items() if os.path.exists(p)}
+    assets = sorted(set().union(*[set(l.df["asset"].dropna()) for l in leds.values()])) if leds else []
+    for a in assets:
+        for k, led in leds.items():
+            c = led.scorecard(a, logic=paths[k][1])
+            r, l, p = c.get("range") or {}, c.get("lean4h") or {}, c.get("p_up") or {}
+            L.append(f"| {a} | {k} | {r.get('coverage', '—')} (n={r.get('n_days', 0)}) | "
+                     f"{l.get('hit', '—')} (n={l.get('n', 0)}, {l.get('status', '—')}) | {p.get('skill', '—')} |")
+    L += ["", "| Sistem | Ufuk | Stop istatistikleri |", "|---|---|---|"]
+    for k, sub in (("Şampiyon", ""), ("Klon", "clone")):
+        p = os.path.join(state_dir, sub, "stop_ledger.csv")
+        if os.path.exists(p):
+            led = SL.StopLedger(p)
+            for h in SL.HORIZONS:
+                L.append(f"| {k} | {h} | {led.stats(h)} |")
+    return L
+
+
 def report(res: Dict[str, Any]) -> List[str]:
     L = ["# 🧪 Gölge Defter Değerlendirmesi (H13-H15)", "",
          f"Notlanmış satır: {res['rows']} · test sayısı: {res['n_tests']} · geçme eşiği p < {res['p_threshold']}", "",
@@ -181,9 +209,13 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--ledger", default="shadow_ledger.csv")
     ap.add_argument("--out", default="shadow_eval_report.md")
+    ap.add_argument("--state", default=None, help="state dalı klasörü: şampiyon ↔ klon karşılaştırması")
     a = ap.parse_args()
     res = evaluate(a.ledger)
-    txt = "\n".join(report(res))
+    lines = report(res)
+    if a.state:
+        lines += compare_clone(a.state)
+    txt = "\n".join(lines)
     with open(a.out, "w", encoding="utf-8") as fh:
         fh.write(txt + "\n")
     print(txt)

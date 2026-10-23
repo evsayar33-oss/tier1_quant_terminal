@@ -42,6 +42,7 @@ Sonra şu dosyaları okur:
 * GitHub token Claude ile paylaşılmaz; yalnız cron-job.org'dadır.
 
 ## Son değişiklikler
+* 2026-10-23: KLON GÖLGE SİSTEM (`clone_system.py`, etiket `2026.10.23-v1+klon1`): sistemin tam kopyası her döngüde aynı veriyle çalışır; yeni fikirler (charm yönü, POC/VAH/VAL stop dayanakları) içine entegre. Aynı modüllerden geçer ve `clone/` klasörüne kendi stop, tahmin karnesi ve karar defterini yazar. Ekran değişmez. 23 Kasım: `python shadow_eval.py --ledger ../st/shadow_ledger.csv --state ../st` şampiyon ↔ klon karşılaştırır.
 * 2026-10-23: Gölge deftere ŞAMPİYON ↔ MEYDAN OKUYAN eklendi: her saat ekrandaki karar (champ_*) ve yeni fikirlerle birleşik karar (chal_*: charm yönü + POC/VAH/VAL stop dayanakları) birlikte kaydedilir. 23 Kasım'da `shadow_eval.py` ikisini aynı saatlerde karşılaştırır (yön isabeti, stop tetiklenme/avlanma/uzaklık).
 * 2026-10-23: HATA DÜZELTMESİ (kilit içinde izinli): dealer gama duvarları fiyatın tarafına bakmıyordu (SPX put duvarı 8040 > fiyat 7666). Artık call duvarı ≥ fiyat, put duvarı ≤ fiyat. Stoplar etkilenmedi (dayanaklar zaten doğru taraftan seçiliyordu); arayüz metni ve gölge H14 verisi düzeldi. 14:00 UTC gölge satırlarında SPX put_wall hatalı.
 * 2026-10-23: Gölge defter (`shadow_ledger.py`, shadow-v1): charm/vanna, duvar/pin, hacim profili (POC/VAH/VAL) ham verisi saatlik kaydediliyor; karara KARIŞMAZ, LOGIC_VERSION değişmedi. 23 Kasım'da `python shadow_eval.py --ledger ../st/shadow_ledger.csv` ile H13-H15 test edilir.
