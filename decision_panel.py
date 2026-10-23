@@ -237,7 +237,7 @@ def simple_calm(v: Dict[str, Any], gex: Optional[Dict[str, Any]] = None, asset: 
 def _with_macro(fn):
     def wrap(v, *a, **k):
         out = fn(v, *a, **k)
-        return out + str(v.get("macro_note") or "") if out != "—" else out
+        return out + str(v.get("macro_note") or "") + str(v.get("shock_note") or "") if out != "—" else out
     return wrap
 
 
@@ -287,6 +287,8 @@ def simple_risk(v: Dict[str, Any]) -> str:
         return "—"
     if "KRİZ" in str(v.get("verdict", "")):
         return "🔴 Çok riskli — kriz sinyali"
+    if v.get("shock_active"):
+        return "🔴 Riskli — son saatlerde şok hareket oldu"
     if v.get("macro_pending"):
         return "🔴 Riskli — bugün önemli ABD verisi açıklanacak"
     neg = _hot(v)
@@ -341,6 +343,7 @@ SIMPLE_GUIDE = """
 - **Yarın ve bu hafta** — Geçmiş 10 yılda sonraki günün ve haftanın kalan günlerinin yüzde kaçının yükselişle bittiğini gösterir. "Yazı-tura" yazıyorsa bu oran şanstan ayırt edilemez.
 - **Piyasa sakin mi?** — Son 20 günün günlük hareketini son 1 yılın normal günüyle karşılaştırır (SPX/NQ'da opsiyon pozisyonu çarpanıyla). Tek bir kriz günü ortalamayı bozmasın diye medyan kullanılır. Oynaklık kümelenir: bu, sistemin en güçlü bilgisidir (15 yıllık veride kanıtlı). Hareketli piyasada küçük pozisyon ve geniş stop gerekir.
 - **⚠️ Bugün veri** — TÜFE, istihdam, FOMC gibi ABD verileri açıklanan günlerde fiyat çok hızlı hareket edebilir. Sistem bu günlerin etkisini kendi verisinde ölçer. Etki kanıtlıysa beklenen aralığı ve stopları genişletir.
+- **⚡ Şok** — Sistem 11 göstergeyi (hisse vadelileri, altın, gümüş, kripto, VIX, dolar, yen, faiz, petrol) 5 dakikalık veriyle izler. Bir gösterge normalin 4-5 katı hızlı hareket ederse bunu şok sayar. Şoktan sonra 4 saat aralık ve stoplar genişler, risk 🔴 olur.
 - **Fikir nerede bozulur?** — Fiyat bu seviyeyi geçerse fikriniz yanlıştır. Bu bir emir değil, risk sınırıdır.
 
 ⚠️ Bu tablo yatırım tavsiyesi değildir.
