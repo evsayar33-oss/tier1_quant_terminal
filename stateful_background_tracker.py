@@ -239,7 +239,7 @@ def run_background_cycle() -> Dict[str, Any]:
     shadow_stats: Dict[str, Any] = {}
     try:
         import shadow_ledger as SHL
-        shadow_stats = SHL.run_cycle(verdicts, dealer_gamma.get("snapshots", {}), frames, intraday)
+        shadow_stats = SHL.run_cycle(verdicts, dealer_gamma.get("snapshots", {}), frames, intraday, contexts=contexts)
     except Exception as exc:
         shadow_stats = {"error": str(exc)}
         print(f"Gölge defter atlandı: {exc}")
