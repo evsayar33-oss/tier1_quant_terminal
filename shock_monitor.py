@@ -73,7 +73,9 @@ def scan(df: pd.DataFrame, now: pd.Timestamp, lookback_h: float = ACTIVE_H) -> O
         c = pd.to_numeric(df["Close"], errors="coerce").dropna()
         c.index = pd.to_datetime(c.index, utc=True)
         c = c[c.index <= now].sort_index()
-        r = np.log(c / c.shift(1)).dropna()
+        r = np.log(c / c.shift(1))
+        gap = c.index.to_series().diff() > pd.Timedelta(minutes=12)
+        r = r[~gap.values].dropna()                           # seans açılış boşluğu (gece farkı) şok değildir
         r = r[r != 0] if (r == 0).mean() > 0.5 else r        # kapalı seans düz barlarını ayıkla
         if len(r) < 60:                                      # TNX gibi sadece nakit seansta işleyenler için
             return None
@@ -134,7 +136,8 @@ def detect(panel: Dict[str, pd.DataFrame], now: Any = None) -> Dict[str, Any]:
     scans = {k: s for k, s in raw.items() if s and not s.get("closed")}
     hits = {k: s for k, s in scans.items() if abs(s["z15"]) >= Z15 or abs(s["z60"]) >= Z60}
     if not hits:
-        return {"active": False, "scanned": sorted(scans), "closed": closed, "failed": failed, "n_panel": len(panel)}
+        return {"active": False, "scanned": sorted(scans), "closed": closed, "failed": failed, "n_panel": len(panel),
+                "vol_now": {ASSET_OF[k]: s["vol_now_ratio"] for k, s in scans.items() if k in ASSET_OF}}
     t_hit = {k: pd.Timestamp(h["t15"] if abs(h["z15"]) / Z15 >= abs(h["z60"]) / Z60 else h["t60"]) for k, h in hits.items()}
     t0 = max(t_hit.values())
     cluster = {k: h for k, h in hits.items() if abs((t_hit[k] - t0).total_seconds()) <= 1800}

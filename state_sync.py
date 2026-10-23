@@ -42,6 +42,8 @@ STATE_FILES = [
     "macro_calendar.csv",
     "shock_ledger.csv",
     "decision_log.csv",
+    "day_direction_ledger.csv",  # v17.0: bugünün yön adayları turnuvası
+    "trade_ledger.csv",          # v17.0: nihai işlem önerileri + sonuçları (R)
     "shadow_ledger.csv",         # gölge defter (H13-H15), karara karışmaz          # v16.8: arayüzün saatlik görüntüsü + mantık sürümü          # v16.6: şok olayları + 4 saat sonrası notları        # v16.5: FRED ABD veri takvimi önbelleği       # v16.4: Tahmin Karnesi (arayüz tahminleri + notlar)
     "gex_history.csv",
     "health_log.csv",            # v16.3: permanent problem log (BAŞLADI / DÜZELDİ)

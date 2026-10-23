@@ -23,6 +23,10 @@ Bu sayı ancak bütün denemeler kayıtlıysa doğru olur.
 | 14 | 2026-10-23 | Gölge defter, SPX/NQ/BTC/ETH | ÖNCEDEN KAYITLI: call/put duvarı, 0DTE duvarları ve gamma flip 24 saatte dokunulduğunda "tutar" (kapanış aynı tarafta); oran, uzaklıkları karıştırılmış rastgele seviyelerden yüksektir (2000 permütasyon). 0DTE pin: seans sonunda pine uzaklık küçülür (mıknatıs) | Veri birikiyor | Aynı |
 | 15 | 2026-10-23 | Gölge defter, 6 varlık | ÖNCEDEN KAYITLI: önceki seansın hacim profili POC/VAH/VAL seviyeleri rastgele seviyelerden daha çok "tutar" (stop dayanağı adayı) | Veri birikiyor | Aynı. Not: Net Premium Drift (ücretli işlem verisi gerekir), footprint setup'ları (tick verisi gerekir) ve "AI 1-10 yön puanı" (kanıtsız) bilinçli olarak dahil edilmedi |
 
+| 16 | 2026-10-23 | Canlı (day_direction_ledger.csv), mantık v2 | ÖNCEDEN KAYITLI: "bugünün yönü" için 6 aday (taban, mom4h, mom24h, rev24h, charm, gama_rev) her saat birlikte kaydedilir; 24 saat sonra notlanır. Varlık-gün başına tek örnek, havuzlanmış. Kanıt: n ≥ 60, z ≥ 2.5 (Bonferroni 6), varlıkta isabet ≥ %50 | Veri birikiyor | Kanıtlanan aday canlıda yön verir; kanıtı kaybolursa kendiliğinden düşer |
+| 17 | 2026-10-23 | Canlı (forecast_ledger.csv `pulse`), v2 | ÖNCEDEN KAYITLI: piyasa nabzı skoru (bugün beklenen σ / normal, şu anki gün içi σ / normal) sonraki 4/24 saatlik |getiri|/σ ile pozitif sıra korelasyonludur | Veri birikiyor | Nabız sadece giriş riskini belirler; yön vermez |
+| 18 | 2026-10-23 | Canlı (trade_ledger.csv), v2 | ÖNCEDEN KAYITLI: nihai işlem önerileri (yön + kısa vade stop + yapısal hedef, R:R ≥ 1.5) 24 saatte pozitif beklenen değer (ortalama R > 0) üretir; güven seviyesine göre ayrı | Veri birikiyor | Ortalama R ≤ 0 ise öneri motoru kapatılır veya güven eşiği yükseltilir |
+
 ## Sağlam bulgular (yön dışı)
 * Volatilite/gama faktörleri bir sonraki hareketin BÜYÜKLÜĞÜNÜ 3/3 dönemde tahmin ediyor (IC −0.06…−0.30). Stop mesafeleri bu bilgiyi kullanıyor.
 * 15 yıllık SPX dealer gaması (GEX) bunu bağımsız olarak doğruluyor: yüksek gamada ertesi gün hareketi ~%35 daha küçük (#7). Videodaki mekanizma tarihsel olarak kanıtlı.

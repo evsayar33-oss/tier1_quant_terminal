@@ -49,3 +49,16 @@ def test_ledger_records_and_grades(tmp_path):
              for k, df in panel.items()}
     out = SM.ledger_cycle(s, later, path=p, now=now + pd.Timedelta(hours=5))
     assert out["n"] >= 3 and 0.0 <= out["continuation"] <= 1.0
+
+
+def test_session_open_gap_is_not_a_shock():
+    idx1 = pd.date_range("2026-10-21 13:30", periods=78, freq="5min", tz="UTC")
+    idx2 = pd.date_range("2026-10-22 13:30", periods=78, freq="5min", tz="UTC")
+    rng = np.random.default_rng(5)
+    r1, r2 = rng.normal(0, 0.0005, 78), rng.normal(0, 0.0005, 78)
+    c1 = 20 * np.exp(np.cumsum(r1))
+    c2 = c1[-1] * 1.08 * np.exp(np.cumsum(r2))              # gece %8 boşluk
+    idx = idx1.append(pd.date_range("2026-10-20 13:30", periods=0, freq="5min", tz="UTC")).append(idx2)
+    df = pd.DataFrame({"Close": np.r_[c1, c2]}, index=idx)
+    s = SM.scan(df, idx2[3], lookback_h=4)
+    assert abs(s["z15"]) < 5 and abs(s["z60"]) < 4

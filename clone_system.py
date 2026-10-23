@@ -71,13 +71,17 @@ def run(verdicts: Dict[str, Dict[str, Any]], contexts: Dict[str, Dict[str, Any]]
     tag = logic_tag()
     cv, cc = build(verdicts, contexts, snaps, intraday, now)
     SL.run_cycle(cv, cc, snaps, frames, path=os.path.join(root, "stop_ledger.csv"), now=now)
+    import day_direction as DD
+    import trade_plan as TP
+    DD.run_cycle(cv, frames, snaps, path=os.path.join(root, "day_direction_ledger.csv"), now=now, logic=tag, contexts=cc)
+    trade = TP.run_cycle(cv, cc, snaps, frames, path=os.path.join(root, "trade_ledger.csv"), now=now, logic=tag)
     for a, v in cv.items():
         if a in cc:
             v["market_structure"] = cc[a]
     cards = FL.run_cycle(cv, frames, path=os.path.join(root, "forecast_ledger.csv"), now=now, logic=tag)
     DL.record(cv, order, gex, path=os.path.join(root, "decision_log.csv"), now=now, logic=tag)
     diff = [a for a in order if (cv.get(a) or {}).get("clone_short_side") is not None]
-    return {"logic": tag, "cards": cards, "charm_override": diff,
+    return {"logic": tag, "cards": cards, "charm_override": diff, "trade": trade,
             "rows": {a: {"short": SL.evidence_short_side(cv[a]),
                          "stop_kisa": ((cv[a].get("stop_suggestion") or {}).get("kisa") or {}).get("stop")}
                      for a in order if a in cv}}

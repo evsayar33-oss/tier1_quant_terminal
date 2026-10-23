@@ -157,6 +157,8 @@ def run_background_cycle() -> Dict[str, Any]:
         for a, v in verdicts.items():
             v["macro_note"] = MC.note(a, macro_cal)
             v["macro_pending"] = any(not e["passed"] for e in macro_cal.get("today") or [])
+            _pend = [pd.Timestamp(e["et"]) for e in macro_cal.get("today") or [] if not e["passed"]]
+            v["macro_next_min"] = round((min(_pend) - pd.Timestamp.now(tz="UTC")).total_seconds() / 60) if _pend else None
         print(f"[makro] bugün: {[e['event'] for e in macro_cal.get('today', [])]} · sorun: {macro_cal.get('problems')}")
     except Exception as exc:
         macro_cal = {"error": str(exc)}
@@ -174,6 +176,7 @@ def run_background_cycle() -> Dict[str, Any]:
                 contexts[a]["shock_factor"] = round(f, 3)
             v["shock_note"] = SM.note(shock, a)
             v["shock_active"] = bool(shock.get("active") and a in (shock.get("affected") or []))
+            v["vol_now"] = (shock.get("vol_now") or {}).get(a)
         print(f"[şok] aktif={shock.get('active')} {shock.get('desc', '')}")
     except Exception as exc:
         shock = {"error": str(exc)}
@@ -222,6 +225,18 @@ def run_background_cycle() -> Dict[str, Any]:
     except Exception as exc:
         stop_stats = {"error": str(exc)}
         print(f"Stop önerisi atlandı: {exc}")
+
+    # v17.0: Bugünün yön aklı (aday turnuvası) + piyasa nabzı + nihai işlem önerisi.
+    day_dir_stats: Dict[str, Any] = {}
+    trade_card: Dict[str, Any] = {}
+    try:
+        import day_direction as DD
+        import trade_plan as TP
+        day_dir_stats = DD.run_cycle(verdicts, frames, dealer_gamma.get("snapshots", {}), contexts=contexts)
+        trade_card = TP.run_cycle(verdicts, contexts, dealer_gamma.get("snapshots", {}), frames)
+    except Exception as exc:
+        trade_card = {"error": str(exc)}
+        print(f"Yön/işlem önerisi atlandı: {exc}")
 
     # v16.4: Tahmin Karnesi — arayüz tahminlerini kaydet, ufuk dolunca notla, aralığı kalibre et.
     forecast_cards: Dict[str, Any] = {}
@@ -340,6 +355,8 @@ def run_background_cycle() -> Dict[str, Any]:
         "shock_direction": shock_dir,
         "shadow_ledger": shadow_stats,
         "clone_system": clone_stats,
+        "day_direction_stats": day_dir_stats,
+        "trade_scorecard": trade_card,
     }
     # v16.3: the system checks its own health and logs problems permanently.
     try:

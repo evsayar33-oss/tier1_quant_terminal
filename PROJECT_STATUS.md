@@ -35,13 +35,14 @@ Sonra şu dosyaları okur:
 * Görev bir sorunu düzeltirse bu dosyanın "Son değişiklikler" bölümüne bir satır ekler.
 
 ## Kurallar
-* **MANTIK KİLİDİ (2026-10-23 → 2026-11-23): mantık sürümü `2026.10.23-v1`.** Bu süre kayıt toplama dönemidir. Yön/aralık/stop/şok mantığı DEĞİŞTİRİLMEZ. Sadece çökme, veri kesintisi gibi hatalar düzeltilir. Mantık değişirse `config.LOGIC_VERSION` mutlaka artırılır ve buraya yazılır; karne her sürümü ayrı ölçer.
+* **MANTIK KİLİDİ (2026-10-23 → 2026-11-23): mantık sürümü `2026.10.23-v2`** (v1 sadece birkaç saat çalıştı; kullanıcı isteğiyle v2'ye geçildi, 30 günlük pencere v2 ile başlar). Bu süre kayıt toplama dönemidir. Yön/aralık/stop/şok mantığı DEĞİŞTİRİLMEZ. Sadece çökme, veri kesintisi gibi hatalar düzeltilir. Mantık değişirse `config.LOGIC_VERSION` mutlaka artırılır ve buraya yazılır; karne her sürümü ayrı ölçer.
 * Değerlendirme kaynakları: `decision_log.csv` (ne gösterildi), `forecast_ledger.csv` (tahmin notları), `stop_ledger.csv`, `shock_ledger.csv`, `dealer_gamma_history.csv`, `health_log.csv` — hepsi `state` dalında, hepsinde `logic` sütunu var (eski satırlarda boş).
 * Test sonrası şu dosyaları geri al: `git checkout -- adaptive_regime_thresholds_state.json timeframe_confluence_state.json`.
 * PR birleştirirken tam 40 karakterlik SHA kullan.
 * GitHub token Claude ile paylaşılmaz; yalnız cron-job.org'dadır.
 
 ## Son değişiklikler
+* 2026-10-23: MANTIK v2 (kullanıcı isteği). Basit Özet yeni sütunlar: Nihai karar (tam işlem önerisi veya işlem yok), Bugün olası yön (AL/SAT/NÖTR; `day_direction.py` aday turnuvası), Giriş riski (piyasa nabzı; `trade_plan.pulse`, sadece oynaklık + şok + yakın veri), Yarın ve bu hafta, Fikir nerede bozulur. Öneriler `trade_ledger.csv` dosyasına yazılır ve R cinsinden notlanır. Klon da aynı modülleri kendi `clone/` defterleriyle çalıştırır. Şok radarı: seans açılış boşluğu artık şok sayılmaz (VIX/HYG/TNX sahte şokları). RESEARCH_LOG #16-#18.
 * 2026-10-23: KLON GÖLGE SİSTEM (`clone_system.py`, etiket `2026.10.23-v1+klon1`): sistemin tam kopyası her döngüde aynı veriyle çalışır; yeni fikirler (charm yönü, POC/VAH/VAL stop dayanakları) içine entegre. Aynı modüllerden geçer ve `clone/` klasörüne kendi stop, tahmin karnesi ve karar defterini yazar. Ekran değişmez. 23 Kasım: `python shadow_eval.py --ledger ../st/shadow_ledger.csv --state ../st` şampiyon ↔ klon karşılaştırır.
 * 2026-10-23: Gölge deftere ŞAMPİYON ↔ MEYDAN OKUYAN eklendi: her saat ekrandaki karar (champ_*) ve yeni fikirlerle birleşik karar (chal_*: charm yönü + POC/VAH/VAL stop dayanakları) birlikte kaydedilir. 23 Kasım'da `shadow_eval.py` ikisini aynı saatlerde karşılaştırır (yön isabeti, stop tetiklenme/avlanma/uzaklık).
 * 2026-10-23: HATA DÜZELTMESİ (kilit içinde izinli): dealer gama duvarları fiyatın tarafına bakmıyordu (SPX put duvarı 8040 > fiyat 7666). Artık call duvarı ≥ fiyat, put duvarı ≤ fiyat. Stoplar etkilenmedi (dayanaklar zaten doğru taraftan seçiliyordu); arayüz metni ve gölge H14 verisi düzeldi. 14:00 UTC gölge satırlarında SPX put_wall hatalı.
