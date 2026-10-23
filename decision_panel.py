@@ -12,7 +12,8 @@ import math
 import re
 from typing import Any, Dict, List, Optional
 
-from stop_levels import long_side, short_side
+from stop_levels import (base_rate_side, evidence_long_side, evidence_short_side, long_side, model_proven,
+                         short_side)
 
 _ARROW = {1: "🟢", -1: "🔴", 0: "⚪"}
 
@@ -25,7 +26,15 @@ def short_label(v: Dict[str, Any]) -> str:
     if market_closed(v):
         return "⏸️ Piyasa kapalı"
     lbl = str(v.get("current_direction") or "⚪ VERİ YETERSİZ")
-    return re.sub(r"\s*\([^)]*%[^)]*\)", "", lbl).strip()
+    lbl = re.sub(r"\s*\([^)]*%[^)]*\)", "", lbl).strip()
+    if model_proven(v) or "VERİ" in lbl:
+        return lbl
+    side = evidence_short_side(v)
+    out = {1: "🟢 YUKARI", -1: "🔴 AŞAĞI"}.get(side, "⚪ YATAY") + " (fiyat)"
+    m = short_side(v)
+    if m and m != side:
+        out += f" · model {'YUKARI' if m > 0 else 'AŞAĞI'} diyor, kanıtsız"
+    return out
 
 
 def long_label(v: Dict[str, Any]) -> str:
@@ -37,15 +46,19 @@ def long_label(v: Dict[str, Any]) -> str:
         from direction_research import RULE_TR
         word = {1: "AL", -1: "SAT"}.get(rd.get("side"), "BEKLE")
         return f"{_ARROW[rd.get('side', 0)]} {word} · kanıtlı ({RULE_TR.get(rd.get('rule'), rd.get('rule'))})"
-    side = long_side(v)
-    word = {1: "AL", -1: "SAT"}.get(side, "NÖTR")
-    strong = "GÜÇLÜ " if "GÜÇLÜ" in verdict else ""
-    out = f"{_ARROW[side]} {strong}{word}"
-    if side and "NOT_PROVEN" in str(v.get("learned_model_status", "")):
-        out += " · kanıtsız"
-    b = v.get("base_rate")
-    if isinstance(b, dict) and b.get("up") is not None:
-        out += f" · taban: %{100 * b['up']:.0f} yükseliş ({b.get('horizon_d', 5)}g, 10 yıl)"
+    b = v.get("base_rate") if isinstance(v.get("base_rate"), dict) else {}
+    if model_proven(v):
+        side = long_side(v)
+        out = f"{_ARROW[side]} {'GÜÇLÜ ' if 'GÜÇLÜ' in verdict else ''}{ {1: 'AL', -1: 'SAT'}.get(side, 'NÖTR') } · model kanıtlı"
+    else:
+        side = base_rate_side(b)
+        out = {1: "🟢 AL eğilimi (geçmiş)", -1: "🔴 SAT eğilimi (geçmiş)"}.get(side, "⚪ NÖTR · kanıt yok")
+        m = long_side(v)
+        if m:
+            out += f" · model {'AL' if m > 0 else 'SAT'} diyor, kanıtsız"
+    if b.get("up") is not None:
+        sig = "anlamlı" if base_rate_side(b) else "anlamsız"
+        out += f" · taban: %{100 * b['up']:.0f} yükseliş ({b.get('horizon_d', 5)}g, {sig})"
     return out
 
 
@@ -71,14 +84,16 @@ def entry_reason_short(v: Dict[str, Any]) -> str:
 def entry_label(v: Dict[str, Any]) -> str:
     if market_closed(v):
         return "⏸️ Piyasa kapalı — giriş yok"
-    if long_side(v) == 0 and short_side(v) == 0:
-        return "⚪ Yön yok — giriş yok"
+    if evidence_long_side(v) == 0 and evidence_short_side(v) == 0:
+        return "⚪ Kanıtlı yön yok — giriş yok"
     if v.get("entry_allowed"):
         return "✅ Giriş önerilir"
     return f"⛔ Önerilmez · {entry_reason_short(v)}"
 
 
 def timing_label(v: Dict[str, Any]) -> str:
+    if market_closed(v) or (evidence_long_side(v) == 0 and evidence_short_side(v) == 0):
+        return "—"
     g = v.get("entry_grade")
     if g in (None, "", "-", "N/A"):
         return "—"
@@ -92,6 +107,15 @@ def stop_label(s: Optional[Dict[str, Any]], price_digits: int = 2) -> str:
         return "—"
     return (f"{s['stop']:,.{price_digits}f} ({-s['side'] * s['distance_pct']:+.2f}% · "
             f"{s['atr_1h_mult']:.1f}×ATR)")
+
+
+def _stop_cell(st: Dict[str, Any], h: str, dg: int) -> str:
+    if st.get(h):
+        return stop_label(st[h], dg)
+    two = st.get(h + "_iki_yon") or {}
+    if two.get("al") and two.get("sat"):
+        return f"Yön yok · AL ise {two['al']['stop']:,.{dg}f} / SAT ise {two['sat']['stop']:,.{dg}f}"
+    return "—"
 
 
 def _digits(price: Optional[float]) -> int:
@@ -112,8 +136,8 @@ def build_rows(verdicts: Dict[str, Dict[str, Any]], order: List[str]) -> List[Di
             "Giriş": entry_label(v),
             "Kısa vade (1-4 saat)": short_label(v),
             "Uzun vade (24 saat-1 hafta)": long_label(v),
-            "Stop · kısa vade": "—" if market_closed(v) else stop_label(st.get("kisa"), dg),
-            "Stop · uzun vade": stop_label(st.get("uzun"), dg),
+            "Stop · kısa vade": "—" if market_closed(v) else _stop_cell(st, "kisa", dg),
+            "Stop · uzun vade": _stop_cell(st, "uzun", dg),
             "Zamanlama": timing_label(v),
         })
     return rows
@@ -181,41 +205,22 @@ def simple_calm(v: Dict[str, Any], gex: Optional[Dict[str, Any]] = None, asset: 
 def simple_stop(v: Dict[str, Any]) -> str:
     st = v.get("stop_suggestion") or {}
     s = (None if market_closed(v) else st.get("kisa")) or st.get("uzun")
-    if not s:
-        return "—"
     price = ((v.get("market_structure") or {}).get("levels") or {}).get("price")
+    if not s:
+        two = st.get("uzun_iki_yon") or {}
+        if two.get("al") and two.get("sat"):
+            dg = _digits(price)
+            return (f"Yön yok · alırsan {two['al']['stop']:,.{dg}f} altında, "
+                    f"satarsan {two['sat']['stop']:,.{dg}f} üstünde fikir bozulur")
+        return "—"
     lvl = f"{s['stop']:,.{_digits(price)}f}"
     if s["side"] > 0:
         return f"Yükseliş fikri {lvl} altında geçersiz (%{s['distance_pct']:.1f} aşağıda)"
     return f"Düşüş fikri {lvl} üstünde geçersiz (%{s['distance_pct']:.1f} yukarıda)"
 
 
-def _hist_side(b: Dict[str, Any]) -> int:
-    """Taban oran sadece istatistiksel olarak anlamlıysa yön verir.
-    5 günlük pencereler örtüşür: etkin örnek ≈ n/5. Gerekli z ≥ 2."""
-    up, n = b.get("up"), b.get("n") or 0
-    if up is None or n < 50:
-        return 0
-    z = (float(up) - 0.5) / math.sqrt(0.25 / max(n / int(b.get("horizon_d") or 5), 1))
-    return 1 if z >= 2 else -1 if z <= -2 else 0
-
-
-def _price_side(v: Dict[str, Any]) -> int:
-    """Kısa vade eğilimi. Model kanıtsızsa (RESEARCH_LOG #1, #5) sadece FİYATIN kendisine bakılır."""
-    if "NOT_PROVEN" not in str(v.get("learned_model_status", "")):
-        return short_side(v)
-    pz = (v.get("short_term_parts") or {}).get("price_z")
-    try:
-        pz = float(pz)
-    except (TypeError, ValueError):
-        return 0
-    return 1 if pz >= 0.5 else -1 if pz <= -0.5 else 0
-
-
 def _lean(v: Dict[str, Any]) -> Dict[str, int]:
-    rd = v.get("research_direction")
-    hist = rd.get("side", 0) if isinstance(rd, dict) else _hist_side(v.get("base_rate") or {})
-    return {"now": 0 if market_closed(v) else _price_side(v), "hist": hist}
+    return {"now": 0 if market_closed(v) else evidence_short_side(v), "hist": evidence_long_side(v)}
 
 
 def simple_today(v: Dict[str, Any]) -> str:

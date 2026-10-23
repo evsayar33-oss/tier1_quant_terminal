@@ -67,6 +67,44 @@ def long_side(verdict: Dict[str, Any]) -> int:
     return 0
 
 
+def model_proven(verdict: Dict[str, Any]) -> bool:
+    return "NOT_PROVEN" not in str(verdict.get("learned_model_status", ""))
+
+
+def base_rate_side(b: Optional[Dict[str, Any]]) -> int:
+    """Taban oran sadece istatistiksel olarak anlamlıysa yön verir.
+    5 günlük pencereler örtüşür: etkin örnek ≈ n/5. Gerekli |z| ≥ 2."""
+    b = b or {}
+    up, n = b.get("up"), b.get("n") or 0
+    if up is None or n < 50:
+        return 0
+    z = (float(up) - 0.5) / math.sqrt(0.25 / max(n / int(b.get("horizon_d") or 5), 1))
+    return 1 if z >= 2 else -1 if z <= -2 else 0
+
+
+def evidence_short_side(verdict: Dict[str, Any]) -> int:
+    """Kısa vade yönü. Model kanıtsızsa (RESEARCH_LOG #1, #5) sadece fiyatın kendi hareketi."""
+    if model_proven(verdict):
+        return short_side(verdict)
+    try:
+        pz = float((verdict.get("short_term_parts") or {}).get("price_z"))
+    except (TypeError, ValueError):
+        return 0
+    return 1 if pz >= 0.5 else -1 if pz <= -0.5 else 0
+
+
+def evidence_long_side(verdict: Dict[str, Any]) -> int:
+    """Uzun vade yönü: kanıtlı kural > kanıtlı model > anlamlı taban oran > yön yok."""
+    if "KRİZ" in str(verdict.get("verdict", "")):
+        return 0
+    rd = verdict.get("research_direction")
+    if isinstance(rd, dict) and rd.get("side") is not None:
+        return int(rd["side"])
+    if model_proven(verdict):
+        return long_side(verdict)
+    return base_rate_side(verdict.get("base_rate"))
+
+
 def _candidates(levels: Optional[Dict[str, Any]], gamma: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
     out = [dict(x) for x in (levels or {}).get("levels", []) if x.get("kind") in STRUCTURAL]
     for key, label in (("put_wall", "Put duvarı (gama)"), ("call_wall", "Call duvarı (gama)"),
@@ -212,13 +250,17 @@ def run_cycle(verdicts: Dict[str, Dict[str, Any]], contexts: Dict[str, Dict[str,
         g = (gamma_snapshots or {}).get(asset)
         out = {}
         closed = (ctx.get("session") or {}).get("phase") == "Kapalı"
-        for h, side in (("kisa", 0 if closed else short_side(v)), ("uzun", long_side(v))):
-            s = suggest_stop(side, h, price, ctx.get("atr_1h"), ctx.get("atr_1d"),
-                             (g or {}).get("expected_move_1d"), lv, g, stats[h]["buffer_mult"],
-                             ctx.get("move_factor", 1.0))
+        args = lambda side, h: (side, h, price, ctx.get("atr_1h"), ctx.get("atr_1d"),
+                                (g or {}).get("expected_move_1d"), lv, g, stats[h]["buffer_mult"],
+                                ctx.get("move_factor", 1.0))
+        for h, side in (("kisa", 0 if closed else evidence_short_side(v)), ("uzun", evidence_long_side(v))):
+            s = suggest_stop(*args(side, h))
             out[h] = s
             if s:
                 led.record(asset, s, now=now)
+            elif not (closed and h == "kisa"):
+                # Yön yok: iki senaryonun geçersizlik seviyesi gösterilir (deftere yazılmaz).
+                out[h + "_iki_yon"] = {"al": suggest_stop(*args(1, h)), "sat": suggest_stop(*args(-1, h))}
         v["stop_suggestion"] = out
         em, a1d = (g or {}).get("expected_move_1d"), ctx.get("atr_1d")
         unit = em or a1d

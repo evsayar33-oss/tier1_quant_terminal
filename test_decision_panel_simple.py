@@ -20,6 +20,7 @@ def test_simple_rows_closed_market():
 
 def test_today_risk_side():
     v = {"current_direction": "🔴 AŞAĞI", "verdict": "SAT", "base_rate": {"up": 0.61, "n": 502, "horizon_d": 5},
+         "learned_model_status": "NOT_PROVEN_ADVISORY", "short_term_parts": {"price_z": -1.0},
          "dealer_gamma": {"regime": "NEGATİF GAMA"}, "day_range": {"move": 460.0, "price": 29000.0}}
     r = D.simple_rows({"NQ": v}, ["NQ"])[0]
     assert "28,540 – 29,460" in r["Bugün fiyat ne yapabilir?"]
