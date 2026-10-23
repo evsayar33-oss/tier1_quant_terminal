@@ -87,6 +87,7 @@ def run_checks(state: Dict[str, Any], now: Optional[datetime] = None) -> Dict[st
         ("shock", state.get("shock") or {}),
         ("shock_direction", state.get("shock_direction") or {}),
         ("shadow_ledger", state.get("shadow_ledger") or {}),
+        ("clone_system", state.get("clone_system") or {}),
     ) if isinstance(v, dict) and v.get("error")]
     res("cycle_errors", not errs, "; ".join(errs)[:300] if errs else "modül hatası yok")
     return out

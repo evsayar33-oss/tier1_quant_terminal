@@ -244,6 +244,16 @@ def run_background_cycle() -> Dict[str, Any]:
         shadow_stats = {"error": str(exc)}
         print(f"Gölge defter atlandı: {exc}")
 
+    # Klon gölge sistem (klon-1): sistemin tam kopyası + yeni fikirler; ekrana KARIŞMAZ.
+    clone_stats: Dict[str, Any] = {}
+    try:
+        import clone_system as CS
+        clone_stats = CS.run(verdicts, contexts, dealer_gamma.get("snapshots", {}), frames, intraday,
+                             list(ASSET_MATRICES.keys()), gex_hist)
+    except Exception as exc:
+        clone_stats = {"error": str(exc)}
+        print(f"Klon sistem atlandı: {exc}")
+
     # v16.8: Karar defteri — arayüzün gösterdiği her şey, mantık sürümüyle (saatte bir).
     try:
         import decision_log as DL
@@ -329,6 +339,7 @@ def run_background_cycle() -> Dict[str, Any]:
         "shock": shock,
         "shock_direction": shock_dir,
         "shadow_ledger": shadow_stats,
+        "clone_system": clone_stats,
     }
     # v16.3: the system checks its own health and logs problems permanently.
     try:

@@ -68,7 +68,7 @@ class ForecastLedger:
             if c not in self.df.columns:
                 self.df[c] = np.nan
 
-    def record(self, asset: str, v: Dict[str, Any], now: Any = None) -> bool:
+    def record(self, asset: str, v: Dict[str, Any], now: Any = None, logic: str = LOGIC) -> bool:
         dr = v.get("day_range") or {}
         price = dr.get("price")
         if not price:
@@ -85,7 +85,7 @@ class ForecastLedger:
             "lean4h": evidence_short_side(v) if rm else np.nan,
             "calm_ratio": (v.get("vol_state") or {}).get("ratio", np.nan),
             "p_up_1d": b1.get("up", np.nan),
-            "ret_4h": np.nan, "ret_24h": np.nan, "graded_4h": 0, "graded_24h": 0, "logic": LOGIC}
+            "ret_4h": np.nan, "ret_24h": np.nan, "graded_4h": 0, "graded_24h": 0, "logic": logic}
         return True
 
     def grade(self, frames: Dict[str, pd.DataFrame], now: Any = None) -> int:
@@ -172,12 +172,12 @@ class ForecastLedger:
 
 
 def run_cycle(verdicts: Dict[str, Dict[str, Any]], frames: Dict[str, pd.DataFrame],
-              path: str = LEDGER_FILE, now: Any = None) -> Dict[str, Any]:
+              path: str = LEDGER_FILE, now: Any = None, logic: str = LOGIC) -> Dict[str, Any]:
     led = ForecastLedger(path)
     led.grade(frames, now=now)
     cards: Dict[str, Any] = {}
     for a, v in verdicts.items():
-        card = led.scorecard(a)
+        card = led.scorecard(a, logic=logic)
         cards[a] = card
         # Kalibrasyon: aralığı karnenin ölçtüğü çarpanla düzelt (yalnız ≥ 30 bağımsız gün sonra).
         dr = v.get("day_range")
@@ -187,7 +187,7 @@ def run_cycle(verdicts: Dict[str, Dict[str, Any]], frames: Dict[str, pd.DataFram
             dr["move"] = dr["move"] * float(rng["multiplier"])
             dr["calibration"] = rng["multiplier"]
         v["forecast_card"] = card
-        led.record(a, v, now=now)
+        led.record(a, v, now=now, logic=logic)
     led.save()
     return cards
 

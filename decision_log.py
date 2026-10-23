@@ -21,12 +21,14 @@ MAX_ROWS = 60000
 
 
 def record(verdicts: Dict[str, Dict[str, Any]], order: List[str], gex: Optional[Dict[str, Any]] = None,
-           path: str = LOG_FILE, now: Any = None) -> int:
+           path: str = LOG_FILE, now: Any = None, logic: Optional[str] = None) -> int:
     import decision_panel as DP
     try:
         from config import LOGIC_VERSION
     except Exception:
         LOGIC_VERSION = "?"
+    if logic:
+        LOGIC_VERSION = logic
     ts = pd.Timestamp(now or now_utc()).floor("h").isoformat()
     old = pd.read_csv(path) if os.path.exists(path) else pd.DataFrame()
     if not old.empty and (old["ts"] == ts).any():
