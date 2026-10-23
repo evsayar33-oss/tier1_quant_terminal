@@ -39,7 +39,7 @@ except Exception:
 
 LEDGER_FILE = "forecast_ledger.csv"
 COLS = ["ts", "asset", "price", "sigma_pct", "lean4h", "calm_ratio", "p_up_1d",
-        "ret_4h", "ret_24h", "graded_4h", "graded_24h", "logic"]
+        "ret_4h", "ret_24h", "graded_4h", "graded_24h", "logic", "pulse", "day_dir"]
 TARGET_COVER = 0.6827
 MIN_DAYS = 30
 MIN_LEAN = 100
@@ -85,7 +85,8 @@ class ForecastLedger:
             "lean4h": evidence_short_side(v) if rm else np.nan,
             "calm_ratio": (v.get("vol_state") or {}).get("ratio", np.nan),
             "p_up_1d": b1.get("up", np.nan),
-            "ret_4h": np.nan, "ret_24h": np.nan, "graded_4h": 0, "graded_24h": 0, "logic": logic}
+            "ret_4h": np.nan, "ret_24h": np.nan, "graded_4h": 0, "graded_24h": 0, "logic": logic,
+            "pulse": (v.get("pulse") or {}).get("score", np.nan), "day_dir": (v.get("day_direction") or {}).get("side", np.nan)}
         return True
 
     def grade(self, frames: Dict[str, pd.DataFrame], now: Any = None) -> int:

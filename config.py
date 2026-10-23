@@ -440,4 +440,4 @@ DEALER_GAMMA_POLICY = "advisory"
 
 # Mantık sürümü: her kayıt (tahmin, stop, şok, karar defteri) bu etiketi taşır.
 # Mantık değişince BU DEĞER DE DEĞİŞMELİ; böylece karne her sürümü ayrı ölçer.
-LOGIC_VERSION = "2026.10.23-v1"
+LOGIC_VERSION = "2026.10.23-v2"   # v2: yön turnuvası, piyasa nabzı, nihai işlem önerisi

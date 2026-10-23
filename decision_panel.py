@@ -329,36 +329,54 @@ def simple_side(v: Dict[str, Any]) -> str:
     return "⚪ Belirgin yön yok"
 
 
+def simple_final(v: Dict[str, Any]) -> str:
+    tp = v.get("trade_plan") or {}
+    return tp.get("text") or "—"
+
+
+def simple_day_dir(v: Dict[str, Any]) -> str:
+    if market_closed(v):
+        return "⏸️ Piyasa kapalı"
+    dd = v.get("day_direction") or {}
+    side = int(dd.get("side") or 0)
+    word = {1: "🟢 AL", -1: "🔴 SAT"}.get(side, "⚪ NÖTR")
+    out = f"{word}" + (f" · güç: {dd.get('strength')}" if side else "") + f" — {dd.get('why', 'kanıtlı yön yok')}"
+    r = v.get("day_range") or {}
+    if r.get("move") and r.get("price"):
+        out += f" · beklenen hareket ±%{100 * r['move'] / r['price']:.1f}"
+    return out
+
+
+def simple_pulse(v: Dict[str, Any]) -> str:
+    if market_closed(v):
+        return "—"
+    p = v.get("pulse") or {}
+    return (p.get("text") or "—") + str(v.get("macro_note") or "") + str(v.get("shock_note") or "")
+
+
 def simple_rows(verdicts: Dict[str, Dict[str, Any]], order: List[str],
                 gex: Optional[Dict[str, Any]] = None) -> List[Dict[str, str]]:
     rows = []
     for k in order:
         v = verdicts.get(k) or {}
         rows.append({"Varlık": k,
-                     "Şimdi ne yapmalı?": simple_action(v),
-                     "Bugün fiyat ne yapabilir?": simple_today(v),
-                     "Şimdi girmek riskli mi?": simple_risk(v),
-                     "Girersen hangi yön daha iyi?": simple_side(v),
+                     "Nihai karar (işlem önerisi)": simple_final(v),
+                     "Bugün olası yön": simple_day_dir(v),
+                     "Giriş riski (piyasa nabzı)": simple_pulse(v),
                      "Yarın ve bu hafta": simple_days(v, k),
-                     "Piyasa sakin mi?": simple_calm(v, gex, k),
                      "Fikir nerede bozulur?": simple_stop(v)})
     return rows
 
 
 SIMPLE_GUIDE = """
 **Bu tablo nasıl okunur?**
-- **Şimdi ne yapmalı?** — Sistem bütün kontrolleri yapar. Hepsi uygunsa ✅ yazar. Çoğu zaman ✋ Bekle yazar; bu normaldir. İyi fırsat az olur.
-- **Bugün fiyat ne yapabilir?** — Günlük 1σ aralığıdır (opsiyon piyasası; yoksa son 20 günün oynaklığı). Fiyat günlerin yaklaşık 2/3'ünde bu aralıkta kapanır. Eğilim son 4 saatin hareketidir; tahmin değil, betimlemedir.
-- **Şimdi girmek riskli mi?** — 🟢 düşük, 🟡 orta, 🔴 yüksek. Sert piyasa veya çelişen sinyaller riski yükseltir.
-- **Girersen hangi yön daha iyi?** — Kısa vade ve geçmiş eğilim aynı yönü gösterirse o yön yazılır. Çelişirse "girmemek daha iyi" yazılır.
-- **Yarın ve bu hafta** — Geçmiş 10 yılda sonraki günün ve haftanın kalan günlerinin yüzde kaçının yükselişle bittiğini gösterir. "Yazı-tura" yazıyorsa bu oran şanstan ayırt edilemez.
-- **Piyasa sakin mi?** — Son 20 günün günlük hareketini son 1 yılın normal günüyle karşılaştırır (SPX/NQ'da opsiyon pozisyonu çarpanıyla). Tek bir kriz günü ortalamayı bozmasın diye medyan kullanılır. Oynaklık kümelenir: bu, sistemin en güçlü bilgisidir (15 yıllık veride kanıtlı). Hareketli piyasada küçük pozisyon ve geniş stop gerekir.
-- **⚠️ Bugün veri** — TÜFE, istihdam, FOMC gibi ABD verileri açıklanan günlerde fiyat çok hızlı hareket edebilir. Sistem bu günlerin etkisini kendi verisinde ölçer. Etki kanıtlıysa beklenen aralığı ve stopları genişletir.
-- **Şok sonrası yön** — Ayrı bir motor, 10 yıllık veride her şok türünden (ABD/küresel hisse çöküşü, dolar, faiz, petrol, kredi, güvenli liman, kripto) sonra fiyatın ne yaptığını ölçer. Sadece kanıtlı kural varsa yön yazar.
-- **⚡ Şok** — Sistem 11 göstergeyi (hisse vadelileri, altın, gümüş, kripto, VIX, dolar, yen, faiz, petrol) 5 dakikalık veriyle izler. Bir gösterge normalin 4-5 katı hızlı hareket ederse bunu şok sayar. Şoktan sonra 4 saat aralık ve stoplar genişler, risk 🔴 olur.
-- **Fikir nerede bozulur?** — Fiyat bu seviyeyi geçerse fikriniz yanlıştır. Bu bir emir değil, risk sınırıdır.
+- **Nihai karar** — Sistem bütün kontrolleri birleştirir ve ya tam bir işlem önerisi (yön, giriş, stop, hedef, kazanç/risk oranı, güven) ya da "işlem yok" ve nedenini yazar. Çoğu zaman "işlem yok" yazar; bu normaldir. Her öneri kaydedilir ve sonucu (önce stop mu, hedef mi) notlanır.
+- **Bugün olası yön** — AL / SAT / NÖTR. Altı aday kural her saat yarışır; canlı kayıtta kendini kanıtlayan kural yön verir. Kanıtlı kural yoksa sadece anlamlı tarihsel eğilim "zayıf" olarak gösterilir; o da yoksa NÖTR.
+- **Giriş riski (piyasa nabzı)** — Fiyatın yönüne bakmaz. Bugünkü beklenen oynaklığı ve şu anki gün içi oynaklığı normalle karşılaştırır; şok ve yakın ABD verisini ekler. 🟢 sakin · 🟡 normal · 🟠 hareketli · 🔴 girme.
+- **Yarın ve bu hafta** — Geçmiş 10 yılda sonraki günün ve haftanın kalan günlerinin yükseliş oranı. "Yazı-tura" = şanstan ayırt edilemez.
+- **Fikir nerede bozulur?** — İşlem önerisi olmasa da iki yön için geçersizlik seviyeleri.
 
-⚠️ Bu tablo yatırım tavsiyesi değildir.
+⚠️ Bu tablo yatırım tavsiyesi değildir. Sistem kendi önerilerini kaydeder ve notlar (📒 Tahmin Karnesi).
 """
 
 
