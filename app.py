@@ -916,6 +916,12 @@ try:
                  use_container_width=True, hide_index=True)
     with st.expander("❓ Bu tablo nasıl okunur?", expanded=False):
         st.markdown(_DP.SIMPLE_GUIDE)
+    _fc = active_data.get("forecast_scorecard") or {}
+    if _fc and "error" not in _fc:
+        import forecast_ledger as _FL
+        with st.expander("📒 Tahmin Karnesi — sistem kendi tahminlerini nasıl tutturuyor?", expanded=False):
+            st.dataframe(pd.DataFrame(_FL.report_rows(_fc)), use_container_width=True, hide_index=True)
+            st.markdown(_FL.KARNE_GUIDE)
     st.subheader("🎯 Karar Özeti (detaylı)")
     st.dataframe(pd.DataFrame(_DP.build_rows(verdicts, list(ASSET_MATRICES.keys()))),
                  use_container_width=True, hide_index=True)

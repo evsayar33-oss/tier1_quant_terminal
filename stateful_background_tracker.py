@@ -174,6 +174,15 @@ def run_background_cycle() -> Dict[str, Any]:
     except Exception as exc:
         stop_stats = {"error": str(exc)}
         print(f"Stop önerisi atlandı: {exc}")
+
+    # v16.4: Tahmin Karnesi — arayüz tahminlerini kaydet, ufuk dolunca notla, aralığı kalibre et.
+    forecast_cards: Dict[str, Any] = {}
+    try:
+        import forecast_ledger as FL
+        forecast_cards = FL.run_cycle(verdicts, frames)
+    except Exception as exc:
+        forecast_cards = {"error": str(exc)}
+        print(f"Tahmin karnesi atlandı: {exc}")
     for a, v in verdicts.items():
         if a in contexts:
             v["market_structure"] = contexts[a]
@@ -251,6 +260,7 @@ def run_background_cycle() -> Dict[str, Any]:
         "market_calendar": calendar,
         "gex_history": gex_hist,
         "stop_calibration": stop_stats,
+        "forecast_scorecard": forecast_cards,
     }
     # v16.3: the system checks its own health and logs problems permanently.
     try:
