@@ -38,6 +38,7 @@ STATE_FILES = [
     "performance_ledger.json",
     "dealer_gamma_history.csv",  # v15.0: dealer gamma map ledger (self-graded evidence)
     "stop_ledger.csv",
+    "forecast_ledger.csv",       # v16.4: Tahmin Karnesi (arayüz tahminleri + notlar)
     "gex_history.csv",
     "health_log.csv",            # v16.3: permanent problem log (BAŞLADI / DÜZELDİ)
     "health_report.md",           # v16.2: SqueezeMetrics daily SPX GEX/DIX cache           # v15.1: suggested-stop ledger (self-calibrating buffer)

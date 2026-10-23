@@ -82,6 +82,7 @@ def run_checks(state: Dict[str, Any], now: Optional[datetime] = None) -> Dict[st
         ("dealer_gamma", state.get("dealer_gamma") or {}),
         ("stop_calibration", state.get("stop_calibration") or {}),
         ("performance", state.get("performance") or {}),
+        ("forecast_scorecard", state.get("forecast_scorecard") or {}),
     ) if isinstance(v, dict) and v.get("error")]
     res("cycle_errors", not errs, "; ".join(errs)[:300] if errs else "modül hatası yok")
     return out
