@@ -118,6 +118,103 @@ def build_rows(verdicts: Dict[str, Dict[str, Any]], order: List[str]) -> List[Di
     return rows
 
 
+# ---------------------------------------------------------------------------
+# Basit Özet — yeni başlayan biri için, teknik terim olmadan
+# ---------------------------------------------------------------------------
+def _sign(lbl: str) -> int:
+    return 1 if "🟢" in lbl else -1 if "🔴" in lbl else 0
+
+
+def simple_action(v: Dict[str, Any]) -> str:
+    if market_closed(v):
+        return "⏸️ Piyasa kapalı"
+    if "KRİZ" in str(v.get("verdict", "")):
+        return "⛔ Uzak dur — piyasada kriz sinyali var"
+    if v.get("entry_allowed"):
+        return "✅ Koşullar uygun"
+    why = {"model kanıtı yok (t < 2)": "sinyal güvenilir değil",
+           "zaman dilimleri yönle uyumsuz": "kısa ve uzun vade aynı yönü göstermiyor",
+           "gama duvarına çok yakın": "fiyat güçlü bir engele çok yakın",
+           "volatilite aşırı / ölü": "fiyat ya çok sert ya çok durgun",
+           "hacim yetersiz": "işlem hacmi düşük",
+           "veri yetersiz": "veri eksik"}.get(entry_reason_short(v), "koşullar oluşmadı")
+    return f"✋ Bekle — {why}"
+
+
+def simple_now(v: Dict[str, Any]) -> str:
+    if market_closed(v):
+        return "—"
+    s = _sign(str(v.get("current_direction") or ""))
+    return {1: "🟢 Son saatlerde yükseliyor", -1: "🔴 Son saatlerde düşüyor"}.get(s, "⚪ Yatay, belirgin yön yok")
+
+
+def simple_week(v: Dict[str, Any]) -> str:
+    rd = v.get("research_direction")
+    if isinstance(rd, dict) and rd.get("side"):
+        return ("🟢 Test edilmiş bir kural yükseliş diyor" if rd["side"] > 0
+                else "🔴 Test edilmiş bir kural düşüş diyor")
+    b = v.get("base_rate")
+    if isinstance(b, dict) and b.get("up") is not None:
+        n = round(10 * float(b["up"]))
+        return f"🤷 Kesin bilinmez. Geçmişte 10 haftadan {n} tanesi yükselişle bitti"
+    return "🤷 Kesin bilinmez"
+
+
+def simple_calm(v: Dict[str, Any], gex: Optional[Dict[str, Any]] = None, asset: str = "") -> str:
+    regime = str((v.get("dealer_gamma") or {}).get("regime") or "")
+    mf = (gex or {}).get("move_factor") if asset in ("SPX", "NQ") else None
+    extra = ""
+    if mf and abs(float(mf) - 1.0) >= 0.05:
+        extra = f" (normalden %{abs(100 * (float(mf) - 1)):.0f} {'büyük' if mf > 1 else 'küçük'} hareket beklenir)"
+    if "NEGAT" in regime:
+        return "🌪️ Hareketli — fiyat sert ve hızlı oynayabilir" + extra
+    if "POZ" in regime:
+        return "🧘 Sakin — büyük hareketler frenlenir" + extra
+    try:
+        r = float(v.get("atr_ratio"))
+    except (TypeError, ValueError):
+        return "—"
+    return ("🌪️ Normalden hareketli" if r > 1.3 else "🧘 Normalden sakin" if r < 0.8 else "〰️ Normal") + extra
+
+
+def simple_stop(v: Dict[str, Any]) -> str:
+    st = v.get("stop_suggestion") or {}
+    s = (None if market_closed(v) else st.get("kisa")) or st.get("uzun")
+    if not s:
+        return "—"
+    price = ((v.get("market_structure") or {}).get("levels") or {}).get("price")
+    lvl = f"{s['stop']:,.{_digits(price)}f}"
+    if s["side"] > 0:
+        return f"Yükseliş fikri {lvl} altında geçersiz (%{s['distance_pct']:.1f} aşağıda)"
+    return f"Düşüş fikri {lvl} üstünde geçersiz (%{s['distance_pct']:.1f} yukarıda)"
+
+
+def simple_rows(verdicts: Dict[str, Dict[str, Any]], order: List[str],
+                gex: Optional[Dict[str, Any]] = None) -> List[Dict[str, str]]:
+    rows = []
+    for k in order:
+        v = verdicts.get(k) or {}
+        rows.append({"Varlık": k,
+                     "Şimdi ne yapmalı?": simple_action(v),
+                     "Şu an fiyat": simple_now(v),
+                     "Önümüzdeki hafta": simple_week(v),
+                     "Piyasa sakin mi?": simple_calm(v, gex, k),
+                     "Fikir nerede bozulur?": simple_stop(v)})
+    return rows
+
+
+SIMPLE_GUIDE = """
+**Bu tablo nasıl okunur?**
+- **Şimdi ne yapmalı?** — Sistem bütün kontrolleri yapar. Hepsi uygunsa ✅ yazar. Çoğu zaman ✋ Bekle yazar; bu normaldir. İyi fırsat az olur.
+- **Şu an fiyat** — Sadece son birkaç saatte ne olduğunu söyler. Geleceği söylemez.
+- **Önümüzdeki hafta** — Hiç kimse yönü kesin bilemez. Sistem bunu test etti ve kanıt bulamadı. Bu yüzden geçmişteki yükseliş sıklığını gösterir.
+- **Piyasa sakin mi?** — Sistemin en güçlü bilgisi budur (15 yıllık veride kanıtlı). Hareketli piyasada küçük pozisyon ve geniş stop gerekir.
+- **Fikir nerede bozulur?** — Fiyat bu seviyeyi geçerse fikriniz yanlıştır. Bu bir emir değil, risk sınırıdır.
+
+⚠️ Bu tablo yatırım tavsiyesi değildir.
+"""
+
+
 def stop_basis_lines(verdicts: Dict[str, Dict[str, Any]], order: List[str]) -> List[str]:
     out = []
     for k in order:

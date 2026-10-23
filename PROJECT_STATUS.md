@@ -37,4 +37,5 @@ Sonra şu dosyaları okur:
 * GitHub token Claude ile paylaşılmaz; yalnız cron-job.org'dadır.
 
 ## Son değişiklikler
+* 2026-10-23: Arayüze "🟢 Basit Özet" tablosu eklendi (yeni başlayanlar için sade dil).
 * 2026-10-23: `system_health.py` eklendi. Sistem kendi hatalarını `health_log.csv` dosyasına yazar.
