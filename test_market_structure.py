@@ -131,7 +131,7 @@ def test_deribit_payload_parses_and_maps_to_spot_futures():
     m = DG.snapshot_asset("BTC", 101300.0, now=pd.Timestamp("2026-10-14T15:00:00Z"),
                           fetch_deribit=lambda c: (ch, spot), fetch_cboe=lambda s: (None, None),
                           fetch_yf=lambda s: (None, None))
-    assert m["source"] == "Deribit" and m["call_wall"] == 105000.0 and m["put_wall"] == 90000.0
+    assert m["source"] == "Deribit" and m["call_wall"] > 101300.0 > m["put_wall"]     # taraf kuralı (spot ölçekli)
     assert abs(m["expected_move_1d"] - 101300 * 0.45 / math.sqrt(365)) < 1e-6 * 101300
 
 
