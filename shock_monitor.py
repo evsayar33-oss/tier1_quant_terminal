@@ -34,10 +34,14 @@ import pandas as pd
 from system_clock import now_utc
 
 PANEL = {"ES": "ES=F", "NQ": "NQ=F", "GC": "GC=F", "SI": "SI=F", "BTC": "BTC-USD", "ETH": "ETH-USD",
-         "VIX": "^VIX", "DXY": "DX-Y.NYB", "USDJPY": "JPY=X", "TNX": "^TNX", "CL": "CL=F"}
+         "VIX": "^VIX", "DXY": "DX-Y.NYB", "USDJPY": "JPY=X", "TNX": "^TNX", "CL": "CL=F",
+         "DAX": "^GDAXI", "N225": "^N225", "HSI": "^HSI", "EEM": "EEM", "HYG": "HYG"}
+REGION = {"DAX": "Avrupa", "N225": "Japonya", "HSI": "Hong Kong/Çin", "EEM": "Gelişen piyasalar",
+          "ES": "ABD", "NQ": "ABD", "HYG": "ABD kredi"}
 ASSET_OF = {"ES": "SPX", "NQ": "NQ", "GC": "XAU", "SI": "XAG", "BTC": "BTC", "ETH": "ETH"}
 NAME_TR = {"ES": "S&P vadeli", "NQ": "Nasdaq vadeli", "GC": "Altın", "SI": "Gümüş", "BTC": "BTC", "ETH": "ETH",
-           "VIX": "VIX", "DXY": "Dolar endeksi", "USDJPY": "USDJPY", "TNX": "ABD 10y faiz", "CL": "Petrol"}
+           "VIX": "VIX", "DXY": "Dolar endeksi", "USDJPY": "USDJPY", "TNX": "ABD 10y faiz", "CL": "Petrol",
+           "DAX": "DAX", "N225": "Nikkei", "HSI": "Hang Seng", "EEM": "Gelişen piyasalar", "HYG": "Yüksek getirili tahvil"}
 Z15, Z60, BREADTH = 5.0, 4.0, 3
 ACTIVE_H = 4
 LEDGER = "shock_ledger.csv"
@@ -71,7 +75,7 @@ def scan(df: pd.DataFrame, now: pd.Timestamp, lookback_h: float = ACTIVE_H) -> O
         c = c[c.index <= now].sort_index()
         r = np.log(c / c.shift(1)).dropna()
         r = r[r != 0] if (r == 0).mean() > 0.5 else r        # kapalı seans düz barlarını ayıkla
-        if len(r) < 100:                                      # TNX gibi sadece nakit seansta işleyenler için
+        if len(r) < 60:                                      # TNX gibi sadece nakit seansta işleyenler için
             return None
         sig = float(r.abs().median() / 0.6745)
         if sig <= 0:
@@ -95,6 +99,17 @@ def classify(hits: Dict[str, Dict[str, Any]]) -> str:
     s = {k: (1 if (h["z15"] if abs(h["z15"]) >= abs(h["z60"]) else h["z60"]) > 0 else -1) for k, h in hits.items()}
     eq_down = s.get("ES", 0) < 0 or s.get("NQ", 0) < 0
     eq_up = s.get("ES", 0) > 0 or s.get("NQ", 0) > 0
+    glob = [k for k in ("DAX", "N225", "HSI", "EEM") if k in s]
+    if glob and "DXY" not in s:
+        d = sum(s[k] for k in glob)
+        if d < 0:
+            return "küresel hisse şoku ↓ (dolar dışı)"
+        if d > 0:
+            return "küresel hisse şoku ↑ (dolar dışı)"
+    if s.get("HYG", 0) < 0 and eq_down:
+        return "kredi şoku (tahvil ↓, hisse ↓)"
+    if s.get("CL", 0) > 0 and s.get("GC", 0) > 0 and not eq_up:
+        return "jeopolitik desen (petrol ↑, altın ↑)"
     if eq_down and (s.get("VIX", 0) > 0 or s.get("USDJPY", 0) < 0 or s.get("GC", 0) > 0):
         return "risk-off (hisse ↓, korku ↑)"
     if eq_up and (s.get("VIX", 0) < 0 or s.get("USDJPY", 0) > 0):
@@ -125,9 +140,11 @@ def detect(panel: Dict[str, pd.DataFrame], now: Any = None) -> Dict[str, Any]:
     if not broad and ({"SPX", "NQ"} & set(affected)):
         affected = sorted(set(affected) | {"SPX", "NQ"})
     pattern = classify(cluster if broad else hits)
+    first = min(cluster, key=lambda k: t_hit[k])
+    origin = REGION.get(first, NAME_TR.get(first, first))
     desc = ", ".join(f"{NAME_TR[k]} {'↑' if (h['z15'] if abs(h['z15']) >= abs(h['z60']) else h['z60']) > 0 else '↓'}"
                      f"{max(abs(h['z15']), abs(h['z60'])):.0f}σ" for k, h in sorted(hits.items(), key=lambda x: -max(abs(x[1]['z15']), abs(x[1]['z60']))))
-    return {"active": True, "broad": broad, "pattern": pattern, "affected": affected, "time": t0.isoformat(),
+    return {"active": True, "broad": broad, "pattern": pattern, "origin": origin, "affected": affected, "time": t0.isoformat(),
             "hits": hits, "desc": desc, "n_panel": len(panel),
             "vol_now": {ASSET_OF[k]: s["vol_now_ratio"] for k, s in scans.items() if k in ASSET_OF}}
 
@@ -206,7 +223,7 @@ def run(intraday: Optional[Dict[str, pd.DataFrame]] = None, now: Any = None, pat
     except Exception as exc:
         shock["ledger"] = {"error": str(exc)}
     n_scan = len(shock.get("scanned") or []) if not shock.get("active") else len(panel)
-    if len(panel) < 6 or n_scan < len(PANEL) - 2:
+    if len(panel) < 8 or n_scan < len(PANEL) - 4:   # Asya/Avrupa endeksleri kendi seansları dışında seyrek olabilir
         shock["error"] = f"şok paneli eksik: {len(panel)}/{len(PANEL)} indirildi, {n_scan} tarandı"
     return shock
 
@@ -224,4 +241,4 @@ def note(shock: Dict[str, Any], asset: str) -> str:
         return ""
     t = pd.Timestamp(shock["time"]).tz_convert("Europe/Istanbul").strftime("%H:%M")
     scope = "piyasa geneli" if shock.get("broad") else "yerel"
-    return f" · ⚡ Şok {t} TSİ ({scope}, {shock['pattern']}): {shock['desc']}"
+    return f" · ⚡ Şok {t} TSİ ({scope}, {shock['pattern']}, kaynak: {shock.get('origin', '?')}): {shock['desc']}"

@@ -30,6 +30,8 @@ jobs:
           if git fetch --depth 1 origin reports 2>/dev/null; then git archive FETCH_HEAD validation_reports | tar -x || true; fi
       - name: Direction research
         run: python direction_research.py --out validation_reports
+      - name: Shock-direction research (Motor B)
+        run: python shock_direction.py --out validation_reports || echo "şok araştırması başarısız"
       - name: Report on the run page
         if: always()
         run: if [ -f validation_reports/direction_research_report.md ]; then cat validation_reports/direction_research_report.md >> "$GITHUB_STEP_SUMMARY"; fi
