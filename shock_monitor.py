@@ -71,7 +71,7 @@ def scan(df: pd.DataFrame, now: pd.Timestamp, lookback_h: float = ACTIVE_H) -> O
         c = c[c.index <= now].sort_index()
         r = np.log(c / c.shift(1)).dropna()
         r = r[r != 0] if (r == 0).mean() > 0.5 else r        # kapalı seans düz barlarını ayıkla
-        if len(r) < 200:
+        if len(r) < 100:                                      # TNX gibi sadece nakit seansta işleyenler için
             return None
         sig = float(r.abs().median() / 0.6745)
         if sig <= 0:
@@ -205,8 +205,9 @@ def run(intraday: Optional[Dict[str, pd.DataFrame]] = None, now: Any = None, pat
         shock["ledger"] = ledger_cycle(shock, panel, path=path, now=now)
     except Exception as exc:
         shock["ledger"] = {"error": str(exc)}
-    if len(panel) < 6:
-        shock["error"] = f"şok paneli eksik: {len(panel)}/{len(PANEL)} gösterge"
+    n_scan = len(shock.get("scanned") or []) if not shock.get("active") else len(panel)
+    if len(panel) < 6 or n_scan < len(PANEL) - 2:
+        shock["error"] = f"şok paneli eksik: {len(panel)}/{len(PANEL)} indirildi, {n_scan} tarandı"
     return shock
 
 
