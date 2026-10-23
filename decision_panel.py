@@ -12,7 +12,7 @@ import math
 import re
 from typing import Any, Dict, List, Optional
 
-from stop_levels import (base_rate_side, evidence_long_side, evidence_short_side, long_side, model_proven,
+from stop_levels import (Z_BASE, base_rate_side, evidence_long_side, evidence_short_side, long_side, model_proven,
                          short_side)
 
 _ARROW = {1: "🟢", -1: "🔴", 0: "⚪"}
@@ -30,7 +30,9 @@ def short_label(v: Dict[str, Any]) -> str:
     if model_proven(v) or "VERİ" in lbl:
         return lbl
     side = evidence_short_side(v)
-    out = {1: "🟢 YUKARI", -1: "🔴 AŞAĞI"}.get(side, "⚪ YATAY") + " (fiyat)"
+    rm = v.get("recent_move") or {}
+    tag = f" (son 4s %{rm['ret_pct']:+.2f})" if rm.get("ret_pct") is not None else " (fiyat)"
+    out = {1: "🟢 YUKARI", -1: "🔴 AŞAĞI"}.get(side, "⚪ YATAY") + tag
     m = short_side(v)
     if m and m != side:
         out += f" · model {'YUKARI' if m > 0 else 'AŞAĞI'} diyor, kanıtsız"
@@ -166,40 +168,68 @@ def simple_action(v: Dict[str, Any]) -> str:
     return f"✋ Bekle — {why}"
 
 
-def simple_now(v: Dict[str, Any]) -> str:
-    if market_closed(v):
-        return "—"
-    s = _sign(str(v.get("current_direction") or ""))
-    return {1: "🟢 Son saatlerde yükseliyor", -1: "🔴 Son saatlerde düşüyor"}.get(s, "⚪ Yatay, belirgin yön yok")
+def _z(b: Dict[str, Any]) -> float:
+    return (float(b["up"]) - 0.5) / math.sqrt(0.25 / max(int(b.get("n") or 1), 1))
 
 
-def simple_week(v: Dict[str, Any]) -> str:
+def _remaining_days(asset: str, now: Any = None) -> int:
+    """Bu haftanın kalan işlem günü (bugünden sonra). Kripto 7/24: Pazar'a kadar."""
+    import datetime as _dt
+    wd = (now or _dt.datetime.now(_dt.timezone.utc)).weekday()
+    return max((6 if asset in ("BTC", "ETH") else 4) - wd, 0)
+
+
+def simple_days(v: Dict[str, Any], asset: str = "", now: Any = None) -> str:
     rd = v.get("research_direction")
     if isinstance(rd, dict) and rd.get("side"):
         return ("🟢 Test edilmiş bir kural yükseliş diyor" if rd["side"] > 0
                 else "🔴 Test edilmiş bir kural düşüş diyor")
-    b = v.get("base_rate")
-    if isinstance(b, dict) and b.get("up") is not None:
-        n = round(10 * float(b["up"]))
-        return f"🤷 Kesin bilinmez. Geçmişte 10 haftadan {n} tanesi yükselişle bitti"
-    return "🤷 Kesin bilinmez"
+    br = v.get("base_rates") or {}
+    br = {int(k): x for k, x in br.items() if isinstance(x, dict) and x.get("up") is not None}
+    if not br and isinstance(v.get("base_rate"), dict):
+        br = {int(v["base_rate"].get("horizon_d", 5)): v["base_rate"]}
+
+    def part(name: str, b: Dict[str, Any]) -> str:
+        z = _z(b)
+        tag = "anlamlı eğilim" if abs(z) >= Z_BASE else "yazı-tura"
+        return f"{name}: %{100 * b['up']:.0f} yükseliş ({tag})"
+
+    bits = []
+    if 1 in br:
+        bits.append(part("Sonraki gün", br[1]))
+    k = _remaining_days(asset, now)
+    if k >= 2 and k in br:
+        bits.append(part(f"Hafta sonuna kadar ({k} gün)", br[k]))
+    elif 5 in br:
+        bits.append(part("Gelecek 5 gün", br[5]))
+    return " · ".join(bits) + " — geçmiş 10 yıl" if bits else "🤷 Kesin bilinmez"
+
+
+def _hot(v: Dict[str, Any]) -> bool:
+    vs = v.get("vol_state") or {}
+    if vs.get("ratio") is not None:
+        return float(vs["ratio"]) > 1.25
+    return "NEGAT" in str((v.get("dealer_gamma") or {}).get("regime") or "")
 
 
 def simple_calm(v: Dict[str, Any], gex: Optional[Dict[str, Any]] = None, asset: str = "") -> str:
-    regime = str((v.get("dealer_gamma") or {}).get("regime") or "")
-    mf = (gex or {}).get("move_factor") if asset in ("SPX", "NQ") else None
-    extra = ""
-    if mf and abs(float(mf) - 1.0) >= 0.05:
-        extra = f" (normalden %{abs(100 * (float(mf) - 1)):.0f} {'büyük' if mf > 1 else 'küçük'} hareket beklenir)"
-    if "NEGAT" in regime:
-        return "🌪️ Hareketli — fiyat sert ve hızlı oynayabilir" + extra
-    if "POZ" in regime:
-        return "🧘 Sakin — büyük hareketler frenlenir" + extra
-    try:
-        r = float(v.get("atr_ratio"))
-    except (TypeError, ValueError):
+    vs = v.get("vol_state") or {}
+    if vs.get("ratio") is None:
         return "—"
-    return ("🌪️ Normalden hareketli" if r > 1.3 else "🧘 Normalden sakin" if r < 0.8 else "〰️ Normal") + extra
+    r = float(vs["ratio"])
+    head = ("🌪️ Normalden hareketli" if r > 1.25 else "🧘 Normalden sakin" if r < 0.8 else "〰️ Normal")
+    out = f"{head} — son 20 gün ±%{vs.get('recent_pct', vs['today_pct']):.1f}/gün, son 1 yıl ±%{vs['normal_pct']:.1f}/gün"
+    mf = float(vs.get("move_factor") or 1.0)
+    if abs(mf - 1.0) >= 0.05:
+        out += f" · opsiyon pozisyonu: hareket ×{mf:.2f} beklenir"
+    # Dealer gaması sadece SPX/NQ'da kanıtlı (RESEARCH_LOG #7); kripto için işaret varsayımı güvenilir değil.
+    if asset in ("SPX", "NQ"):
+        reg = str((v.get("dealer_gamma") or {}).get("regime") or "")
+        if "NEGAT" in reg:
+            out += " (dealer gaması negatif: hareketi büyütür)"
+        elif "POZ" in reg:
+            out += " (dealer gaması pozitif: hareketi frenler)"
+    return out
 
 
 def simple_stop(v: Dict[str, Any]) -> str:
@@ -228,7 +258,10 @@ def simple_today(v: Dict[str, Any]) -> str:
         return "⏸️ Piyasa kapalı"
     r = v.get("day_range") or {}
     now = _lean(v)["now"]
-    tilt = {1: "🟢 hafif yukarı eğilim", -1: "🔴 hafif aşağı eğilim"}.get(now, "⚪ belirgin eğilim yok")
+    tilt = {1: "🟢 son 4 saat yukarı", -1: "🔴 son 4 saat aşağı"}.get(now, "⚪ son 4 saat yatay")
+    rm = v.get("recent_move") or {}
+    if rm.get("ret_pct") is not None:
+        tilt += f" (%{rm['ret_pct']:+.2f})"
     if not r.get("move") or not r.get("price"):
         return tilt
     p, m, dg = r["price"], r["move"], _digits(r["price"])
@@ -240,7 +273,7 @@ def simple_risk(v: Dict[str, Any]) -> str:
         return "—"
     if "KRİZ" in str(v.get("verdict", "")):
         return "🔴 Çok riskli — kriz sinyali"
-    neg = "NEGAT" in str((v.get("dealer_gamma") or {}).get("regime") or "")
+    neg = _hot(v)
     l = _lean(v)
     mixed = l["now"] and l["hist"] and l["now"] != l["hist"]
     if v.get("entry_allowed") and not neg:
@@ -277,7 +310,7 @@ def simple_rows(verdicts: Dict[str, Dict[str, Any]], order: List[str],
                      "Bugün fiyat ne yapabilir?": simple_today(v),
                      "Şimdi girmek riskli mi?": simple_risk(v),
                      "Girersen hangi yön daha iyi?": simple_side(v),
-                     "Önümüzdeki hafta": simple_week(v),
+                     "Yarın ve bu hafta": simple_days(v, k),
                      "Piyasa sakin mi?": simple_calm(v, gex, k),
                      "Fikir nerede bozulur?": simple_stop(v)})
     return rows
@@ -286,11 +319,11 @@ def simple_rows(verdicts: Dict[str, Dict[str, Any]], order: List[str],
 SIMPLE_GUIDE = """
 **Bu tablo nasıl okunur?**
 - **Şimdi ne yapmalı?** — Sistem bütün kontrolleri yapar. Hepsi uygunsa ✅ yazar. Çoğu zaman ✋ Bekle yazar; bu normaldir. İyi fırsat az olur.
-- **Bugün fiyat ne yapabilir?** — Opsiyon piyasasının fiyatladığı günlük aralıktır. Fiyat günlerin yaklaşık 2/3'ünde bu aralıkta kalır. Eğilim sadece son saatlerin yönüdür; zayıf bir bilgidir.
+- **Bugün fiyat ne yapabilir?** — Günlük 1σ aralığıdır (opsiyon piyasası; yoksa son 20 günün oynaklığı). Fiyat günlerin yaklaşık 2/3'ünde bu aralıkta kapanır. Eğilim son 4 saatin hareketidir; tahmin değil, betimlemedir.
 - **Şimdi girmek riskli mi?** — 🟢 düşük, 🟡 orta, 🔴 yüksek. Sert piyasa veya çelişen sinyaller riski yükseltir.
 - **Girersen hangi yön daha iyi?** — Kısa vade ve geçmiş eğilim aynı yönü gösterirse o yön yazılır. Çelişirse "girmemek daha iyi" yazılır.
-- **Önümüzdeki hafta** — Hiç kimse yönü kesin bilemez. Sistem bunu test etti ve kanıt bulamadı. Bu yüzden geçmişteki yükseliş sıklığını gösterir.
-- **Piyasa sakin mi?** — Sistemin en güçlü bilgisi budur (15 yıllık veride kanıtlı). Hareketli piyasada küçük pozisyon ve geniş stop gerekir.
+- **Yarın ve bu hafta** — Geçmiş 10 yılda sonraki günün ve haftanın kalan günlerinin yüzde kaçının yükselişle bittiğini gösterir. "Yazı-tura" yazıyorsa bu oran şanstan ayırt edilemez.
+- **Piyasa sakin mi?** — Son 20 günün günlük hareketini son 1 yılın normal günüyle karşılaştırır (SPX/NQ'da opsiyon pozisyonu çarpanıyla). Tek bir kriz günü ortalamayı bozmasın diye medyan kullanılır. Oynaklık kümelenir: bu, sistemin en güçlü bilgisidir (15 yıllık veride kanıtlı). Hareketli piyasada küçük pozisyon ve geniş stop gerekir.
 - **Fikir nerede bozulur?** — Fiyat bu seviyeyi geçerse fikriniz yanlıştır. Bu bir emir değil, risk sınırıdır.
 
 ⚠️ Bu tablo yatırım tavsiyesi değildir.

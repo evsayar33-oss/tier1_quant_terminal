@@ -123,6 +123,8 @@ def run_background_cycle() -> Dict[str, Any]:
     for a in ASSET_MATRICES:
         try:
             contexts[a] = MS.build_context(a, frames.get(a), daily.get(a), intraday.get(a))
+            import stop_levels as _SL
+            contexts[a]["vol"] = _SL.daily_vol(daily.get(a))
         except Exception as exc:
             print(f"[yapı] {a} atlandı: {exc}")
     calendar = MS.options_calendar()
@@ -148,6 +150,7 @@ def run_background_cycle() -> Dict[str, Any]:
         for a, v in verdicts.items():
             v["research_direction"] = DR.live_direction(a, daily.get(a), research, gk.grid_daily.get("VIX"))
             v["base_rate"] = DR.base_rate(a, research)
+            v["base_rates"] = {h: DR.base_rate(a, research, h) for h in DR.BASE_HORIZONS_D}
     except Exception as exc:
         print(f"Yön araştırması atlandı: {exc}")
 
