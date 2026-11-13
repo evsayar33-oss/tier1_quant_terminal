@@ -185,6 +185,8 @@ def collect(payload: dict[str, Any] | None = None, *, now: datetime | None = Non
                         observed_at_ms=now_ms)
             try:
                 item.update(fetch_sample(asset, market, now_ms=now_ms, session=session))
+                from research_30d_enrichment import snapshot
+                item.update(snapshot(asset, market, session=session))
             except (requests.RequestException, ValueError, RuntimeError, KeyError) as e:
                 item.update(status="ERROR", detail=str(e)[:180])
                 failed += 1
@@ -217,6 +219,8 @@ def report(m: dict[str, Any] | None = None,
              f"- Status: {m['status']}",
              "- Scope: observational only; production decisions unchanged",
              "- Important: Bybit recent-trade samples are not continuous CVD, DOM, or a full footprint",
+             "- Orderbook data are isolated snapshots, not observed executions or proof of absorption",
+             "- OI and funding are historical published readings; do not assume same timestamp as trades",
              "- No demonstrated forecast edge or profitability can be inferred from sample imbalance", "",
              "| Asset | Market | Samples | Fresh valid samples |",
              "|---|---|---:|---:|"]
