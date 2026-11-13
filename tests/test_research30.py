@@ -42,7 +42,7 @@ class Research30Tests(unittest.TestCase):
         s = r.parse_recent_trades(raw, now_ms=3000)
         self.assertEqual(s["trade_count"], 2)
         self.assertEqual(s["signed_usdt"], 100)
-        self.assertAlmostEqual(s["imbalance"], 1 / 3)
+        self.assertAlmostEqual(s["imbalance"], 1 / 3, places=6)
         self.assertEqual(s["status"], "INSUFFICIENT_SAMPLE")
 
     def test_errors_are_recorded_not_fabricated(self):
