@@ -226,6 +226,11 @@ def report(m: dict[str, Any] | None = None,
              "|---|---|---:|---:|"]
     for (asset, market), (total, good) in status.items():
         lines.append(f"| {asset} | {market} | {total} | {good} |")
+    try:
+        from research_30d_eval import evaluate, as_markdown
+        lines += [""] + as_markdown(evaluate(rows))
+    except Exception as exc:
+        lines += ["", "Evaluation unavailable: " + str(exc)]
     lines += ["", "## Promotion criteria (not automatically executed)",
               "1. Continuous trade capture with proven gap coverage, or discard a CVD hypothesis.",
               "2. Point-in-time independent labels, non-overlapping windows and no lookahead.",
