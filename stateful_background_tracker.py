@@ -358,6 +358,13 @@ def run_background_cycle() -> Dict[str, Any]:
         "day_direction_stats": day_dir_stats,
         "trade_scorecard": trade_card,
     }
+    # Isolated evidence-only research: never changes verdicts, weights or stops.
+    try:
+        import research_30d as R30
+        payload["research_30d"] = R30.collect(payload)
+    except Exception as exc:
+        payload["research_30d"] = {"status": "ERROR", "error": str(exc)}
+        print(f"[research_30d] research collection failed: {exc}", flush=True)
     # v16.3: the system checks its own health and logs problems permanently.
     try:
         import system_health as SH
