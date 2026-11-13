@@ -52,7 +52,7 @@ STATE_FILES = [
     "terminal_history_stateful.csv",
     "engine_status.json",    # engine heartbeat (v15.1: bot/lab files removed)
 ]
-STATE_DIRS = ["ohlcv_history", "clone"]   # clone/: klon gölge sistemin defterleri
+STATE_DIRS = ["ohlcv_history", "clone", "research_30d"]   # clone/: klon gölge sistemin defterleri
 REPORT_FILES = [  # copied from the `reports` branch, needed by app + tracker
     "validation_reports/learned_model.json",
     "validation_reports/historical_replay_report.md",
