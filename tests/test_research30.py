@@ -68,8 +68,8 @@ class Research30Tests(unittest.TestCase):
     def test_legacy_trade_outcome_dtype(self):
         csv_path = Path(self.temp.name) / "trade.csv"
         csv_path.write_text(
-            "ts,asset,side,entry,stop,target,confidence,source,pulse,outcome,r_mult,exit_ts,graded,logic\\n"
-            "2026-11-10T00:00:00+00:00,BTC,1,100,90,120,orta,test,1.2,,, ,0,v2\\n"
+            "ts,asset,side,entry,stop,target,confidence,source,pulse,outcome,r_mult,exit_ts,graded,logic\n"
+            "2026-11-10T00:00:00+00:00,BTC,1,100,90,120,orta,test,1.2,,, ,0,v2\n"
         )
         d = trade_plan._load(str(csv_path))
         bars = pd.DataFrame(
