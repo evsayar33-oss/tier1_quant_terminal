@@ -26,6 +26,6 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - name: Compile modules
-        run: python -m py_compile trade_plan.py state_sync.py stateful_background_tracker.py research_30d.py research_30d_enrichment.py research_30d_eval.py
+        run: python -m py_compile trade_plan.py state_sync.py stateful_background_tracker.py research_30d.py research_30d_enrichment.py research_30d_eval.py research_30d_monitor.py
       - name: Offline regression tests
         run: python -m unittest discover -s tests -p 'test_research30*.py' -v
