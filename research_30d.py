@@ -227,6 +227,11 @@ def report(m: dict[str, Any] | None = None,
     for (asset, market), (total, good) in status.items():
         lines.append(f"| {asset} | {market} | {total} | {good} |")
     try:
+        from research_30d_monitor import audit, as_markdown as monitor_md
+        lines += [""] + monitor_md(audit(m))
+    except Exception as exc:
+        lines += ["", "Six-asset audit unavailable: " + str(exc)]
+    try:
         from research_30d_eval import evaluate, as_markdown
         lines += [""] + as_markdown(evaluate(rows))
     except Exception as exc:
