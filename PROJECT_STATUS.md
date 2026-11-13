@@ -41,6 +41,13 @@ Sonra şu dosyaları okur:
 * PR birleştirirken tam 40 karakterlik SHA kullan.
 * GitHub token Claude ile paylaşılmaz; yalnız cron-job.org'dadır.
 
+## Yeni 30 günlük bağımsız araştırma (PR, üretim mantığı değişmez)
+* Yeni gözlem: `research_30d.py`, `research_30d_enrichment.py`, `research_30d_eval.py`.
+* BTC/ETH spot ve linear perpetual için *bounded* public trade, orderbook, OI ve funding örnekleri; kesintisiz CVD/footprint/absorpsiyon olarak sunulmaz.
+* `research_30d/manifest.json` ile 30 gün UTC başlangıç/bitiş kilitli, otomatik reset/terfi yok; state dalında korunur.
+* Başlatma: Actions → `Tier-1 30 Gün Kanıt Araştırması — Başlat / Kontrol` → `start`; `RESEARCH_30D_GUIDE.md`.
+* Mevcut 2026-10-23 → 2026-11-23 V2 ölçümü ve `LOGIC_VERSION` değiştirilmedi.
+
 ## Son değişiklikler
 * 2026-10-23: MANTIK v2 (kullanıcı isteği). Basit Özet yeni sütunlar: Nihai karar (tam işlem önerisi veya işlem yok), Bugün olası yön (AL/SAT/NÖTR; `day_direction.py` aday turnuvası), Giriş riski (piyasa nabzı; `trade_plan.pulse`, sadece oynaklık + şok + yakın veri), Yarın ve bu hafta, Fikir nerede bozulur. Öneriler `trade_ledger.csv` dosyasına yazılır ve R cinsinden notlanır. Klon da aynı modülleri kendi `clone/` defterleriyle çalıştırır. Şok radarı: seans açılış boşluğu artık şok sayılmaz (VIX/HYG/TNX sahte şokları). RESEARCH_LOG #16-#18.
 * 2026-10-23: KLON GÖLGE SİSTEM (`clone_system.py`, etiket `2026.10.23-v1+klon1`): sistemin tam kopyası her döngüde aynı veriyle çalışır; yeni fikirler (charm yönü, POC/VAH/VAL stop dayanakları) içine entegre. Aynı modüllerden geçer ve `clone/` klasörüne kendi stop, tahmin karnesi ve karar defterini yazar. Ekran değişmez. 23 Kasım: `python shadow_eval.py --ledger ../st/shadow_ledger.csv --state ../st` şampiyon ↔ klon karşılaştırır.
