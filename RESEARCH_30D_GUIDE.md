@@ -10,7 +10,7 @@ The pre-existing 2026-10-23 to 2026-11-23 evaluation is preserved.
 Fix: `trade_plan._load` now casts textual CSV outcome/exit fields to object
 and numeric ones to numeric, for BOTH champion and clone trade grading.
 
-Research: BTC/ETH, spot and linear perpetuals, Bybit public bounded recent
+All six assets are audited using the EXISTING forecast, champion/clone trade,\nstop, gamma and shadow ledgers within the new UTC window.\n\nResearch: BTC/ETH, spot and linear perpetuals, Bybit public bounded recent
 trades (aggressor signed USDT notional for a **bounded sample**), plus book
 depth/spread, OI and latest settled funding snapshots. Source, UTC time, trade
 sample span, missing data and stale/error status are persisted. Order book
