@@ -13,7 +13,13 @@ and numeric ones to numeric, for BOTH champion and clone trade grading.
 All six assets are audited using the EXISTING forecast, champion/clone trade,\nstop, gamma and shadow ledgers within the new UTC window.\n\nResearch: BTC/ETH, spot and linear perpetuals, Bybit public bounded recent
 trades (aggressor signed USDT notional for a **bounded sample**), plus book
 depth/spread, OI and latest settled funding snapshots. Source, UTC time, trade
-sample span, missing data and stale/error status are persisted. Order book
+sample span, missing data and stale/error status are persisted. Bybit is the
+primary source and OKX is the fallback on HTTP errors or stale/insufficient
+samples. **OKX swap quantities are contracts:** public contract value metadata
+must be validated before converting to base coin and USDT notional. An
+unavailable or unsupported contract multiplier is an explicit data error.
+
+Order book
 snapshots **cannot** prove passive absorption. Open-interest levels do **not**
 reveal long/short intent. No fabricated CVD, footprint, liquidation levels,
 market-maker positioning, dealer trade prints, or Tick/DOM data.
@@ -26,19 +32,15 @@ unverified video claim or arbitrary AI vote changes trading signals.
 
 ## Deploy and start (one-time)
 
-1. Merge this PR into `main` after reviewing **Research 30D — Regression Tests**.
-2. Open GitHub **Actions → Tier-1 30 Gün Kanıt Araştırması — Başlat / Kontrol**.
-3. Press **Run workflow**, branch **main**, choose **action: start**.
-4. A single launch run restores the live `state` branch, initializes a durable
-   UTC 30-day manifest and invokes `engine_loop.py --once`. The existing
-   hourly tracker collects subsequent observations. There is **no new
-   always-running GitHub Actions job**, and no new required secret.
+1. For an existing experiment, merge this **fix PR** into `main` after reviewing **Research 30D — Regression Tests**. No reset or reinitialization is needed.
+2. The existing hourly engine will use the fallback at its next scheduled run. To verify immediately, run the existing **Tier-1 Motoru Şimdi Yeniden Başlat (manuel)** workflow once. Do not start a second 30-day experiment.
+3. Check the next `state/research_30d/observations.csv` rows. All of `venue`, `instrument_id`, `attempted_sources`, `enrichment_source`, `book_imbalance`, `spread_bps` must be populated on successful matching-venue snapshots; `oi_*` and `funding_*` apply only to the linear perpetual rows.
+4. Keep the existing `research_30d/manifest.json` UTC start and end unchanged. The existing hourly tracker collects subsequent observations. There is **no new always-running GitHub Actions job** and no new required secret.
 5. Verify `state/research_30d/manifest.json`,
    `state/research_30d/observations.csv`, and
    `state/research_30d/report.md`. Also check
    `state/health_report.md` for active errors.
-6. A repeat **start** is idempotent: no resetting the clock or overwriting the
-   experiment. **check** only inspects restored state, does not publish.
+6. A repeat **start** is idempotent, but unnecessary. Failed rows from the current UTC hour may be retried in place with `previous_status` and `previous_detail` preserved. Past hours are not backfilled or fabricated. **check** only inspects restored state.
 7. If the hourly engine is not running, repair/restart the existing
    `stateful_adaptive_tracker.yml` workflow; otherwise no samples accumulate.
 
@@ -71,8 +73,8 @@ research observations stop; past rows are preserved. There is deliberately no
 
 ## Failure / safety
 
-- A failed data source writes `ERROR` or `PARTIAL`; it never inserts zero
-  as if zero were an observed market value.
+- If Bybit rejects an API call, the same asset and market try OKX. If both fail, the row records `ERROR`. On partial enrichment the row records `PARTIAL` with no invented missing values. Zero is never used as a placeholder for missing data.
+- The CSV migrates its header to include contract, funding, OI, book and source metadata without deleting existing rows or future unknown columns. Mixed-venue trade/book snapshots are prohibited.
 - Only restored `state` files are published; no automatic model promotion,
   new trades or historical state deletion.
 - Publication shares the existing single-writer GitHub Actions concurrency
