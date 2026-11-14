@@ -101,7 +101,17 @@ def observe(payload, store, now, manifest, price_rows=None):
                     break
             except (ValueError, TypeError):
                 pass
-        price_source = "verdict_quote" if price is not None else "UNAVAILABLE"\n        if price is None:\n            eligible = [r for r in price_rows if r.get("a") == asset and r.get("p") is not None\n                        and r.get("rec") and dt(r["rec"]) <= now\n                        and now - dt(r["rec"]) <= timedelta(hours=2)\n                        and dt(r["rec"]) <= pub + timedelta(minutes=5)]\n            if eligible:\n                latest = max(eligible, key=lambda r: r["rec"])\n                price = float(latest["p"])\n                price_source = "lagged_1h_bar_proxy_NOT_EXECUTABLE"\n        snap = {"asset": asset, "observed_utc": utc(now), "publication_utc": utc(pub),
+        price_source = "verdict_quote" if price is not None else "UNAVAILABLE"
+        if price is None:
+            eligible = [r for r in price_rows if r.get("a") == asset and r.get("p") is not None
+                        and r.get("rec") and dt(r["rec"]) <= now
+                        and now - dt(r["rec"]) <= timedelta(hours=2)
+                        and dt(r["rec"]) <= pub + timedelta(minutes=5)]
+            if eligible:
+                latest = max(eligible, key=lambda r: r["rec"])
+                price = float(latest["p"])
+                price_source = "lagged_1h_bar_proxy_NOT_EXECUTABLE"
+        snap = {"asset": asset, "observed_utc": utc(now), "publication_utc": utc(pub),
                 "source_hash": source_hash, "price": price, "price_source": price_source}
         snapshots.append(snap)
         side = direction(v)
@@ -231,7 +241,8 @@ def report(summary):
 def main():
     p=argparse.ArgumentParser()
     p.add_argument("--state", default="terminal_state.json")
-    p.add_argument("--manifest", default="research_30d/manifest.json")\n    p.add_argument("--performance", default="performance_ledger.json")
+    p.add_argument("--manifest", default="research_30d/manifest.json")
+    p.add_argument("--performance", default="performance_ledger.json")
     p.add_argument("--audit", default="independent_audit/ledger.json")
     p.add_argument("--summary", default="independent_audit/summary.json")
     p.add_argument("--report", default="independent_audit/report.md")
@@ -245,7 +256,8 @@ def main():
     payload=load(args.state,None)
     if payload is None:
         raise SystemExit("Missing published terminal state")
-    performance = load(args.performance, {"records":[]})\n    n=observe(payload,store,now,manifest,performance.get("records", []))
+    performance = load(args.performance, {"records":[]})
+    n=observe(payload,store,now,manifest,performance.get("records", []))
     settle(store,now)
     summary=stats(store,manifest,now)
     save(args.audit,store)
