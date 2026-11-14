@@ -137,7 +137,7 @@ def append_price_snapshots(store, now, prices):
 def observe(payload, store, now, manifest, price_rows=None, independent_prices=None):
     if not payload or not isinstance(payload.get("asset_verdicts"), dict):
         raise ValueError("terminal_state.json missing asset_verdicts")
-    if now < dt(manifest["start_utc"]):
+    if now < dt(manifest["start_utc"]) or now >= dt(manifest["end_utc"]):
         return 0
     seen = store.setdefault("seen_publications", {})
     price_rows = price_rows or []
@@ -146,8 +146,11 @@ def observe(payload, store, now, manifest, price_rows=None, independent_prices=N
     calls = store.setdefault("calls", [])
     added = 0
     pub = dt(payload["last_updated"])
-    if pub > now + timedelta(minutes=5) or pub < now - timedelta(hours=3):
-        raise ValueError("stale or future production publication")
+    if pub > now + timedelta(minutes=5):
+        raise ValueError("future production publication")
+    if pub < now - timedelta(hours=3):
+        store["stale_production_publication_utc"] = utc(pub)
+        return 0
     source_hash = sha({"updated": payload["last_updated"], "verdicts": payload["asset_verdicts"]})
     if source_hash in seen:
         return 0
@@ -173,11 +176,13 @@ def observe(payload, store, now, manifest, price_rows=None, independent_prices=N
             eligible = [r for r in price_rows if r.get("a") == asset and r.get("p") is not None
                         and r.get("rec") and dt(r["rec"]) <= now
                         and now - dt(r["rec"]) <= timedelta(hours=2)
-                        and dt(r["rec"]) <= pub + timedelta(minutes=5)]
+                        and dt(r["rec"]) <= pub + timedelta(minutes=5)
+                        and (not r.get("t") or dt(r["t"]) <= pub)]
             if eligible:
                 latest = max(eligible, key=lambda r: r["rec"])
-                price = float(latest["p"])
-                price_source = "lagged_1h_bar_proxy_NOT_EXECUTABLE"
+                price = _valid_price(latest["p"])
+                if price is not None:
+                    price_source = "lagged_1h_bar_proxy_NOT_EXECUTABLE"
         live = independent_prices.get(asset) or {}
         if _valid_price(live.get("price")) is not None:
             price = float(live["price"])
