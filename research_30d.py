@@ -27,7 +27,7 @@ FIELDS = ("ts", "experiment_id", "asset", "market", "source", "trade_count",
           "sell_usdt", "signed_usdt", "imbalance", "last_trade_price",
           "reference_price", "observed_at_ms", "status", "detail",
           "venue", "instrument_id", "sample_qty_unit", "contract_value_base",
-          "attempted_sources", "fallback_from", "previous_status", "retry_count",
+          "attempted_sources", "fallback_from", "previous_status", "previous_detail", "retry_count",
           "book_imbalance", "spread_bps", "book_ts", "book_qty_unit",
           "oi_contracts", "oi_base", "oi_usdt", "oi_unit", "oi_ts",
           "funding_rate", "funding_ts", "funding_kind",
@@ -234,8 +234,11 @@ def collect(payload: dict[str, Any] | None = None, *, now: datetime | None = Non
                         (prior or {}).get("reference_price") or "",
                         observed_at_ms=now_ms)
             if prior is not None:
+                item.update({key: value for key, value in prior.items()
+                             if key not in FIELDS and key is not None})
                 item["previous_status"] = prior.get("status") or ""
                 item["retry_count"] = int(prior.get("retry_count") or 0) + 1
+                item["previous_detail"] = prior.get("detail") or ""
             else:
                 item["retry_count"] = 0
             try:
