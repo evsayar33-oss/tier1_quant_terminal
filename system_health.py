@@ -92,11 +92,17 @@ def run_checks(state: Dict[str, Any], now: Optional[datetime] = None) -> Dict[st
     ) if isinstance(v, dict) and v.get("error")]
     research = state.get("research_30d") or {}
     active = research.get("status") == "COLLECTING"
-    research_bad = bool(active and research.get("errors", 0) >= 4 and research.get("new_snapshots", 0) >= 4)
+    attempts = int(research.get("observed_snapshots") or
+                   research.get("new_snapshots") or 0)
+    valid = int(research.get("valid_snapshots") or 0)
+    # Never mark a failed feed healthy just because no new rows were added:
+    # same-hour deduplication and retries must use the stored snapshot coverage.
+    research_bad = bool(active and attempts >= 4 and valid == 0)
     res("research_30d_feed", not research_bad and research.get("status") != "ERROR",
-        ("all four public-market snapshots failed" if research_bad else
+        ("no valid public-market samples across BTC/ETH spot/linear"
+         if research_bad else
          "research inactive" if not active else
-         f"observations={research.get('new_snapshots')} errors={research.get('errors')}"))
+         f"samples={attempts} valid={valid} errors={research.get('errors', 0)}"))
     res("cycle_errors", not errs, "; ".join(errs)[:300] if errs else "modül hatası yok")
     return out
 

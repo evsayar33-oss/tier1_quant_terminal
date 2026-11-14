@@ -25,7 +25,14 @@ MARKETS = ("spot", "linear")
 FIELDS = ("ts", "experiment_id", "asset", "market", "source", "trade_count",
           "first_trade_ms", "last_trade_ms", "sample_span_s", "buy_usdt",
           "sell_usdt", "signed_usdt", "imbalance", "last_trade_price",
-          "reference_price", "observed_at_ms", "status", "detail")
+          "reference_price", "observed_at_ms", "status", "detail",
+          "venue", "instrument_id", "sample_qty_unit", "contract_value_base",
+          "attempted_sources", "fallback_from", "previous_status", "previous_detail", "retry_count",
+          "book_imbalance", "spread_bps", "book_ts", "book_qty_unit",
+          "oi_contracts", "oi_base", "oi_usdt", "oi_unit", "oi_ts",
+          "funding_rate", "funding_ts", "funding_kind",
+          "enrichment_source", "enrichment_status")
+
 API = "https://api.bybit.com/v5/market/recent-trade"
 MAX_AGE_SECONDS = 300
 MIN_TRADES = 20
@@ -127,6 +134,42 @@ def fetch_sample(asset: str, market: str, *, now_ms: int,
     return parse_recent_trades(rows, now_ms=now_ms)
 
 
+def fetch_market_sample(asset: str, market: str, *, now_ms: int,
+                        session: requests.Session | None = None) -> dict[str, Any]:
+    """Bybit then OKX, with no mixing of venues or unverified contract units."""
+    from research_30d_okx import get_trades
+    attempted = []
+    choices = []
+    for venue in ("bybit", "okx"):
+        try:
+            if venue == "bybit":
+                item = fetch_sample(asset, market, now_ms=now_ms, session=session)
+                item.update(venue="bybit", instrument_id=asset + "USDT",
+                            source="bybit_public_recent_trade",
+                            sample_qty_unit="base_" + asset)
+            else:
+                raw, metadata = get_trades(asset, market, session=session)
+                item = parse_recent_trades(raw, now_ms=now_ms)
+                item.update(metadata)
+                item["source"] = "okx_public_recent_trade"
+            attempted.append(venue + ": " + item["status"])
+            if item["status"] == "OK_SAMPLE":
+                item["attempted_sources"] = "; ".join(attempted)
+                item["fallback_from"] = "bybit" if venue == "okx" else ""
+                return item
+            choices.append(item)
+        except (requests.RequestException, ValueError, TypeError,
+                KeyError, RuntimeError) as exc:
+            attempted.append(venue + ": " + str(exc)[:110])
+    if choices:
+        # An insufficient real sample is preferable to fabricated data.
+        item = max(choices, key=lambda x: x.get("trade_count", 0))
+        item["attempted_sources"] = "; ".join(attempted)
+        item["fallback_from"] = "bybit" if item["venue"] == "okx" else ""
+        return item
+    raise RuntimeError("both venues failed: " + "; ".join(attempted)[:360])
+
+
 def read_rows() -> list[dict[str, str]]:
     if not LEDGER.exists():
         return []
@@ -135,10 +178,13 @@ def read_rows() -> list[dict[str, str]]:
 
 
 def write_rows(rows: list[dict[str, Any]]) -> None:
+    """Atomic CSV schema migration; preserve old rows and future extra columns."""
     ROOT.mkdir(parents=True, exist_ok=True)
     tmp = LEDGER.with_suffix(".tmp")
+    extra = sorted({key for row in rows for key in row if key not in FIELDS and key is not None})
+    fieldnames = list(FIELDS) + extra
     with tmp.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=FIELDS, extrasaction="ignore")
+        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="raise")
         writer.writeheader()
         writer.writerows(rows[-MAX_LINES:])
     os.replace(tmp, LEDGER)
@@ -170,36 +216,61 @@ def collect(payload: dict[str, Any] | None = None, *, now: datetime | None = Non
         return {"status": m["status"], "experiment_id": m["experiment_id"]}
     rows = read_rows()
     bucket = now.replace(minute=0, second=0, microsecond=0).isoformat()
-    existing = {(r["ts"], r["asset"], r["market"]) for r in rows}
-    new = 0
-    failed = 0
+    existing = {(r["ts"], r["asset"], r["market"]): i
+                for i, r in enumerate(rows)}
+    new, retried, failed = 0, 0, 0
     now_ms = int(now.timestamp() * 1000)
     for asset in ASSETS:
         for market in MARKETS:
-            if (bucket, asset, market) in existing:
+            key = (bucket, asset, market)
+            prior_idx = existing.get(key)
+            prior = rows[prior_idx] if prior_idx is not None else None
+            if prior and prior.get("status") != "ERROR":
                 continue
             item = dict.fromkeys(FIELDS, "")
             item.update(ts=bucket, experiment_id=m["experiment_id"], asset=asset,
-                        market=market, source="bybit_public_recent_trade",
-                        reference_price=_ref_price(payload or {}, asset) or "",
+                        market=market, source="",
+                        reference_price=_ref_price(payload or {}, asset) or
+                        (prior or {}).get("reference_price") or "",
                         observed_at_ms=now_ms)
+            if prior is not None:
+                item.update({key: value for key, value in prior.items()
+                             if key not in FIELDS and key is not None})
+                item["previous_status"] = prior.get("status") or ""
+                item["retry_count"] = int(prior.get("retry_count") or 0) + 1
+                item["previous_detail"] = prior.get("detail") or ""
+            else:
+                item["retry_count"] = 0
             try:
-                item.update(fetch_sample(asset, market, now_ms=now_ms, session=session))
+                sample = fetch_market_sample(asset, market, now_ms=now_ms,
+                                             session=session)
+                item.update(sample)
                 from research_30d_enrichment import snapshot
-                item.update(snapshot(asset, market, session=session))
-            except (requests.RequestException, ValueError, RuntimeError, KeyError) as e:
-                item.update(status="ERROR", detail=str(e)[:180])
+                item.update(snapshot(asset, market, session=session,
+                                     venue=sample["venue"]))
+            except (requests.RequestException, ValueError, RuntimeError,
+                    KeyError, TypeError) as exc:
+                item.update(status="ERROR", detail=str(exc)[:400],
+                            attempted_sources=str(exc)[:400])
                 failed += 1
-            rows.append(item)
-            new += 1
-    if new:
+            if prior_idx is None:
+                rows.append(item)
+                new += 1
+            else:
+                rows[prior_idx] = item
+                retried += 1
+    if new or retried:
         write_rows(rows)
     report(m, rows)
+    current = [r for r in rows if r.get("ts") == bucket and
+               r.get("asset") in ASSETS and r.get("market") in MARKETS]
+    valid = sum(r.get("status") == "OK_SAMPLE" for r in current)
     return {"status": "COLLECTING", "experiment_id": m["experiment_id"],
-            "new_snapshots": new, "errors": failed,
+            "new_snapshots": new, "retried_snapshots": retried,
+            "observed_snapshots": len(current), "valid_snapshots": valid,
+            "errors": sum(r.get("status") == "ERROR" for r in current),
             "elapsed_days": round((now - start_at).total_seconds() / 86400, 2),
             "deadline": m["end_utc"], "policy": "advisory_only"}
-
 
 def report(m: dict[str, Any] | None = None,
            rows: list[dict[str, Any]] | None = None) -> str:
@@ -212,20 +283,23 @@ def report(m: dict[str, Any] | None = None,
         for market in MARKETS:
             rr = [r for r in rows if r["asset"] == asset and r["market"] == market]
             valid = [r for r in rr if r["status"] == "OK_SAMPLE"]
-            status[(asset, market)] = (len(rr), len(valid))
+            latest = rr[-1] if rr else {}
+            status[(asset, market)] = (len(rr), len(valid), latest.get("venue") or "—", latest.get("status") or "—")
     lines = ["# 30-day evidence observation report", "",
              f"- Experiment: `{m['experiment_id']}`",
              f"- Window (UTC): {m['start_utc']} to {m['end_utc']}",
              f"- Status: {m['status']}",
              "- Scope: observational only; production decisions unchanged",
-             "- Important: Bybit recent-trade samples are not continuous CVD, DOM, or a full footprint",
+             "- Bybit is attempted first; OKX is tried on rejection, stale or insufficient samples",
+             "- Every row records its actual venue and instrument; notional conversions are contract-aware",
+             "- Important: bounded recent-trade samples are not continuous CVD, DOM, or a full footprint",
              "- Orderbook data are isolated snapshots, not observed executions or proof of absorption",
              "- OI and funding are historical published readings; do not assume same timestamp as trades",
              "- No demonstrated forecast edge or profitability can be inferred from sample imbalance", "",
-             "| Asset | Market | Samples | Fresh valid samples |",
-             "|---|---|---:|---:|"]
-    for (asset, market), (total, good) in status.items():
-        lines.append(f"| {asset} | {market} | {total} | {good} |")
+             "| Asset | Market | Samples | Fresh valid samples | Latest source | Latest status |",
+             "|---|---|---:|---:|---|---|"]
+    for (asset, market), (total, good, venue, quality) in status.items():
+        lines.append(f"| {asset} | {market} | {total} | {good} | {venue} | {quality} |")
     try:
         from research_30d_monitor import audit, as_markdown as monitor_md
         lines += [""] + monitor_md(audit(m))

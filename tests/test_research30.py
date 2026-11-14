@@ -48,15 +48,18 @@ class Research30Tests(unittest.TestCase):
     def test_errors_are_recorded_not_fabricated(self):
         now = datetime(2026, 11, 13, 13, tzinfo=timezone.utc)
         r.start(now)
-        with patch.object(r, "fetch_sample", side_effect=RuntimeError("network issue")):
+        with patch.object(r, "fetch_market_sample", side_effect=RuntimeError("both venues blocked")):
             summary = r.collect({"asset_verdicts": {}}, now=now)
         self.assertEqual(summary["errors"], 4)
         self.assertEqual(len(r.read_rows()), 4)
         self.assertTrue(all(x["status"] == "ERROR" for x in r.read_rows()))
-        with patch.object(r, "fetch_sample") as fetch:
+        with patch.object(r, "fetch_market_sample", side_effect=RuntimeError("still blocked")) as fetch:
             repeat = r.collect(now=now)
         self.assertEqual(repeat["new_snapshots"], 0)
-        fetch.assert_not_called()
+        self.assertEqual(repeat["retried_snapshots"], 4)
+        self.assertEqual(len(r.read_rows()), 4)
+        self.assertTrue(all(x["retry_count"] == "1" for x in r.read_rows()))
+        self.assertEqual(fetch.call_count, 4)
 
     def test_expiration_stops_collection(self):
         now = datetime(2026, 11, 13, tzinfo=timezone.utc)
