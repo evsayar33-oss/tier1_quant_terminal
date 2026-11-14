@@ -20,7 +20,7 @@ class TestAuditWorktreePublisher(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "repo"
             root.mkdir()
-            git(root, "init", "-q")
+            git(root, "init", "-q", "-b", "main")
             git(root, "config", "user.email", "test@example.invalid")
             git(root, "config", "user.name", "test")
             (root / "production_state.json").write_text('{"cycle":1}\n')
@@ -34,7 +34,7 @@ class TestAuditWorktreePublisher(unittest.TestCase):
             git(root, "add", ".")
             git(root, "commit", "-qm", "first evidence")
             evidence_ref = git(root, "rev-parse", "HEAD")
-            git(root, "checkout", "master")
+            git(root, "checkout", "main")
             (root / "production_state.json").write_text('{"cycle":2}\n')
             # This is the exact circumstance in the failed run:
             # a local checkout carries newer live state and untracked evidence.
