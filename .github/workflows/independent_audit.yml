@@ -1,0 +1,93 @@
+name: Tier-1 Independent 30D Audit — Read-only
+on:
+  schedule:
+    - cron: '22 * * * *'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'independent_audit.py'
+      - 'tests/test_independent_audit.py'
+      - '.github/workflows/independent_audit.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tier1-independent-audit
+  cancel-in-progress: false
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - run: python -m unittest discover -s tests -p 'test_independent_audit.py' -v
+
+  audit:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Restore latest production state (never write to it)
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin state
+          git archive origin/state | tar -xf -
+          test -s terminal_state.json
+          test -s performance_ledger.json
+          test -s research_30d/manifest.json
+          rm -f state_bundle.tar.gz
+      - name: Restore independent append-only audit branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p independent_audit
+          if git ls-remote --exit-code --heads origin audit/30d-evidence >/dev/null; then
+            git fetch origin audit/30d-evidence
+            git archive origin/audit/30d-evidence | tar -xf -
+          fi
+      - name: Generate prospective independent audit
+        run: python independent_audit.py
+      - name: Publish report to Actions
+        run: cat independent_audit/report.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve evidence with ordinary append-only commits
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/tier1_audit_out
+          cp independent_audit/ledger.json independent_audit/summary.json independent_audit/report.md /tmp/tier1_audit_out/
+          git fetch origin audit/30d-evidence || true
+          if git show-ref --verify --quiet refs/remotes/origin/audit/30d-evidence; then
+            git checkout -B audit/30d-evidence origin/audit/30d-evidence
+          else
+            git checkout --orphan audit/30d-evidence
+            git rm -rf . >/dev/null || true
+          fi
+          mkdir -p independent_audit
+          cp /tmp/tier1_audit_out/* independent_audit/
+          git config user.name "Tier1 Independent Audit"
+          git config user.email "actions@users.noreply.github.com"
+          git add independent_audit
+          if ! git diff --cached --quiet; then
+            git commit -m "audit: append prospective observation and evidence report"
+            git push origin HEAD:refs/heads/audit/30d-evidence
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: independent-30d-audit
+          path: |
+            independent_audit/summary.json
+            independent_audit/report.md
+          retention-days: 90
