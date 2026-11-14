@@ -69,25 +69,31 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/tier1_audit_out
-          cp independent_audit/ledger.json independent_audit/summary.json independent_audit/report.md /tmp/tier1_audit_out/
-          git fetch origin audit/30d-evidence || true
-          if git show-ref --verify --quiet refs/remotes/origin/audit/30d-evidence; then
-            git checkout -B audit/30d-evidence origin/audit/30d-evidence
+          # Production state files were overlaid on the main checkout by
+          # git archive. Never switch that dirty worktree to the audit branch.
+          # A separate Git worktree shares checkout credentials but not files.
+          evidence_dir="$RUNNER_TEMP/tier1-evidence-worktree"
+          rm -rf "$evidence_dir"
+          if git ls-remote --exit-code --heads origin refs/heads/audit/30d-evidence >/dev/null; then
+            git fetch origin "refs/heads/audit/30d-evidence:refs/remotes/origin/audit/30d-evidence"
+            git worktree add --detach "$evidence_dir" refs/remotes/origin/audit/30d-evidence
           else
-            git checkout --orphan audit/30d-evidence
-            git rm -rf . >/dev/null || true
+            git worktree add --detach "$evidence_dir" HEAD
+            git -C "$evidence_dir" checkout --orphan audit/30d-evidence
+            git -C "$evidence_dir" rm -rf . >/dev/null || true
           fi
-          mkdir -p independent_audit
-          cp /tmp/tier1_audit_out/* independent_audit/
-          git config user.name "Tier1 Independent Audit"
-          git config user.email "actions@users.noreply.github.com"
-          git add independent_audit
-          if ! git diff --cached --quiet; then
-            git commit -m "audit: append prospective observation and evidence report"
-            git push origin HEAD:refs/heads/audit/30d-evidence
+          mkdir -p "$evidence_dir/independent_audit"
+          cp independent_audit/ledger.json independent_audit/summary.json independent_audit/report.md "$evidence_dir/independent_audit/"
+          git -C "$evidence_dir" config user.name "Tier1 Independent Audit"
+          git -C "$evidence_dir" config user.email "actions@users.noreply.github.com"
+          git -C "$evidence_dir" add independent_audit
+          if ! git -C "$evidence_dir" diff --cached --quiet; then
+            git -C "$evidence_dir" commit -m "audit: append prospective observation and evidence report"
+            git -C "$evidence_dir" push origin HEAD:refs/heads/audit/30d-evidence
           fi
+          git worktree remove --force "$evidence_dir"
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: independent-30d-audit
           path: |
