@@ -148,6 +148,12 @@ def _load(path: str) -> pd.DataFrame:
     for c in COLS:
         if c not in d.columns:
             d[c] = np.nan
+    # Empty/legacy CSV columns infer float64; grading assigns textual outcomes.
+    # Explicit object dtype also covers clone/trade_ledger.csv without a logic change.
+    for c in ("outcome", "exit_ts", "confidence", "source", "logic"):
+        d[c] = d[c].astype("object")
+    for c in ("graded", "r_mult", "side", "entry", "stop", "target"):
+        d[c] = pd.to_numeric(d[c], errors="coerce")
     return d
 
 

@@ -90,6 +90,13 @@ def run_checks(state: Dict[str, Any], now: Optional[datetime] = None) -> Dict[st
         ("clone_system", state.get("clone_system") or {}),
         ("trade_scorecard", state.get("trade_scorecard") or {}),
     ) if isinstance(v, dict) and v.get("error")]
+    research = state.get("research_30d") or {}
+    active = research.get("status") == "COLLECTING"
+    research_bad = bool(active and research.get("errors", 0) >= 4 and research.get("new_snapshots", 0) >= 4)
+    res("research_30d_feed", not research_bad and research.get("status") != "ERROR",
+        ("all four public-market snapshots failed" if research_bad else
+         "research inactive" if not active else
+         f"observations={research.get('new_snapshots')} errors={research.get('errors')}"))
     res("cycle_errors", not errs, "; ".join(errs)[:300] if errs else "modül hatası yok")
     return out
 

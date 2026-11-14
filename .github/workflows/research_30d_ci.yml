@@ -1,0 +1,31 @@
+name: Tier-1 Research 30D — Regression Tests
+on:
+  pull_request:
+    paths:
+      - 'research_30d*.py'
+      - 'trade_plan.py'
+      - 'state_sync.py'
+      - 'stateful_background_tracker.py'
+      - 'system_health.py'
+      - 'tests/test_research30*.py'
+      - '.github/workflows/research_30d*.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Compile modules
+        run: python -m py_compile trade_plan.py state_sync.py stateful_background_tracker.py research_30d.py research_30d_enrichment.py research_30d_eval.py research_30d_monitor.py
+      - name: Offline regression tests
+        run: python -m unittest discover -s tests -p 'test_research30*.py' -v
