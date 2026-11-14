@@ -43,7 +43,8 @@ def book(asset: str, market: str, *, session=None) -> dict[str, Any]:
         raise ValueError("empty notional")
     return {"book_imbalance": round((b - a) / (a + b), 6),
             "spread_bps": round(20000 * (ask - bid) / (ask + bid), 4),
-            "book_ts": str(data.get("ts") or "")}
+            "book_ts": str(data.get("ts") or ""),
+            "book_qty_unit": "bybit_venue_native"}
 
 
 def open_interest(asset: str, *, session=None) -> dict[str, Any]:
@@ -55,7 +56,7 @@ def open_interest(asset: str, *, session=None) -> dict[str, Any]:
         raise ValueError("missing open interest")
     newest = max(rows, key=lambda x: int(x.get("timestamp") or 0))
     return {"oi_contracts": _valid_float(newest["openInterest"]),
-            "oi_ts": str(newest["timestamp"])}
+            "oi_ts": str(newest["timestamp"]), "oi_unit": "bybit_venue_native"}
 
 
 def funding(asset: str, *, session=None) -> dict[str, Any]:
@@ -68,12 +69,19 @@ def funding(asset: str, *, session=None) -> dict[str, Any]:
     if not math.isfinite(x):
         raise ValueError("invalid funding")
     return {"funding_rate": x,
-            "funding_ts": str(rows[0]["fundingRateTimestamp"])}
+            "funding_ts": str(rows[0]["fundingRateTimestamp"]),
+            "funding_kind": "historical_settled"}
 
 
-def snapshot(asset: str, market: str, *, session=None) -> dict[str, Any]:
-    """Independent failures stay explicit; no default-to-zero for absent data."""
-    out: dict[str, Any] = {}
+def snapshot(asset: str, market: str, *, session=None,
+             venue: str = "bybit") -> dict[str, Any]:
+    """Never mix an OKX trade sample with Bybit order book or vice versa."""
+    if venue == "okx":
+        from research_30d_okx import snapshot as okx_snapshot
+        return okx_snapshot(asset, market, session=session)
+    if venue != "bybit":
+        raise ValueError("unsupported snapshot venue")
+    out: dict[str, Any] = {"enrichment_source": "bybit"}
     errors = []
     calls = [(book, (asset, market))]
     if market == "linear":
