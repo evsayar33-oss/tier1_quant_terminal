@@ -365,7 +365,7 @@ class PerformanceLedger:
         )
         edge = (model["hit"] - best_base) * 100
         if model.get("hit_lb95", 0) > 0.5 and edge > 0:
-            return f"✅ Kanıtlanmış avantaj: en iyi basit yöntemden {edge:+.1f} puan iyi ve alt güven sınırı %50'nin üzerinde."
+            return f"🟡 Yön isabeti betimsel olarak olumlu ({edge:+.1f} puan); eşleştirilmiş üstünlük testi ve maliyet sonrası işlem kanıtı yok."
         if edge > 0:
             return f"🟡 Olumlu ama henüz istatistiksel olarak kanıtlanmadı ({edge:+.1f} puan)."
         return f"🔴 Model basit yöntemlerin gerisinde ({edge:+.1f} puan) — bu varlık/ufuk için sinyal henüz güvenilir değil."
