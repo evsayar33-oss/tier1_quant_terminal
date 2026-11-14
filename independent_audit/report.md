@@ -8,13 +8,25 @@ The test compares with always-long on paired windows; p-values are unadjusted, c
 Neither a 30-day calendar window nor a significant directional result automatically authorizes trading.
 
 Window: 2026-11-14T06:24:26+00:00 — 2026-12-14T06:24:26+00:00
-As of: 2026-11-14T15:58:14.945647Z
-Directional calls: 6; entry permitted: 0; without quote: 4
+As of: 2026-11-14T16:16:30.260305Z
+Directional calls: 12; entry permitted: 0; without quote: 8
+Independent price polls: 1; last: 2026-11-14T16:16:30.260305Z
 
 | Horizon | Nonoverlap N | Model hit | Always long | Paired p (unadjusted) | Missing labels | Verdict |
 |---|---:|---:|---:|---:|---:|---|
 | 4h | 0 | — | — | 1.0000 | 0 | INSUFFICIENT |
 | 24h | 0 | — | — | 1.0000 | 0 | INSUFFICIENT |
+
+## Independent hourly reference price coverage
+
+| Asset | Polls | Valid | Last source |
+|---|---:|---:|---|
+| SPX | 1 | 0 | UNAVAILABLE |
+| NQ | 1 | 0 | UNAVAILABLE |
+| XAU | 1 | 0 | UNAVAILABLE |
+| XAG | 1 | 0 | UNAVAILABLE |
+| BTC | 1 | 1 | YAHOO_HOURLY_DELAYED_NON_EXECUTABLE |
+| ETH | 1 | 1 | YAHOO_HOURLY_DELAYED_NON_EXECUTABLE |
 
 ## Hypothetical all-in cost sensitivity (not net NAV)
 
