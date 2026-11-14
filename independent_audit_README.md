@@ -65,3 +65,28 @@ Its independent results must be preferred for the 30-day prospective
 claim. A genuine trade P&L / NAV system needs approved entry signals,
 realistic venue-specific bid/ask and position/fill tracking; those data
 are not present in the existing ledger.
+
+## P0/P1 prospective price and outcome patch
+
+The auditor now fetches six **independent hourly Yahoo reference series**
+on every scheduled run, regardless of whether the production publication
+changes. The mapping is SPX=^GSPC, NQ=^NDX, XAU=GC=F,
+XAG=SI=F, BTC=BTC-USD, ETH=ETH-USD. Gold/silver are **futures proxies**,
+not XAU/XAG executable spot quotes. Equity indices cannot be traded
+directly. Weekend/closed-market/stale/failed prices are recorded as
+missing; they are **not** forward-filled or silently synthesized.
+
+The independent price snapshot is stored with the first-seen UTC
+timestamp, source symbol and source bar UTC. Original evidence records
+are retained on the same audit branch; no 30-day clock reset.
+When a production signal is unchanged, hourly reference observations
+continue. The 4h/24h horizon outcome remains PENDING until either a
+valid snapshot in the predeclared [target,target+1h] window arrives,
+or a 48h data grace period expires. Missing observations never become
+fabricated fills. An ungradeable older outcome remains explicitly missing.
+
+Reporting now includes per-asset source availability and a conservative
+Bonferroni factor-12 p-value diagnostic. The paired p-values are
+**not** proof of independence across related assets. Neither the
+independent audit nor these proxy prices constitute an executable
+profit-and-loss ledger, stop-loss/TP fill verification, or live approval.

@@ -8,6 +8,7 @@ on:
       - 'independent_audit.py'
       - 'tests/test_independent_audit.py'
       - '.github/workflows/independent_audit.yml'
+      - 'independent_audit_README.md'
 
 permissions:
   contents: write
@@ -58,6 +59,8 @@ jobs:
             git fetch origin audit/30d-evidence
             git archive origin/audit/30d-evidence | tar -xf -
           fi
+      - name: Install independent delayed price provider
+        run: pip install yfinance pandas numpy
       - name: Generate prospective independent audit
         run: python independent_audit.py
       - name: Publish report to Actions
