@@ -68,12 +68,12 @@ def mcnemar_one_sided(b, c):
     return sum(math.comb(n, i) for i in range(b, n+1)) / (2**n)
 
 
-def observe(payload, store, now, manifest):
+def observe(payload, store, now, manifest, price_rows=None):
     if not payload or not isinstance(payload.get("asset_verdicts"), dict):
         raise ValueError("terminal_state.json missing asset_verdicts")
     if now < dt(manifest["start_utc"]):
         return 0
-    seen = store.setdefault("seen_publications", {})
+    seen = store.setdefault("seen_publications", {})\n    price_rows = price_rows or []
     snapshots = store.setdefault("snapshots", [])
     calls = store.setdefault("calls", [])
     added = 0
@@ -100,15 +100,15 @@ def observe(payload, store, now, manifest):
                     break
             except (ValueError, TypeError):
                 pass
-        snap = {"asset": asset, "observed_utc": utc(now), "publication_utc": utc(pub),
-                "source_hash": source_hash, "price": price}
+        price_source = "verdict_quote" if price is not None else "UNAVAILABLE"\n        if price is None:\n            eligible = [r for r in price_rows if r.get("a") == asset and r.get("p") is not None\n                        and r.get("rec") and dt(r["rec"]) <= now\n                        and now - dt(r["rec"]) <= timedelta(hours=2)\n                        and dt(r["rec"]) <= pub + timedelta(minutes=5)]\n            if eligible:\n                latest = max(eligible, key=lambda r: r["rec"])\n                price = float(latest["p"])\n                price_source = "lagged_1h_bar_proxy_NOT_EXECUTABLE"\n        snap = {"asset": asset, "observed_utc": utc(now), "publication_utc": utc(pub),
+                "source_hash": source_hash, "price": price, "price_source": price_source}
         snapshots.append(snap)
         side = direction(v)
         if not side:
             continue
         calls.append({"asset": asset, "observed_utc": utc(now), "publication_utc": utc(pub),
                       "source_hash": source_hash, "side": side, "entry_allowed": v.get("entry_allowed") is True,
-                      "grade": str(v.get("entry_grade") or "-"), "entry_price": price,
+                      "grade": str(v.get("entry_grade") or "-"), "entry_price": price, "price_source": price_source,
                       "model_stage": str(v.get("direction_stage") or ""),
                       "horizons": {}})
         added += 1
@@ -202,7 +202,7 @@ def report(summary):
     lines = ["# Tier-1 Independent Prospective Audit", "",
              "Read-only audit. No orders. No observed fills. No realized NAV or proven trading edge.",
              "Signals are timestamped at FIRST audit observation, not the original bar timestamp.",
-             "Only prices captured prospectively in the same audit feed are eligible; unavailable prices are never reconstructed.",
+             "Prices are observed prospectively by the audit; when no quote exists, the latest published 1h bar close is used as a LAGGED NON-EXECUTABLE PROXY, never a live fill.",
              "Cost scenarios are hypothetical directional holding returns, NOT executable trade P&L.",
              "The test compares with always-long on paired windows; p-values are unadjusted, correlated assets remain.",
              "Neither a 30-day calendar window nor a significant directional result automatically authorizes trading.", "",
@@ -215,7 +215,7 @@ def report(summary):
         fmt=lambda v:"—" if v is None else f"{v:.1%}"
         lines.append(f"| {h}h | {x['independent_by_asset_n']} | {fmt(x['model_hit'])} | {fmt(x['always_long_hit'])} | {x['paired_one_sided_p_unadjusted']:.4f} | {x['missing_labels']} | {x['verdict']} |")
     lines.extend(["", "## Hypothetical all-in cost sensitivity (not net NAV)", "",
-                  "These calculations assume direction-only entry/exit at sampled reference prices and fixed round-trip costs. No fill, funding, borrow, or slippage verification.", "",
+                  "These calculations use first-seen published prices, often lagged 1h bar proxies, and fixed round-trip costs. No fill, funding, borrow, or slippage verification.", "",
                   "| Horizon | 0 bps | 10 bps | 20 bps | 40 bps |",
                   "|---|---:|---:|---:|---:|"])
     for h,x in summary["horizons"].items():
@@ -230,7 +230,7 @@ def report(summary):
 def main():
     p=argparse.ArgumentParser()
     p.add_argument("--state", default="terminal_state.json")
-    p.add_argument("--manifest", default="research_30d/manifest.json")
+    p.add_argument("--manifest", default="research_30d/manifest.json")\n    p.add_argument("--performance", default="performance_ledger.json")
     p.add_argument("--audit", default="independent_audit/ledger.json")
     p.add_argument("--summary", default="independent_audit/summary.json")
     p.add_argument("--report", default="independent_audit/report.md")
@@ -244,7 +244,7 @@ def main():
     payload=load(args.state,None)
     if payload is None:
         raise SystemExit("Missing published terminal state")
-    n=observe(payload,store,now,manifest)
+    performance = load(args.performance, {"records":[]})\n    n=observe(payload,store,now,manifest,performance.get("records", []))
     settle(store,now)
     summary=stats(store,manifest,now)
     save(args.audit,store)
