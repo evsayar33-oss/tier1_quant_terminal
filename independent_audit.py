@@ -73,7 +73,8 @@ def observe(payload, store, now, manifest, price_rows=None):
         raise ValueError("terminal_state.json missing asset_verdicts")
     if now < dt(manifest["start_utc"]):
         return 0
-    seen = store.setdefault("seen_publications", {})\n    price_rows = price_rows or []
+    seen = store.setdefault("seen_publications", {})
+    price_rows = price_rows or []
     snapshots = store.setdefault("snapshots", [])
     calls = store.setdefault("calls", [])
     added = 0
