@@ -26,7 +26,9 @@ FIELDS = ("observed_utc", "experiment_id", "asset", "logic_version", "price",
           "sentiment_value", "sentiment_source", "sentiment_published_utc",
           "sentiment_first_seen_utc", "sentiment_status", "fear_greed_effective_day",
           "risk_regime", "shock_active", "entry_allowed",
-          "model_direction", "data_status")
+          "model_direction", "data_status",
+          "factor_values_json", "gamma_values_json", "market_levels_json",
+          "aux_diagnostics_json")
 
 
 def timestamp(t):
@@ -164,6 +166,59 @@ def _value(v):
     return "" if v is None else v
 
 
+def compact_observed_features(asset, view, payload, now):
+    """Compact actual same-cycle factor inputs; retain no invented unavailable data.
+
+    These values are DATA for later hypotheses, never live decision changes.
+    Gamma is a modeled proxy with its own as-of stamp, not a verified dealer fill.
+    """
+    raw = {}
+    for item in (view.get("details") or [])[:100]:
+        if not isinstance(item, dict):
+            continue
+        fid = str(item.get("faktor_id") or "").strip()
+        number = fnum(item.get("ham_deger"))
+        if fid and len(fid) <= 65 and number is not None and fid not in raw:
+            raw[fid] = number
+    gamma = {}
+    snapshot = ((payload.get("dealer_gamma") or {}).get("snapshots") or {}).get(asset) or {}
+    try:
+        as_of = datetime.fromisoformat(snapshot["as_of"])
+        if as_of.tzinfo and as_of <= now + timedelta(minutes=5):
+            for key in ("gamma_flip", "call_wall", "put_wall", "pin_strike",
+                        "net_gex_usd_1pct", "share_0dte", "atm_iv",
+                        "expected_move_1d", "vanna_flow_iv_down_1pt_usd",
+                        "charm_flow_1d_usd"):
+                val = fnum(snapshot.get(key))
+                if val is not None:
+                    gamma[key] = val
+            gamma["as_of"] = timestamp(as_of)
+            gamma["source_type"] = "MODELED_DEALER_PROXY_NOT_EXECUTABLE"
+    except (TypeError, KeyError, ValueError):
+        pass
+    levels = []
+    struct = (view.get("market_structure") or {}).get("levels") or {}
+    for x in (struct.get("levels") or [])[:30]:
+        if not isinstance(x, dict):
+            continue
+        px = fnum(x.get("price"))
+        if px is not None and px > 0:
+            levels.append({"kind": str(x.get("kind") or "")[:24], "price": px})
+    extras = {}
+    for key in ("score", "raw_model_score", "adaptive_score", "live_score",
+                "direction_score_z", "adx_val", "rvol", "atr_ratio"):
+        val = fnum(view.get(key))
+        if val is not None:
+            extras[key] = val
+    for key in ("vol_ratio", "pair_residual_z"):
+        src = (view.get("vol_state") or {}).get("ratio") if key == "vol_ratio" else (view.get("pair_stats") or {}).get("residual_z")
+        val = fnum(src)
+        if val is not None:
+            extras[key] = val
+    return tuple(json.dumps(x, separators=(",", ":"), sort_keys=True)
+                 for x in (raw, gamma, levels, extras))
+
+
 def collect(payload, frames, grid, *, now=None, session=None):
     now = now or datetime.now(timezone.utc)
     if now.tzinfo is None:
@@ -211,7 +266,12 @@ def collect(payload, frames, grid, *, now=None, session=None):
                 source = "NONE_NOT_REAL_FNG"
         else:
             sent_status, sent_val, sent_day, source = "POST_WINDOW_LABEL_ONLY", None, "", "NONE"
+        factor_json, gamma_json, levels_json, diagnostics_json = (
+            compact_observed_features(asset, view, payload, now)
+            if signal_window else ("{}", "{}", "[]", "{}"))
         new.append({
+            "factor_values_json": factor_json, "gamma_values_json": gamma_json,
+            "market_levels_json": levels_json, "aux_diagnostics_json": diagnostics_json,
             "observed_utc": observed, "experiment_id": manifest["experiment_id"],
             "asset": asset, "logic_version": str(payload.get("logic_version") or ""),
             "price": _value(snap.get("price")), "price_bar_utc": _value(snap.get("bar")),
