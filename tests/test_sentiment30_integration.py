@@ -63,8 +63,22 @@ class ResearchBridgeTests(unittest.TestCase):
         frames = {asset: self.frame(now) for asset in observer.ASSETS}
         grid = {symbol: self.frame(now, 20) for symbol in observer.IV_MAP.values()}
         api = FakeAPI(now)
-        a = observer.collect({"asset_verdicts": {}, "active_regime_id": "R1"},
-                             frames, grid, now=now, session=api)
+        payload = {
+            "asset_verdicts": {
+                "SPX": {
+                    "details": [{"faktor_id": "market_breadth", "ham_deger": -0.2}],
+                    "market_structure": {"levels": {"levels": [
+                        {"kind": "PDH", "price": 103.0}]}},
+                    "raw_model_score": 0.4,
+                },
+            },
+            "active_regime_id": "R1",
+            "dealer_gamma": {"snapshots": {"SPX": {
+                "as_of": now.isoformat(), "gamma_flip": 102.0,
+                "net_gex_usd_1pct": -20000000,
+            }}},
+        }
+        a = observer.collect(payload, frames, grid, now=now, session=api)
         self.assertEqual(a["added"], 6)
         self.assertEqual(a["fresh_prices"], 6)
         self.assertEqual(api.count, 1)
@@ -76,6 +90,11 @@ class ResearchBridgeTests(unittest.TestCase):
         self.assertEqual(set(r["asset"] for r in rows), set(observer.ASSETS))
         self.assertEqual(rows[0]["observed_utc"], observer.timestamp(now))
         self.assertEqual(rows[0]["sentiment_source"], "NONE_NOT_REAL_FNG")
+        spx = [r for r in rows if r["asset"] == "SPX"][0]
+        self.assertEqual(json.loads(spx["factor_values_json"])["market_breadth"], -0.2)
+        self.assertEqual(json.loads(spx["gamma_values_json"])["gamma_flip"], 102.0)
+        self.assertEqual(json.loads(spx["market_levels_json"])[0]["kind"], "PDH")
+        self.assertEqual(json.loads(spx["aux_diagnostics_json"])["raw_model_score"], 0.4)
         eth = [r for r in rows if r["asset"] == "ETH"][0]
         self.assertEqual(eth["sentiment_source"], "ALTME_BTC_CONTEXT")
         self.assertEqual(eth["sentiment_value"], "19.0")
