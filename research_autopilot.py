@@ -256,7 +256,16 @@ def generate(now, output):
     new = []
     for study in studies():
         if study.get("invalid"):
-            # A missing manifest is a blocker, not permission to guess deadlines.
+            # Alert once; do not guess an experiment deadline from missing data.
+            blocked = output / (study["id"] + "-source_blocked.json")
+            if not blocked.exists():
+                entry = stage_record(study, now, "SOURCE_BLOCKED", {
+                    "decision": "DATA_UNAVAILABLE",
+                    "reason": str(study["invalid"]) + "; no inferred end date, no promotion",
+                })
+                blocked.write_text(json.dumps(entry, indent=2, ensure_ascii=False) + "\n",
+                                   encoding="utf-8")
+                new.append(blocked)
             continue
         try:
             start, end = when(study["start_utc"]), when(study["end_utc"])
@@ -281,6 +290,13 @@ def generate(now, output):
                 print("BLOCKED_RETRY " + study["id"] + ": " + str(exc))
                 continue
             if a["decision"] == "DATA_UNAVAILABLE":
+                # Persist and notify the blocker, but keep retrying the missing final.
+                blocked = output / (study["id"] + "-source_blocked.json")
+                if not blocked.exists():
+                    blocked.write_text(json.dumps(
+                        stage_record(study, now, "SOURCE_BLOCKED", a),
+                        indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+                    new.append(blocked)
                 print("BLOCKED_RETRY " + study["id"] + ": missing required data")
                 continue
             final.write_text(json.dumps(stage_record(study, now, "FINAL", a),
