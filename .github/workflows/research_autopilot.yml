@@ -1,0 +1,135 @@
+name: Tier-1 Study Expiry Autopilot (research only)
+on:
+  schedule:
+    # GitHub scheduled dispatch may be delayed. Four polls/day limit latency.
+    - cron: '17 0,6,12,18 * * *'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'research_autopilot.py'
+      - 'research_autopilot_notify.py'
+      - 'tests/test_research_autopilot*.py'
+      - '.github/workflows/research_autopilot.yml'
+      - 'RESEARCH_AUTOPILOT.md'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tier1-expiry-research-audit
+  cancel-in-progress: false
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Compile research-only modules
+        run: python -m py_compile research_autopilot.py research_autopilot_notify.py
+      - name: Run isolated offline regression suite
+        run: python -m unittest discover -s tests -p 'test_research_autopilot*.py' -v
+
+  expiry-decisions:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Read live state and independent prospective audit (read-only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin refs/heads/state
+          git archive FETCH_HEAD | tar -xf -
+          if git ls-remote --exit-code --heads origin refs/heads/audit/30d-evidence > /dev/null; then
+            git fetch origin refs/heads/audit/30d-evidence
+            git archive FETCH_HEAD independent_audit | tar -xf -
+          else
+            echo 'Independent audit missing; no claim of independent market evidence.'
+          fi
+          if git ls-remote --exit-code --heads origin refs/heads/audit/study-decisions > /dev/null; then
+            git fetch origin refs/heads/audit/study-decisions
+            git archive FETCH_HEAD research_decisions | tar -xf -
+          fi
+          mkdir -p research_decisions
+      - name: Evaluate deadlines (never alter production)
+        run: python research_autopilot.py --out research_decisions
+      - name: Publish human-readable decision summary
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+              f.write("# Tier-1 expiry research decisions\n\n")
+              for p in sorted(Path("research_decisions").glob("*.json")):
+                  obj=json.loads(p.read_text())
+                  f.write(f"- {obj['study_id']} / {obj['stage']}: **{obj['assessment']['decision']}** (no live promotion)\n")
+              f.write("\nThis workflow never runs an order or changes model weights.\n")
+          PY
+      - name: Persist immutable research decisions to separate branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! find research_decisions -maxdepth 1 -name '*.json' -print -quit | grep -q .; then
+            echo 'No expired study decision yet.'
+            exit 0
+          fi
+          w="$RUNNER_TEMP/study-decision-worktree"
+          rm -rf "$w"
+          if git ls-remote --exit-code --heads origin refs/heads/audit/study-decisions > /dev/null; then
+            git fetch origin "refs/heads/audit/study-decisions:refs/remotes/origin/audit/study-decisions"
+            git worktree add --detach "$w" refs/remotes/origin/audit/study-decisions
+          else
+            git worktree add --detach "$w" HEAD
+            git -C "$w" checkout --orphan audit/study-decisions
+            git -C "$w" rm -rf . > /dev/null || true
+          fi
+          mkdir -p "$w/research_decisions"
+          cp -a research_decisions/. "$w/research_decisions/"
+          git -C "$w" config user.name "Tier1 Research Autopilot"
+          git -C "$w" config user.email "actions@users.noreply.github.com"
+          git -C "$w" add research_decisions
+          if ! git -C "$w" diff --cached --quiet; then
+            git -C "$w" commit -m "audit: record frozen study-expiry decision"
+            git -C "$w" push origin HEAD:refs/heads/audit/study-decisions
+          fi
+          git worktree remove --force "$w"
+      - name: Notify Telegram and acknowledge confirmed deliveries
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+        run: python research_autopilot_notify.py --out research_decisions
+      - name: Persist Telegram delivery acknowledgements for retry safety
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -d research_decisions/notification_acks ]; then exit 0; fi
+          w="$RUNNER_TEMP/study-ack-worktree"
+          rm -rf "$w"
+          git fetch origin "refs/heads/audit/study-decisions:refs/remotes/origin/audit/study-decisions"
+          git worktree add --detach "$w" refs/remotes/origin/audit/study-decisions
+          mkdir -p "$w/research_decisions/notification_acks"
+          cp -a research_decisions/notification_acks/. "$w/research_decisions/notification_acks/"
+          git -C "$w" config user.name "Tier1 Research Autopilot"
+          git -C "$w" config user.email "actions@users.noreply.github.com"
+          git -C "$w" add research_decisions/notification_acks
+          if ! git -C "$w" diff --cached --quiet; then
+            git -C "$w" commit -m "audit: confirm Telegram notification delivery"
+            git -C "$w" push origin HEAD:refs/heads/audit/study-decisions
+          fi
+          git worktree remove --force "$w"
