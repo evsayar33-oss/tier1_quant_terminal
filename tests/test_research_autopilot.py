@@ -47,8 +47,17 @@ class AutoDecisionTests(unittest.TestCase):
                          "WINDOW_CLOSED_AWAITING_LABELS")
         self.assertEqual(ap.generate(z("2026-11-24T01:00:00Z"), "decisions"), [])
         # Never invent a final verdict when an entire source ledger is missing.
-        self.assertEqual(ap.generate(z("2026-11-29T00:00:00Z"), "decisions"), [])
+        blocked = ap.generate(z("2026-11-29T00:00:00Z"), "decisions")
+        self.assertEqual(len(blocked), 1)
+        self.assertEqual(json.loads(blocked[0].read_text())["assessment"]["decision"], "DATA_UNAVAILABLE")
         self.assertFalse(Path("decisions/tier1_v2_forward-final.json").exists())
+        self.assertEqual(ap.generate(z("2026-11-29T03:00:00Z"), "decisions"), [])
+
+    def test_missing_research_manifest_is_reported_once(self):
+        first = ap.generate(z("2026-11-22T00:00:00Z"), "decisions")
+        self.assertEqual(len(first), 1)
+        self.assertEqual(json.loads(first[0].read_text())["assessment"]["decision"], "DATA_UNAVAILABLE")
+        self.assertEqual(ap.generate(z("2026-11-22T01:00:00Z"), "decisions"), [])
 
     def test_v2_uses_only_version_locked_future_graded_rows(self):
         self.write_manifest()
