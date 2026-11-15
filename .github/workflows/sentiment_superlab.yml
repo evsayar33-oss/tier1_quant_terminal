@@ -32,7 +32,11 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - run: python -m py_compile sentiment_30d.py sentiment_superlab_research.py stateful_background_tracker.py state_sync.py
-      - name: Run regression tests without network
+      - name: Download public quant_superlab for real integration regression
+        run: git clone --depth 1 https://github.com/evsayar33-oss/quant_superlab.git "$RUNNER_TEMP/quant_superlab"
+      - name: Run offline collector and actual quant_superlab import regression
+        env:
+          QUANT_SUPERLAB_DIR: ${{ runner.temp }}/quant_superlab
         run: python -m unittest discover -s tests -p 'test_sentiment30*.py' -v
 
   expiry-to-superlab:
