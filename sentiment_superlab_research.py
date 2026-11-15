@@ -13,6 +13,7 @@ import hashlib
 import json
 import math
 import sys
+import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -248,6 +249,23 @@ def discovery(manifest, rows, source_hashes, superlab_dir, now):
         report["assets"][asset] = z
     report["unique_days_max_per_asset"] = max_days
     report["decision"] = "NEED_MORE_INDEPENDENT_PROSPECTIVE_DATA"
+    try:
+        report["quant_superlab_git_sha"] = subprocess.check_output(
+            ["git", "-C", str(root), "rev-parse", "HEAD"], text=True
+        ).strip()
+    except (OSError, subprocess.CalledProcessError):
+        raise ValueError("quant_superlab code revision could not be established")
+    report["study_id"] = "tier1_sentiment_superlab"
+    report["stage"] = "FINAL"
+    report["assessment"] = {
+        "decision": report["decision"],
+        "reason": "30-day new-factor observations cannot satisfy the multi-year independent profitability gate",
+        "followup_assets": [asset for asset, d in report["assets"].items()
+                            if d["independent_daily_24h_labels"] >= MIN_DISCOVERY_DAYS],
+        "per_asset": {asset: {"nonoverlap_n": d["independent_daily_24h_labels"],
+                               "status": d["classification"]}
+                      for asset, d in report["assets"].items()},
+    }
     report["next_action"] = (
         "Preregister a longer independent research window, preserve raw first-seen ledgers, "
         "obtain executable bid/ask and fill-cost evidence, then run full quant_superlab PIPELINE. "
