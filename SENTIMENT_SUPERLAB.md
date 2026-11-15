@@ -19,7 +19,12 @@ It adds a *research-only* layer that logs future-observable evidence.
 For every asset it captures a confirmed 1-hour bar close, its actual first
 observation timestamp, explicit source freshness, available volatility proxy,
 the current macro-regime label, reported model direction, entry allowance,
-and whether shock risk is present. Missing/future/stale/bar-still-open data
+and whether shock risk is present. It also preserves compact, original
+factor IDs + raw available readings, point-in-time modeled gamma levels
+and vanna/charm summaries when timestamp-valid, market-structure prices,
+and auxiliary factor diagnostics as auditable JSON columns. These are
+research inputs for *later* models; the initial 30-day strategy grid only
+uses the newly added sentiment and IV proxy readings. Missing/future/stale/bar-still-open data
 are **missing**, never converted to a fabricated zero. Volatility series
 require >=20 real historical observations for a percentile. Failure to
 fetch the free external API is visible; there is no paid service or token.
