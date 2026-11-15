@@ -109,6 +109,22 @@ class ResearchBridgeTests(unittest.TestCase):
         self.assertIsNone(result["price"])
         self.assertEqual(result["status"], "UNCONFIRMED_OR_STALE_BAR")
 
+    def test_latest_partially_open_bar_uses_prior_confirmed_bar(self):
+        now = self.now()
+        older = pd.Timestamp(now - timedelta(hours=1, minutes=35))
+        newest = pd.Timestamp(now - timedelta(minutes=35))
+        frame = pd.DataFrame({"Close": [100.0, 500.0]}, index=[older, newest])
+        result = observer.close_snapshot(frame, now)
+        self.assertEqual(result["status"], "OK")
+        self.assertEqual(result["price"], 100.0)
+        iv = self.frame(now, price=20)
+        # A partial spike must not enter the IV percentile.
+        partial = pd.DataFrame({"Close": [999.0]}, index=[newest])
+        iv = pd.concat([iv, partial])
+        scored = observer.iv_snapshot(iv, now)
+        self.assertEqual(scored["status"], "OK")
+        self.assertLess(scored["value"], 100)
+
     def test_post_window_only_records_labels(self):
         now = self.now()
         m = observer.initialize(now)
