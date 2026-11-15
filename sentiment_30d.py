@@ -95,16 +95,20 @@ def close_snapshot(frame, now, *, max_age_h=2.5):
     values = values[values > 0]
     if values.empty:
         return {"price": None, "bar": None, "status": "INVALID"}
-    try:
-        t = aware(values.index[-1])
-    except (TypeError, ValueError):
-        return {"price": None, "bar": None, "status": "BAR_TIME_UNVERIFIED"}
-    age = (now - t).total_seconds() / 3600
-    # Hourly bar indexes usually represent bar OPEN, not close. Reject a
-    # potentially unfinished hour rather than inadvertently using its close.
-    if age < 0.98 or age > max_age_h:
-        return {"price": None, "bar": timestamp(t), "status": "UNCONFIRMED_OR_STALE_BAR"}
-    return {"price": float(values.iloc[-1]), "bar": timestamp(t), "status": "OK"}
+    latest_bar = None
+    # Select the latest *confirmed* bar, not an in-progress current hour.
+    # A partial newest bar must never suppress a valid earlier closed bar.
+    for index, value in reversed(list(values.items())):
+        try:
+            t = aware(index)
+        except (TypeError, ValueError):
+            return {"price": None, "bar": None, "status": "BAR_TIME_UNVERIFIED"}
+        if latest_bar is None:
+            latest_bar = timestamp(t)
+        age = (now - t).total_seconds() / 3600
+        if 0.98 <= age <= max_age_h:
+            return {"price": float(value), "bar": timestamp(t), "status": "OK"}
+    return {"price": None, "bar": latest_bar, "status": "UNCONFIRMED_OR_STALE_BAR"}
 
 
 def iv_snapshot(frame, now):
@@ -119,7 +123,10 @@ def iv_snapshot(frame, now):
         return {"status": last["status"], "bar": last["bar"]}
     # Historical IV rank is descriptive; not normalized fear/greed.
     # Use distinct daily observations when available, not 40 near-duplicate hourly bars.
-    hist = clean.iloc[:-1].tail(252)
+    # Percentile history must stop at the chosen CONFIRMED bar: a partial
+    # future bar cannot influence either the signal or its history.
+    hist_verified = clean.loc[clean.index <= pd.Timestamp(last["bar"])]
+    hist = hist_verified.iloc[:-1].tail(252)
     hist = hist[~hist.index.duplicated(keep="last")]
     if len(hist) < 20:
         return {"status": "INSUFFICIENT_HISTORY"}
