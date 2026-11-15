@@ -177,7 +177,8 @@ def discovery(manifest, rows, source_hashes, superlab_dir, now):
         raise ValueError("Not a quant_superlab checkout; independent validation unavailable")
     sys.path.insert(0, str(root))
     from lab import metrics, validation  # True external quant_superlab routines
-    metrics.set_periods(365)  # daily sampling, crypto continuous; comparisons not approval.
+    # Frequency is asset-specific: equities/metals use business-day proxies;
+    # crypto trades daily. All are exploratory, not formal performance approval.
     dates = dt(manifest["end_utc"])
     if now < dates + timedelta(hours=int(manifest.get("label_grace_hours", 48))):
         raise ValueError("Study is not past predeclared label-settlement grace")
@@ -202,6 +203,8 @@ def discovery(manifest, rows, source_hashes, superlab_dir, now):
     }
     max_days = 0
     for asset in ASSETS:
+        ppy = 365 if asset in ("BTC", "ETH") else 252
+        metrics.set_periods(ppy)
         samples = sample_days(manifest, rows, asset)
         max_days = max(max_days, len(samples))
         z = {"independent_daily_24h_labels": len(samples),
@@ -238,7 +241,7 @@ def discovery(manifest, rows, source_hashes, superlab_dir, now):
             z["pbo"] = metrics.pbo(R)
             z["reality_check_p"] = metrics.reality_check(R, n=300, block=7)
             z["dsr"] = {k: metrics.dsr(R[k], len(CONFIGS), 
-                          [metrics.sharpe(R[v]) / math.sqrt(365) for v in CONFIGS])
+                          [metrics.sharpe(R[v]) / math.sqrt(ppy) for v in CONFIGS])
                         for k in CONFIGS}
             # Requires >=90 training and >=90 untouched evaluation days.
             z["walk_forward"] = "REQUIRES_NEW_LOCKED_PROSPECTIVE_PERIOD"
