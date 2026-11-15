@@ -98,8 +98,10 @@ def close_snapshot(frame, now, *, max_age_h=2.5):
     except (TypeError, ValueError):
         return {"price": None, "bar": None, "status": "BAR_TIME_UNVERIFIED"}
     age = (now - t).total_seconds() / 3600
-    if age < -0.1 or age > max_age_h:
-        return {"price": None, "bar": timestamp(t), "status": "STALE_OR_FUTURE"}
+    # Hourly bar indexes usually represent bar OPEN, not close. Reject a
+    # potentially unfinished hour rather than inadvertently using its close.
+    if age < 0.98 or age > max_age_h:
+        return {"price": None, "bar": timestamp(t), "status": "UNCONFIRMED_OR_STALE_BAR"}
     return {"price": float(values.iloc[-1]), "bar": timestamp(t), "status": "OK"}
 
 
@@ -173,13 +175,14 @@ def collect(payload, frames, grid, *, now=None, session=None):
     if now < start or now >= grace_end:
         return {"status": "COMPLETE" if now >= grace_end else "NOT_STARTED",
                 "experiment_id": manifest["experiment_id"], "end_utc": manifest["end_utc"]}
-    bucket = timestamp(now.replace(minute=0, second=0, microsecond=0))
+    observed = timestamp(now)  # actual first-seen, never backdate to the hour
+    bucket = observed[:13]
     ROOT.mkdir(exist_ok=True)
     prior = []
     if ROWS.exists():
         with ROWS.open(newline="", encoding="utf-8") as f:
             prior = list(csv.DictReader(f))
-    existing = {(x["observed_utc"], x["asset"]) for x in prior}
+    existing = {(x["observed_utc"][:13], x["asset"]) for x in prior}
     signal_window = now < end
     crypto = fetch_crypto_fng(now, session=session) if signal_window else None
     new = []
@@ -209,7 +212,7 @@ def collect(payload, frames, grid, *, now=None, session=None):
         else:
             sent_status, sent_val, sent_day, source = "POST_WINDOW_LABEL_ONLY", None, "", "NONE"
         new.append({
-            "observed_utc": bucket, "experiment_id": manifest["experiment_id"],
+            "observed_utc": observed, "experiment_id": manifest["experiment_id"],
             "asset": asset, "logic_version": str(payload.get("logic_version") or ""),
             "price": _value(snap.get("price")), "price_bar_utc": _value(snap.get("bar")),
             "price_source": "tier1_observed_1h_close", "price_status": snap["status"],
