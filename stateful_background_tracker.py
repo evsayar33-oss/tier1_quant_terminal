@@ -371,7 +371,11 @@ def run_background_cycle() -> Dict[str, Any]:
         import sentiment_30d as S30
         from config import LOGIC_VERSION
         payload["logic_version"] = LOGIC_VERSION
-        payload["sentiment_30d"] = S30.collect(payload, frames, gk.grid_1h)
+        # Reuse the terminal's historical daily+intraday volatility data
+        # without today's unfinished daily bar, not a 40-hour toy percentile.
+        iv_history = {key: gk._vol_history(key)
+                      for key in ("VIX", "VXN", "GVZ", "VXSLV")}
+        payload["sentiment_30d"] = S30.collect(payload, frames, iv_history)
     except Exception as exc:
         payload["sentiment_30d"] = {"status": "ERROR", "error": str(exc)[:200]}
         print(f"[sentiment_30d] collection error: {exc}", flush=True)
