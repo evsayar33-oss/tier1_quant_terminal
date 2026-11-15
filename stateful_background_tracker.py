@@ -365,6 +365,20 @@ def run_background_cycle() -> Dict[str, Any]:
     except Exception as exc:
         payload["research_30d"] = {"status": "ERROR", "error": str(exc)}
         print(f"[research_30d] research collection failed: {exc}", flush=True)
+    # Independent six-asset sentiment/volatility observation, research-only.
+    # This never changes decisions, risk thresholds, model weights or stop logic.
+    try:
+        import sentiment_30d as S30
+        from config import LOGIC_VERSION
+        payload["logic_version"] = LOGIC_VERSION
+        # Reuse the terminal's historical daily+intraday volatility data
+        # without today's unfinished daily bar, not a 40-hour toy percentile.
+        iv_history = {key: gk._vol_history(key)
+                      for key in ("VIX", "VXN", "GVZ", "VXSLV")}
+        payload["sentiment_30d"] = S30.collect(payload, frames, iv_history)
+    except Exception as exc:
+        payload["sentiment_30d"] = {"status": "ERROR", "error": str(exc)[:200]}
+        print(f"[sentiment_30d] collection error: {exc}", flush=True)
     # v16.3: the system checks its own health and logs problems permanently.
     try:
         import system_health as SH

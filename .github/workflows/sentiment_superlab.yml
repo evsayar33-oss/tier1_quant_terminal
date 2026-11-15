@@ -1,0 +1,158 @@
+name: Tier-1 30D Sentiment -> Quant Superlab (research only)
+on:
+  schedule:
+    - cron: '37 1,7,13,19 * * *'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'sentiment_30d.py'
+      - 'sentiment_superlab_research.py'
+      - 'tests/test_sentiment30*.py'
+      - '.github/workflows/sentiment_superlab.yml'
+      - 'state_sync.py'
+      - 'stateful_background_tracker.py'
+      - 'SENTIMENT_SUPERLAB.md'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tier1-sentiment-quant-superlab-bridge
+  cancel-in-progress: false
+
+jobs:
+  offline-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -m py_compile sentiment_30d.py sentiment_superlab_research.py stateful_background_tracker.py state_sync.py
+      - name: Download public quant_superlab for real integration regression
+        run: git clone --depth 1 https://github.com/evsayar33-oss/quant_superlab.git "$RUNNER_TEMP/quant_superlab"
+      - name: Run offline collector and actual quant_superlab import regression
+        env:
+          QUANT_SUPERLAB_DIR: ${{ runner.temp }}/quant_superlab
+        run: python -m unittest discover -s tests -p 'test_sentiment30*.py' -v
+
+  expiry-to-superlab:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: offline-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Restore recorded observations and previous notifications (read only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin refs/heads/state
+          if git cat-file -e FETCH_HEAD:sentiment_30d/manifest.json 2>/dev/null; then
+            git archive FETCH_HEAD sentiment_30d | tar -xf -
+          fi
+          if git ls-remote --exit-code --heads origin refs/heads/audit/sentiment-superlab >/dev/null; then
+            git fetch origin refs/heads/audit/sentiment-superlab
+            git archive FETCH_HEAD sentiment_study_decisions | tar -xf -
+          fi
+          mkdir -p sentiment_study_decisions
+      - name: Determine locked deadline (do not infer absent manifest)
+        id: deadline
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os
+          from datetime import datetime, timezone, timedelta
+          from pathlib import Path
+          p=Path("sentiment_30d/manifest.json")
+          ready=False
+          if p.exists():
+              m=json.loads(p.read_text())
+              finish=datetime.fromisoformat(m["end_utc"])
+              ready=(datetime.now(timezone.utc)>=finish+timedelta(hours=int(m["label_grace_hours"])))
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write("ready=" + str(ready).lower() + "\n")
+          print("Post-expiry/label-grace ready:", ready)
+          PY
+      - name: Checkout public quant_superlab research code
+        if: steps.deadline.outputs.ready == 'true' && !hashFiles('sentiment_study_decisions/tier1_sentiment_superlab-final.json')
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/evsayar33-oss/quant_superlab.git "$RUNNER_TEMP/quant_superlab"
+          git -C "$RUNNER_TEMP/quant_superlab" rev-parse HEAD
+      - name: Run preregistered exploratory analysis using quant_superlab statistics
+        if: steps.deadline.outputs.ready == 'true' && !hashFiles('sentiment_study_decisions/tier1_sentiment_superlab-final.json')
+        shell: bash
+        run: |
+          set -euo pipefail
+          python sentiment_superlab_research.py \
+            --input sentiment_30d \
+            --superlab "$RUNNER_TEMP/quant_superlab" \
+            --out sentiment_study_decisions
+      - name: Publish audit decision in append-only branch
+        if: steps.deadline.outputs.ready == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s sentiment_study_decisions/tier1_sentiment_superlab-final.json
+          w="$RUNNER_TEMP/sentiment-audit-worktree"
+          rm -rf "$w"
+          if git ls-remote --exit-code --heads origin refs/heads/audit/sentiment-superlab >/dev/null; then
+            git fetch origin "refs/heads/audit/sentiment-superlab:refs/remotes/origin/audit/sentiment-superlab"
+            git worktree add --detach "$w" refs/remotes/origin/audit/sentiment-superlab
+          else
+            git worktree add --detach "$w" HEAD
+            git -C "$w" checkout --orphan audit/sentiment-superlab
+            git -C "$w" rm -rf . >/dev/null || true
+          fi
+          mkdir -p "$w/sentiment_study_decisions"
+          cp -a sentiment_study_decisions/. "$w/sentiment_study_decisions/"
+          git -C "$w" config user.name "Tier1 Superlab Research"
+          git -C "$w" config user.email "actions@users.noreply.github.com"
+          git -C "$w" add sentiment_study_decisions
+          if ! git -C "$w" diff --cached --quiet; then
+            git -C "$w" commit -m "research: freeze six-asset sentiment study and superlab metrics"
+            git -C "$w" push origin HEAD:refs/heads/audit/sentiment-superlab
+          fi
+          git worktree remove --force "$w"
+      - name: Telegram research decision and confirmed delivery acknowledgement
+        if: steps.deadline.outputs.ready == 'true'
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+        run: python research_autopilot_notify.py --out sentiment_study_decisions
+      - name: Persist notification acknowledgements
+        if: steps.deadline.outputs.ready == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          w="$RUNNER_TEMP/sentiment-ack-worktree"
+          rm -rf "$w"
+          git fetch origin "refs/heads/audit/sentiment-superlab:refs/remotes/origin/audit/sentiment-superlab"
+          git worktree add --detach "$w" refs/remotes/origin/audit/sentiment-superlab
+          mkdir -p "$w/sentiment_study_decisions/notification_acks"
+          if [ -d sentiment_study_decisions/notification_acks ]; then
+            cp -a sentiment_study_decisions/notification_acks/. "$w/sentiment_study_decisions/notification_acks/"
+          fi
+          git -C "$w" config user.name "Tier1 Superlab Research"
+          git -C "$w" config user.email "actions@users.noreply.github.com"
+          git -C "$w" add sentiment_study_decisions/notification_acks
+          if ! git -C "$w" diff --cached --quiet; then
+            git -C "$w" commit -m "research: record delivered superlab Telegram notification"
+            git -C "$w" push origin HEAD:refs/heads/audit/sentiment-superlab
+          fi
+          git worktree remove --force "$w"
