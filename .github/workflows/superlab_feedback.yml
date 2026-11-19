@@ -1,0 +1,55 @@
+name: Tier-1 ↔ Quant Superlab H120 (read-only feedback)
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'superlab_feedback.py'
+      - 'tests/test_superlab_feedback.py'
+      - '.github/workflows/superlab_feedback.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '17 8,20 * * *'
+  pull_request:
+    paths:
+      - 'superlab_feedback.py'
+      - 'tests/test_superlab_feedback.py'
+      - '.github/workflows/superlab_feedback.yml'
+      - 'TIER1_SUPERLAB_FEEDBACK.md'
+permissions:
+  contents: read
+concurrency:
+  group: tier1-superlab-readonly-feedback
+  cancel-in-progress: false
+jobs:
+  contract_tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Verify SHA lineage, source isolation and no promotion
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_superlab_feedback.py' -v
+          python -m py_compile superlab_feedback.py
+  inspect_superlab_feedback:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: contract_tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Read pinned Superlab H120 result (NEVER change Tier-1 model, state or UI)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python superlab_feedback.py --out tier1-superlab-feedback
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tier1-superlab-readonly-feedback-${{ github.run_id }}
+          path: tier1-superlab-feedback/
+          retention-days: 90
