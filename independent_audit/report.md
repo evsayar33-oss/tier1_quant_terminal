@@ -8,25 +8,25 @@ The test compares with always-long on paired windows; p-values are unadjusted, c
 Neither a 30-day calendar window nor a significant directional result automatically authorizes trading.
 
 Window: 2026-11-14T06:24:26+00:00 — 2026-12-14T06:24:26+00:00
-As of: 2026-11-19T11:49:35.751140Z
-Directional calls: 89; entry permitted: 0; without quote: 23
-Independent price polls: 17; last: 2026-11-19T11:49:35.751140Z
+As of: 2026-11-19T20:44:24.593917Z
+Directional calls: 92; entry permitted: 0; without quote: 23
+Independent price polls: 18; last: 2026-11-19T20:44:24.593917Z
 
 | Horizon | Nonoverlap N | Model hit | Always long | Paired p (unadjusted) | Missing labels | Verdict |
 |---|---:|---:|---:|---:|---:|---|
-| 4h | 4 | 100.0% | 0.0% | 0.0625 | 26 | INSUFFICIENT |
-| 24h | 7 | 85.7% | 14.3% | 0.0625 | 18 | INSUFFICIENT |
+| 4h | 4 | 100.0% | 0.0% | 0.0625 | 31 | INSUFFICIENT |
+| 24h | 12 | 83.3% | 16.7% | 0.0193 | 23 | INSUFFICIENT |
 
 ## Independent hourly reference price coverage
 
 | Asset | Polls | Valid | Last source |
 |---|---:|---:|---|
-| SPX | 17 | 3 | UNAVAILABLE |
-| NQ | 17 | 3 | UNAVAILABLE |
-| XAU | 17 | 11 | YAHOO_HOURLY_DELAYED_NON_EXECUTABLE |
-| XAG | 17 | 11 | YAHOO_HOURLY_DELAYED_NON_EXECUTABLE |
-| BTC | 17 | 17 | YAHOO_HOURLY_DELAYED_NON_EXECUTABLE |
-| ETH | 17 | 17 | YAHOO_HOURLY_DELAYED_NON_EXECUTABLE |
+| SPX | 18 | 4 | YAHOO_HOURLY_DELAYED_NON_EXECUTABLE |
+| NQ | 18 | 4 | YAHOO_HOURLY_DELAYED_NON_EXECUTABLE |
+| XAU | 18 | 12 | YAHOO_HOURLY_DELAYED_NON_EXECUTABLE |
+| XAG | 18 | 12 | YAHOO_HOURLY_DELAYED_NON_EXECUTABLE |
+| BTC | 18 | 18 | YAHOO_HOURLY_DELAYED_NON_EXECUTABLE |
+| ETH | 18 | 18 | YAHOO_HOURLY_DELAYED_NON_EXECUTABLE |
 
 ## Hypothetical all-in cost sensitivity (not net NAV)
 
@@ -35,7 +35,7 @@ These calculations use first-seen published prices, often lagged 1h bar proxies,
 | Horizon | 0 bps | 10 bps | 20 bps | 40 bps |
 |---|---:|---:|---:|---:|
 | 4h | +86.1 | +76.1 | +66.1 | +46.1 |
-| 24h | +78.7 | +68.7 | +58.7 | +38.7 |
+| 24h | +97.2 | +87.2 | +77.2 | +57.2 |
 
 ## Decision gate
 
