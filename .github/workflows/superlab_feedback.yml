@@ -26,6 +26,9 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
+      - name: Start bounded resource telemetry
+        continue-on-error: true
+        run: python3 scripts/resource_probe.py start
       - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
@@ -34,6 +37,12 @@ jobs:
           set -euo pipefail
           python -m unittest discover -s tests -p 'test_superlab_feedback.py' -v
           python -m py_compile superlab_feedback.py
+      - name: Report runner capacity
+        if: always()
+        continue-on-error: true
+        run: |
+          probe="$RUNNER_TEMP/repo-resource-$GITHUB_RUN_ID-$GITHUB_JOB/probe.py"
+          if test -f "$probe"; then python3 "$probe" finish; else echo "::warning::Resource telemetry unavailable"; fi
   inspect_superlab_feedback:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: contract_tests
@@ -41,6 +50,9 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
+      - name: Start bounded resource telemetry
+        continue-on-error: true
+        run: python3 scripts/resource_probe.py start
       - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
@@ -53,3 +65,9 @@ jobs:
           name: tier1-superlab-readonly-feedback-${{ github.run_id }}
           path: tier1-superlab-feedback/
           retention-days: 90
+      - name: Report runner capacity
+        if: always()
+        continue-on-error: true
+        run: |
+          probe="$RUNNER_TEMP/repo-resource-$GITHUB_RUN_ID-$GITHUB_JOB/probe.py"
+          if test -f "$probe"; then python3 "$probe" finish; else echo "::warning::Resource telemetry unavailable"; fi

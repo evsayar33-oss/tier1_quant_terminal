@@ -26,6 +26,9 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v6
+      - name: Start bounded resource telemetry
+        continue-on-error: true
+        run: python3 scripts/resource_probe.py start
       - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
@@ -39,6 +42,12 @@ jobs:
           QUANT_SUPERLAB_DIR: ${{ runner.temp }}/quant_superlab
         run: python -m unittest discover -s tests -p 'test_sentiment30*.py' -v
 
+      - name: Report runner capacity
+        if: always()
+        continue-on-error: true
+        run: |
+          probe="$RUNNER_TEMP/repo-resource-$GITHUB_RUN_ID-$GITHUB_JOB/probe.py"
+          if test -f "$probe"; then python3 "$probe" finish; else echo "::warning::Resource telemetry unavailable"; fi
   expiry-to-superlab:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: offline-tests
@@ -51,6 +60,9 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: true
+      - name: Start bounded resource telemetry
+        continue-on-error: true
+        run: python3 scripts/resource_probe.py start
       - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
@@ -156,3 +168,9 @@ jobs:
             git -C "$w" push origin HEAD:refs/heads/audit/sentiment-superlab
           fi
           git worktree remove --force "$w"
+      - name: Report runner capacity
+        if: always()
+        continue-on-error: true
+        run: |
+          probe="$RUNNER_TEMP/repo-resource-$GITHUB_RUN_ID-$GITHUB_JOB/probe.py"
+          if test -f "$probe"; then python3 "$probe" finish; else echo "::warning::Resource telemetry unavailable"; fi
