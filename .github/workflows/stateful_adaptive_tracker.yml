@@ -36,6 +36,9 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Start bounded resource telemetry
+        continue-on-error: true
+        run: python3 scripts/resource_probe.py start
       - name: Restore published state + learned model
         run: |
           if git fetch --depth 1 origin state 2>/dev/null; then git archive FETCH_HEAD | tar -x; echo "state geri yüklendi"; fi
@@ -60,3 +63,9 @@ jobs:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python engine_loop.py --once
+      - name: Report runner capacity
+        if: always()
+        continue-on-error: true
+        run: |
+          probe="$RUNNER_TEMP/repo-resource-$GITHUB_RUN_ID-$GITHUB_JOB/probe.py"
+          if test -f "$probe"; then python3 "$probe" finish; else echo "::warning::Resource telemetry unavailable"; fi

@@ -20,6 +20,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
+      - name: Start bounded resource telemetry
+        continue-on-error: true
+        run: python3 scripts/resource_probe.py start
       - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
@@ -29,3 +32,9 @@ jobs:
         run: python -m py_compile trade_plan.py state_sync.py stateful_background_tracker.py research_30d.py research_30d_enrichment.py research_30d_okx.py research_30d_eval.py research_30d_monitor.py
       - name: Offline regression tests
         run: python -m unittest discover -s tests -p 'test_research30*.py' -v
+      - name: Report runner capacity
+        if: always()
+        continue-on-error: true
+        run: |
+          probe="$RUNNER_TEMP/repo-resource-$GITHUB_RUN_ID-$GITHUB_JOB/probe.py"
+          if test -f "$probe"; then python3 "$probe" finish; else echo "::warning::Resource telemetry unavailable"; fi
