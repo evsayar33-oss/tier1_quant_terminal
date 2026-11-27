@@ -8,25 +8,25 @@ The test compares with always-long on paired windows; p-values are unadjusted, c
 Neither a 30-day calendar window nor a significant directional result automatically authorizes trading.
 
 Window: 2026-11-14T06:24:26+00:00 — 2026-12-14T06:24:26+00:00
-As of: 2026-11-26T19:06:34.217369Z
-Directional calls: 168; entry permitted: 0; without quote: 63
-Independent price polls: 39; last: 2026-11-26T19:06:34.217369Z
+As of: 2026-11-27T02:16:48.359037Z
+Directional calls: 172; entry permitted: 0; without quote: 67
+Independent price polls: 40; last: 2026-11-27T02:16:48.359037Z
 
 | Horizon | Nonoverlap N | Model hit | Always long | Paired p (unadjusted) | Missing labels | Verdict |
 |---|---:|---:|---:|---:|---:|---|
-| 4h | 4 | 100.0% | 0.0% | 0.0625 | 86 | INSUFFICIENT |
-| 24h | 12 | 83.3% | 16.7% | 0.0193 | 72 | INSUFFICIENT |
+| 4h | 4 | 100.0% | 0.0% | 0.0625 | 87 | INSUFFICIENT |
+| 24h | 12 | 83.3% | 16.7% | 0.0193 | 74 | INSUFFICIENT |
 
 ## Independent hourly reference price coverage
 
 | Asset | Polls | Valid | Last source |
 |---|---:|---:|---|
-| SPX | 39 | 7 | UNAVAILABLE |
-| NQ | 39 | 7 | UNAVAILABLE |
-| XAU | 39 | 23 | UNAVAILABLE |
-| XAG | 39 | 23 | UNAVAILABLE |
-| BTC | 39 | 39 | YAHOO_HOURLY_DELAYED_NON_EXECUTABLE |
-| ETH | 39 | 39 | YAHOO_HOURLY_DELAYED_NON_EXECUTABLE |
+| SPX | 40 | 7 | UNAVAILABLE |
+| NQ | 40 | 7 | UNAVAILABLE |
+| XAU | 40 | 23 | UNAVAILABLE |
+| XAG | 40 | 23 | UNAVAILABLE |
+| BTC | 40 | 40 | YAHOO_HOURLY_DELAYED_NON_EXECUTABLE |
+| ETH | 40 | 40 | YAHOO_HOURLY_DELAYED_NON_EXECUTABLE |
 
 ## Hypothetical all-in cost sensitivity (not net NAV)
 
