@@ -50,6 +50,9 @@ STATE_FILES = [
     "health_report.md",           # v16.2: SqueezeMetrics daily SPX GEX/DIX cache           # v15.1: suggested-stop ledger (self-calibrating buffer)
     "performance_report.md",
     "component_evidence.json",
+    "challenger_evidence.json",
+    "challenger_report.json",
+    "challenger_archive_report.json",
     "component_research_report.json",
     "terminal_history_stateful.csv",
     "engine_status.json",    # engine heartbeat (v15.1: bot/lab files removed)

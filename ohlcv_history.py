@@ -17,6 +17,7 @@ import pandas as pd
 
 REQUIRED_COLUMNS = ["Open", "High", "Low", "Close", "Volume"]
 DEFAULT_MAX_BARS = 200
+ARCHIVE_MAX_BARS = 2000  # bounded research retention; production input remains 200
 DEFAULT_HISTORY_DIR = "ohlcv_history"
 
 

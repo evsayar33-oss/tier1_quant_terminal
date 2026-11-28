@@ -6,6 +6,13 @@ on:
       - 'forecast_ledger.py'
       - 'evidence_windows.py'
       - 'component_research.py'
+      - 'challenger_research.py'
+      - 'quant_processor.py'
+      - 'data_engine.py'
+      - 'ohlcv_history.py'
+      - 'stateful_adaptive_model.py'
+      - 'stateful_memory_store.py'
+      - 'tests/test_challenger_research.py'
       - 'day_direction.py'
       - 'stop_levels.py'
       - 'decision_panel.py'
@@ -49,7 +56,7 @@ jobs:
       - name: Offline regression tests
         run: |
           python -m unittest discover -s tests -p 'test_research30*.py' -v
-          python -m pytest -q test_forecast_ledger.py tests/test_component_research.py test_decision_panel_simple.py test_market_structure.py test_clone_system.py test_shock_direction.py test_foundation_v32.py test_entry_xau_eth_v33.py test_walkforward_optimizer.py test_stateful_adaptive.py test_system_health.py test_state_sync.py test_shadow.py
+          python -m pytest -q test_ohlcv_history.py tests/test_challenger_research.py test_data_integrity_fix.py test_forecast_ledger.py tests/test_component_research.py test_decision_panel_simple.py test_market_structure.py test_clone_system.py test_shock_direction.py test_foundation_v32.py test_entry_xau_eth_v33.py test_walkforward_optimizer.py test_stateful_adaptive.py test_system_health.py test_state_sync.py test_shadow.py
       - name: Report runner capacity
         if: always()
         continue-on-error: true

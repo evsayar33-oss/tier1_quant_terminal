@@ -78,7 +78,7 @@ ASSET_MATRICES = {
         "factors": [
             {"id": "asset_direction", "name": "NQ 4H Anlık Fiyat Hızı", "cluster": "E", "base_weight": 1.10, "base_sign": 1.0, "role": "state"},
             {"id": "semi_lead", "name": "SMH Çip / AI Sektör İvmesi", "cluster": "E", "base_weight": 0.40, "base_sign": 1.0},
-            {"id": "tech_breadth_dispersion", "name": "Çip & Yüksek Beta Ayrışması", "cluster": "E", "base_weight": 0.35, "base_sign": 1.0},
+            {"id": "tech_breadth_dispersion", "name": "SMH/QQQ proxy (tekrar)", "cluster": "E", "base_weight": 0.35, "base_sign": 1.0, "role": "state"},
             {"id": "speculative_beta", "name": "ARKK/QQQ Yüksek Beta Spekülasyon", "cluster": "E", "base_weight": 0.30, "base_sign": 1.0},
             {"id": "defensive_flight", "name": "XLU/QQQ Kurumsal Defansif Kaçış", "cluster": "E", "base_weight": 0.25, "base_sign": -1.0},
             {"id": "equity_duration_drag", "name": "Teknoloji Değerleme / Reel Getiri Baskısı", "cluster": "B", "base_weight": 0.70, "base_sign": -1.0},
@@ -154,10 +154,10 @@ ASSET_MATRICES = {
         "factors": [
             {"id": "asset_direction", "name": "BTC 4H Anlık Fiyat İvmesi", "cluster": "E", "base_weight": 0.75, "base_sign": 1.0},
             {"id": "crypto_taker", "name": "OKX/Bybit Spot & Vadeli Taker Akışı", "cluster": "E", "base_weight": 1.00, "base_sign": 1.0},
-            {"id": "stablecoin_usd_impulse", "name": "💵 Kripto-Yerel USD Likiditesi & Taker İştahı", "cluster": "E", "base_weight": 0.90, "base_sign": 1.0},
+            {"id": "stablecoin_usd_impulse", "name": "Taker/Funding/NDL bileşik proxy", "cluster": "E", "base_weight": 0.90, "base_sign": 1.0, "role": "state"},
             {"id": "funding_stress", "name": "Türev Fonlama Oranı (Kaldıraç Riski)", "cluster": "E", "base_weight": 0.70, "base_sign": -1.0},
-            {"id": "liquidation_squeeze_risk", "name": "⚠️ Likidasyon & Kaldıraç Sıkışması Riski", "cluster": "E", "base_weight": 0.65, "base_sign": -1.0},
-            {"id": "btc_dominance", "name": "BTC Dominansı / Altcoin Rotasyonu", "cluster": "E", "base_weight": 0.45, "base_sign": 1.0},
+            {"id": "liquidation_squeeze_risk", "name": "Funding baskısı proxy (likidasyon değil)", "cluster": "E", "base_weight": 0.65, "base_sign": -1.0, "role": "state"},
+            {"id": "btc_dominance", "name": "BTC/ETH göreli fiyat gücü", "cluster": "E", "base_weight": 0.45, "base_sign": 1.0},
             {"id": "banking_stress", "name": "Geleneksel Bankacılık Kaçışı (KRE Ters)", "cluster": "C", "base_weight": 0.25, "base_sign": -1.0},
             {"id": "duration_risk", "name": "TLT Küresel Tahvil Likidite Baskısı", "cluster": "B", "base_weight": 0.45, "base_sign": 1.0},
             {"id": "credit_spread", "name": "Küresel Likidite İştahı (HYG/LQD)", "cluster": "C", "base_weight": 0.65, "base_sign": 1.0},
@@ -178,9 +178,9 @@ ASSET_MATRICES = {
         "factors": [
             {"id": "asset_direction", "name": "ETH 4H Anlık Fiyat İvmesi", "cluster": "E", "base_weight": 0.75, "base_sign": 1.0},
             {"id": "crypto_taker", "name": "OKX/Bybit ETH Taker Alış Akışı", "cluster": "E", "base_weight": 1.05, "base_sign": 1.0},
-            {"id": "stablecoin_usd_impulse", "name": "💵 Kripto-Yerel USD Likiditesi & Stabilcoin Akışı", "cluster": "E", "base_weight": 0.85, "base_sign": 1.0},
+            {"id": "stablecoin_usd_impulse", "name": "Taker/Funding/NDL bileşik proxy", "cluster": "E", "base_weight": 0.85, "base_sign": 1.0, "role": "state"},
             {"id": "funding_stress", "name": "Canlı ETH Fonlama Oranı (Funding Riski)", "cluster": "E", "base_weight": 0.75, "base_sign": -1.0},
-            {"id": "liquidation_squeeze_risk", "name": "⚠️ ETH Türev Kaldıraç & Sıkışma Riski", "cluster": "E", "base_weight": 0.65, "base_sign": -1.0},
+            {"id": "liquidation_squeeze_risk", "name": "Funding baskısı proxy (likidasyon değil)", "cluster": "E", "base_weight": 0.65, "base_sign": -1.0, "role": "state"},
             {"id": "btc_sympathy", "name": "⚡ Bitcoin İtici Gücü (BTC Beta)", "cluster": "E", "base_weight": 0.30, "base_sign": 1.0},
             {"id": "eth_btc_beta", "name": "ETH/BTC Göreceli Güç (Risk İştahı)", "cluster": "E", "base_weight": 0.25, "base_sign": 1.0},
             # v3.3.3: "eth_staking_utility_drift" REMOVED. Despite its "L1 activity /
@@ -440,4 +440,4 @@ DEALER_GAMMA_POLICY = "advisory"
 
 # Mantık sürümü: her kayıt (tahmin, stop, şok, karar defteri) bu etiketi taşır.
 # Mantık değişince BU DEĞER DE DEĞİŞMELİ; böylece karne her sürümü ayrı ölçer.
-LOGIC_VERSION = "2026.11.28-v2.1-integrity"  # Evidence/freshness bug fixes; V2 history remains sealed
+LOGIC_VERSION = "2026.11.28-v2.2-math"  # Evidence/freshness bug fixes; V2 history remains sealed

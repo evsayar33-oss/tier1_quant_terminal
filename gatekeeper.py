@@ -143,6 +143,11 @@ class PreTradeGatekeeper:
         dxy=self.grid_1h.get("DXY",pd.DataFrame()); self.dxy_velocity=self.processor.compute_usd_strength_impulse(dxy) if has("DXY",5) else None
         hyg,lqd=self.grid_1h.get("HYG",pd.DataFrame()),self.grid_1h.get("LQD",pd.DataFrame()); self.credit_velocity=self.processor.compute_credit_intraday_velocity(hyg,lqd) if has("HYG",5) and has("LQD",5) else None
         oil,transport=self.grid_1h.get("CL=F",pd.DataFrame()),self.grid_1h.get("IYT",pd.DataFrame()); self.stagflation_z=self.processor.compute_stagflation_shock(oil,transport) if has("CL=F",5) and has("IYT",5) else None
+        # Missing aligned cross-market data is not a neutral macro observation.
+        for name in ("credit_velocity", "stagflation_z"):
+            value = getattr(self, name)
+            if value is not None and not np.isfinite(value):
+                setattr(self, name, None)
         uj=self.grid_1h.get("USDJPY=X",pd.DataFrame()); self.yen_carry_z=self.processor.compute_yen_carry_shock(uj) if has("USDJPY=X",5) else None
         fred=self.data_engine.fetch_fred_macro_metrics(self.grid_1h)
         self.fred_metrics = dict(fred)
@@ -188,7 +193,7 @@ class PreTradeGatekeeper:
                 "forecast_direction": "NÖTR (BEKLE)",
                 "current_direction": "⚪ YATAY (%0.00)",
                 "score": 0.0,
-                "entry_allowed": True,
+                "entry_allowed": False,
                 "entry_reason": "Veri yok",
                 "details": []
             }
@@ -301,7 +306,7 @@ class PreTradeGatekeeper:
             weight = factor["base_weight"]
             sign = factor["base_sign"]
 
-            val = 0.0
+            val = None
 
             required_missing = {
                 "equity_duration_drag": self.real_yield_z is None,
@@ -348,10 +353,7 @@ class PreTradeGatekeeper:
                     if crypto_flow is None:
                         crypto_flow = self.data_engine.fetch_crypto_taker_flow(ccy)
                     raw_ratio = crypto_flow.get("value") if isinstance(crypto_flow, dict) else None
-                    if raw_ratio is None:
-                        val = None
-                        continue
-                    val = float(np.tanh(np.log(raw_ratio + 1e-6) * 2.0) * 1.5)
+                    val = float(np.tanh(np.log(raw_ratio) * 2.0) * 1.5) if raw_ratio is not None and raw_ratio > 0 else None
                 elif f_id == "funding_stress":
                     if crypto_fr is None:
                         crypto_fr = self.data_engine.fetch_crypto_funding_rate(ccy)

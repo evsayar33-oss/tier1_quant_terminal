@@ -90,6 +90,7 @@ def run_checks(state: Dict[str, Any], now: Optional[datetime] = None) -> Dict[st
         ("clone_system", state.get("clone_system") or {}),
         ("trade_scorecard", state.get("trade_scorecard") or {}),
         ("component_research", state.get("component_research") or {}),
+        ("challenger_research", state.get("challenger_research") or {}),
     ) if isinstance(v, dict) and v.get("error")]
     research = state.get("research_30d") or {}
     active = research.get("status") == "COLLECTING"
@@ -104,6 +105,17 @@ def run_checks(state: Dict[str, Any], now: Optional[datetime] = None) -> Dict[st
          if research_bad else
          "research inactive" if not active else
          f"samples={attempts} valid={valid} errors={research.get('errors', 0)}"))
+    challenger = state.get("challenger_research") or {}
+    current = challenger.get("current") or {}
+    fresh = [v for v in current.values() if v.get("eligibility") == "FRESH"]
+    expected = [v for v in current.values() if v.get("eligibility") != "MARKET_CLOSED"]
+    # Health alert only for real data availability; neutral predictions are not failures.
+    bad = bool(expected and (len(fresh)/len(expected) < .75 or any(v.get("available",0)<5 for v in fresh)))
+    if challenger:
+        res("challenger_coverage", challenger.get("status") != "ERROR" and not bad,
+            f"fresh={len(fresh)}/{len(expected)}; candidate coverage={sum(v.get('available',0) for v in fresh)}")
+        gaps=challenger.get("label_coverage_alerts") or {}
+        res("challenger_exact_labels", not gaps, f"4h coverage gaps={gaps}" if gaps else "exact-label coverage OK / accumulating")
     res("cycle_errors", not errs, "; ".join(errs)[:300] if errs else "modül hatası yok")
     return out
 
