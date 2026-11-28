@@ -372,6 +372,17 @@ def run_background_cycle() -> Dict[str, Any]:
     except Exception as exc:
         payload["research_30d"] = {"status": "ERROR", "error": str(exc)}
         print(f"[research_30d] research collection failed: {exc}", flush=True)
+    # Fixed challenger tournament runs independently after native flow collection.
+    try:
+        import challenger_research as CH
+        payload["challenger_research"] = CH.run_cycle(verdicts, frames, contexts, gk.grid_1h)
+        # A separate point-in-time exploratory baseline, never in prospective ledger.
+        from pathlib import Path
+        if not Path("challenger_archive_report.json").exists():
+            CH.bootstrap("ohlcv_history", CH.now_utc(), report="challenger_archive_report.json")
+    except Exception as exc:
+        payload["challenger_research"] = {"status": "ERROR", "error": str(exc)[:200]}
+        print(f"[challenger_research] {exc}", flush=True)
     # Independent six-asset sentiment/volatility observation, research-only.
     # This never changes decisions, risk thresholds, model weights or stop logic.
     try:

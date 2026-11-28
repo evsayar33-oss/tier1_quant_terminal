@@ -707,7 +707,8 @@ class StatefulAdaptiveController:
             grid = getattr(gatekeeper, "grid_1h", {}) or {}
             for asset_key, verdict in adaptive.items():
                 df = self._asset_df(grid, asset_key)
-                if df.empty or "Close" not in df.columns:
+                from evidence_windows import fresh_frame
+                if not fresh_frame(df, observed_at):
                     continue
                 try:
                     price = float(pd.to_numeric(df["Close"], errors="coerce").dropna().iloc[-1])

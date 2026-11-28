@@ -81,7 +81,7 @@ class AdaptiveScoreModel:
                 min_abs_score=threshold,
             )
             n = stats["effective_n"]
-            if n <= 0:
+            if n < MIN_EFFECTIVE_SAMPLES or stats["wilson_lower"] < TARGET_LCB or stats["return_mean"] <= 0:
                 continue
 
             # Prefer statistically supported thresholds. Return quality is a
@@ -136,12 +136,15 @@ class AdaptiveScoreModel:
 
         def early_outcome_adjustment(cal: Dict[str, float]) -> float:
             n = float(cal.get("effective_n", 0.0))
-            if n < 12.0:
+            if n < MIN_EFFECTIVE_SAMPLES:
                 return 1.0
+            p = float(cal.get("hit_rate", 0))
+            z = 1.96
+            upper = (p + z*z/(2*n) + z*math.sqrt(p*(1-p)/n + z*z/(4*n*n))) / (1+z*z/n)
             lcb = float(cal.get("wilson_lower", 0.0))
-            if lcb < 0.45:
-                return float(1.0 + min((0.45 - lcb) * 0.70, 0.15))
-            if lcb > 0.60:
+            if upper < 0.50 and float(cal.get("return_mean", 0)) < 0:
+                return float(1.0 + min((0.50 - upper) * 0.70, 0.15))
+            if lcb > 0.60 and float(cal.get("return_mean", 0)) > 0:
                 return float(1.0 - min((lcb - 0.60) * 0.50, 0.10))
             return 1.0
 

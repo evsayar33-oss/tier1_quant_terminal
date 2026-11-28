@@ -57,31 +57,30 @@ class RobustQuantProcessor:
         if s1 is None or s2 is None or len(s1) == 0 or len(s2) == 0:
             return pd.DataFrame()
 
-        idx1 = s1.index.tz_localize(None) if getattr(s1.index, "tz", None) is not None else s1.index
-        idx2 = s2.index.tz_localize(None) if getattr(s2.index, "tz", None) is not None else s2.index
-
-        s1_clean = pd.Series(s1.values, index=idx1, name="s1").sort_index()
-        s2_clean = pd.Series(s2.values, index=idx2, name="s2").sort_index()
-
-        s1_clean = s1_clean[~s1_clean.index.duplicated(keep="last")]
-        s2_clean = s2_clean[~s2_clean.index.duplicated(keep="last")]
-
-        df_aligned = pd.concat([s1_clean, s2_clean], axis=1, join="outer").sort_index()
-        df_aligned = df_aligned.ffill().bfill().dropna()
-        return df_aligned
+        # Convert actual instants to UTC, never create a synthetic paired price.
+        def clean(series, name):
+            idx = pd.to_datetime(series.index, utc=True, errors="coerce")
+            out = pd.Series(pd.to_numeric(series, errors="coerce").values, index=idx, name=name)
+            out = out[~out.index.isna() & ~out.index.duplicated(keep=False)]
+            return out.where(np.isfinite(out) & (out > 0)).dropna()
+        return pd.concat([clean(s1, "s1"), clean(s2, "s2")], axis=1, join="inner").dropna().sort_index()
 
     @staticmethod
     def compute_robust_mad_zscore(series: pd.Series, window: int = 40) -> float:
-        if series is None or len(series) < 5:
-            return 0.0
-        sub = series.tail(window).dropna()
-        if len(sub) < 5:
-            return 0.0
-        med = sub.median()
-        mad = (sub - med).abs().median()
-        mad = 1e-6 if mad == 0 or np.isnan(mad) else mad
-        robust_z = (sub.iloc[-1] - med) / (1.4826 * mad)
-        return float(np.clip(robust_z, -2.5, 2.5))
+        if series is None or len(series) < 6:
+            return float("nan")
+        sub = pd.to_numeric(series, errors="coerce").replace([np.inf,-np.inf],np.nan)
+        current = sub.iloc[-1]
+        prior = sub.iloc[:-1].tail(window).dropna()
+        if len(prior) < 5 or not np.isfinite(current):
+            return float("nan")
+        med = prior.median()
+        scale = 1.4826 * (prior-med).abs().median()
+        if not np.isfinite(scale) or scale <= 0:
+            scale = prior.std()
+        if not np.isfinite(scale) or scale <= 0:
+            return 0.0 if current == med else float("nan")
+        return float(np.clip((current-med)/scale,-2.5,2.5))
 
     @staticmethod
     def _direction_stats(df_1h):
@@ -683,12 +682,12 @@ class RobustQuantProcessor:
     @staticmethod
     def compute_tech_breadth_dispersion(smh_df, arkk_df, qqq_df, window=24):
         if smh_df.empty or qqq_df.empty:
-            return 0.0
+            return float("nan")
         s_smh = smh_df["Close"] if "Close" in smh_df.columns else smh_df.iloc[:, 0]
         s_qqq = qqq_df["Close"] if "Close" in qqq_df.columns else qqq_df.iloc[:, 0]
         aligned = RobustQuantProcessor._safe_align_series(s_smh, s_qqq)
         if len(aligned) < 5:
-            return 0.0
+            return float("nan")
         ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
         return RobustQuantProcessor.compute_robust_mad_zscore(ratio, window=window)
 
@@ -776,7 +775,7 @@ class RobustQuantProcessor:
         This is intentionally a soft anchor rather than hard price mirroring.
         """
         if silver_df is None or silver_df.empty or gold_df is None or gold_df.empty:
-            return 0.0
+            return float("nan")
 
         gold_signal = RobustQuantProcessor.compute_intraday_direction_momentum(
             gold_df, fast_window=2, slow_window=16, vol_scale=0.90
@@ -868,12 +867,12 @@ class RobustQuantProcessor:
     @staticmethod
     def compute_silver_monetary_catchup(silver_df, gold_df, copper_df, window=24):
         if silver_df.empty or gold_df.empty:
-            return 0.0
+            return float("nan")
         s_ag = silver_df["Close"] if "Close" in silver_df.columns else silver_df.iloc[:, 0]
         s_au = gold_df["Close"] if "Close" in gold_df.columns else gold_df.iloc[:, 0]
         aligned = RobustQuantProcessor._safe_align_series(s_ag, s_au)
         if len(aligned) < 5:
-            return 0.0
+            return float("nan")
         ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
         return RobustQuantProcessor.compute_robust_mad_zscore(ratio, window=window)
 
@@ -894,24 +893,30 @@ class RobustQuantProcessor:
     @staticmethod
     def compute_eth_staking_utility_drift(eth_df, btc_df, window=24):
         if eth_df.empty or btc_df.empty:
-            return 0.0
+            return float("nan")
         s_eth = eth_df["Close"] if "Close" in eth_df.columns else eth_df.iloc[:, 0]
         s_btc = btc_df["Close"] if "Close" in btc_df.columns else btc_df.iloc[:, 0]
         aligned = RobustQuantProcessor._safe_align_series(s_eth, s_btc)
         if len(aligned) < 5:
-            return 0.0
+            return float("nan")
         ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
         return RobustQuantProcessor.compute_robust_mad_zscore(ratio, window=window)
 
     @staticmethod
     def compute_intraday_direction_momentum(df_1h, fast_window=4, slow_window=24, vol_scale=1.0):
         if df_1h.empty or len(df_1h) < 2:
-            return 0.0
-        close = df_1h.get("Smooth_Close", df_1h["Close"])
-        w_fast = min(fast_window, len(close) - 1)
-        roc_4h = ((close.iloc[-1] - close.iloc[-w_fast - 1]) / (close.iloc[-w_fast - 1] + 1e-9)) * 100.0
-        w_slow = min(slow_window, len(close) - 1)
-        roc_24h = ((close.iloc[-1] - close.iloc[-w_slow - 1]) / (close.iloc[-w_slow - 1] + 1e-9)) * 100.0
+            return float("nan")
+        from evidence_windows import bars
+        close = bars(df_1h, ["Close"])["Close"].dropna()
+        if close.empty:
+            return float("nan")
+        end = close.index[-1]
+        fast = close.get(end - pd.Timedelta(hours=fast_window))
+        slow = close.get(end - pd.Timedelta(hours=slow_window))
+        if fast is None or slow is None:
+            return float("nan")
+        roc_4h = (close.iloc[-1] / fast - 1) * 100
+        roc_24h = (close.iloc[-1] / slow - 1) * 100
 
         blended = (roc_4h * 1.3) + (roc_24h * 0.4)
         scale = max(float(vol_scale), 0.5)
@@ -921,72 +926,72 @@ class RobustQuantProcessor:
     @staticmethod
     def compute_market_breadth(rsp_df, spy_df, window=24):
         if rsp_df.empty or spy_df.empty:
-            return 0.0
+            return float("nan")
         s1 = rsp_df["Close"] if "Close" in rsp_df.columns else rsp_df.iloc[:, 0]
         s2 = spy_df["Close"] if "Close" in spy_df.columns else spy_df.iloc[:, 0]
         aligned = RobustQuantProcessor._safe_align_series(s1, s2)
         if len(aligned) < 5:
-            return 0.0
+            return float("nan")
         ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
         return RobustQuantProcessor.compute_robust_mad_zscore(ratio, window=window)
 
     @staticmethod
     def compute_gsr_velocity(xau_df, xag_df, window=24):
         if xau_df.empty or xag_df.empty:
-            return 0.0
+            return float("nan")
         s1 = xau_df["Close"] if "Close" in xau_df.columns else xau_df.iloc[:, 0]
         s2 = xag_df["Close"] if "Close" in xag_df.columns else xag_df.iloc[:, 0]
         aligned = RobustQuantProcessor._safe_align_series(s1, s2)
         if len(aligned) < 5:
-            return 0.0
+            return float("nan")
         ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
         return RobustQuantProcessor.compute_robust_mad_zscore(ratio, window=window)
 
     @staticmethod
     def compute_bond_duration_risk(tlt_df, shy_df, window=24):
         if tlt_df.empty or shy_df.empty:
-            return 0.0
+            return float("nan")
         s1 = tlt_df["Close"] if "Close" in tlt_df.columns else tlt_df.iloc[:, 0]
         s2 = shy_df["Close"] if "Close" in shy_df.columns else shy_df.iloc[:, 0]
         aligned = RobustQuantProcessor._safe_align_series(s1, s2)
         if len(aligned) < 5:
-            return 0.0
+            return float("nan")
         ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
         return RobustQuantProcessor.compute_robust_mad_zscore(ratio, window=window)
 
     @staticmethod
     def compute_banking_stress(kre_df, spy_df, window=24):
         if kre_df.empty or spy_df.empty:
-            return 0.0
+            return float("nan")
         s1 = kre_df["Close"] if "Close" in kre_df.columns else kre_df.iloc[:, 0]
         s2 = spy_df["Close"] if "Close" in spy_df.columns else spy_df.iloc[:, 0]
         aligned = RobustQuantProcessor._safe_align_series(s1, s2)
         if len(aligned) < 5:
-            return 0.0
+            return float("nan")
         ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
         return RobustQuantProcessor.compute_robust_mad_zscore(ratio, window=window)
 
     @staticmethod
     def compute_defensive_flight(xlu_df, benchmark_df, window=24):
         if xlu_df.empty or benchmark_df.empty:
-            return 0.0
+            return float("nan")
         s1 = xlu_df["Close"] if "Close" in xlu_df.columns else xlu_df.iloc[:, 0]
         s2 = benchmark_df["Close"] if "Close" in benchmark_df.columns else benchmark_df.iloc[:, 0]
         aligned = RobustQuantProcessor._safe_align_series(s1, s2)
         if len(aligned) < 5:
-            return 0.0
+            return float("nan")
         ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
         return RobustQuantProcessor.compute_robust_mad_zscore(ratio, window=window)
 
     @staticmethod
     def compute_consumer_confidence(xly_df, xlp_df, window=24):
         if xly_df.empty or xlp_df.empty:
-            return 0.0
+            return float("nan")
         s1 = xly_df["Close"] if "Close" in xly_df.columns else xly_df.iloc[:, 0]
         s2 = xlp_df["Close"] if "Close" in xlp_df.columns else xlp_df.iloc[:, 0]
         aligned = RobustQuantProcessor._safe_align_series(s1, s2)
         if len(aligned) < 5:
-            return 0.0
+            return float("nan")
         ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
         return RobustQuantProcessor.compute_robust_mad_zscore(ratio, window=window)
 
@@ -1006,15 +1011,13 @@ class RobustQuantProcessor:
 
     @staticmethod
     def compute_vix_term_structure(vix_df, vix3m_df):
-        if vix_df.empty:
-            return 0.0
-        cur_vix = float(vix_df["Close"].iloc[-1])
-        if not vix3m_df.empty:
-            cur_vix3m = float(vix3m_df["Close"].iloc[-1])
-            ratio = cur_vix / (cur_vix3m + 1e-9)
-            gamma_stress = np.tanh((ratio - 0.98) * 5.0) * 1.8
-            return float(np.clip(gamma_stress, -2.0, 2.0))
-        return float(np.clip((cur_vix - 17.5) / 4.0, -1.8, 1.8))
+        if vix_df.empty or vix3m_df.empty:
+            return float("nan")
+        aligned = RobustQuantProcessor._safe_align_series(vix_df["Close"], vix3m_df["Close"])
+        if aligned.empty:
+            return float("nan")
+        ratio = float(aligned.iloc[-1, 0] / aligned.iloc[-1, 1])
+        return float(np.clip(np.tanh((ratio - 0.98) * 5.0) * 1.8, -2.0, 2.0))
 
     @staticmethod
     def compute_crypto_funding_stress(funding_rate):
@@ -1024,56 +1027,53 @@ class RobustQuantProcessor:
     @staticmethod
     def compute_gold_oil_ratio(gold_df, oil_df, window=24):
         if gold_df is None or oil_df is None or gold_df.empty or oil_df.empty:
-            return 0.0
+            return float("nan")
         s1 = gold_df["Close"] if "Close" in gold_df.columns else gold_df.iloc[:, 0]
         s2 = oil_df["Close"] if "Close" in oil_df.columns else oil_df.iloc[:, 0]
         aligned = RobustQuantProcessor._safe_align_series(s1, s2)
         if len(aligned) < 5:
-            return 0.0
+            return float("nan")
         ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
         return RobustQuantProcessor.compute_robust_mad_zscore(ratio, window=window)
 
     @staticmethod
     def compute_silver_copper_ratio(silver_df, copper_df, window=24):
         if silver_df.empty or copper_df.empty:
-            return 0.0
+            return float("nan")
         s1 = silver_df["Close"] if "Close" in silver_df.columns else silver_df.iloc[:, 0]
         s2 = copper_df["Close"] if "Close" in copper_df.columns else copper_df.iloc[:, 0]
         aligned = RobustQuantProcessor._safe_align_series(s1, s2)
         if len(aligned) < 5:
-            return 0.0
+            return float("nan")
         ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
         return RobustQuantProcessor.compute_robust_mad_zscore(ratio, window=window)
 
     @staticmethod
     def compute_credit_intraday_velocity(hyg_df, lqd_df, window=4):
         if hyg_df.empty or lqd_df.empty:
-            return 0.0
+            return float("nan")
         s1 = hyg_df["Close"] if "Close" in hyg_df.columns else hyg_df.iloc[:, 0]
         s2 = lqd_df["Close"] if "Close" in lqd_df.columns else lqd_df.iloc[:, 0]
         aligned = RobustQuantProcessor._safe_align_series(s1, s2)
         if len(aligned) < 2:
-            return 0.0
+            return float("nan")
         ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
-        w = min(window, len(ratio) - 1)
-        if w < 1:
-            return 0.0
-        roc_4h = ((ratio.iloc[-1] - ratio.iloc[-w - 1]) / (ratio.iloc[-w - 1] + 1e-9)) * 100.0
+        previous = ratio.get(ratio.index[-1] - pd.Timedelta(hours=window))
+        if previous is None or not np.isfinite(previous) or previous <= 0:
+            return float("nan")
+        roc_4h = (float(ratio.iloc[-1]) / previous - 1) * 100
         return float(np.clip(roc_4h * 4.0, -2.0, 2.0))
 
     @staticmethod
     def compute_stagflation_shock(oil_df, transport_df, window=48):
         if oil_df.empty or transport_df.empty:
-            return 0.0
-        p_oil = float(oil_df["Close"].iloc[-1])
-        p_iyt = float(transport_df["Close"].iloc[-1])
-        w = min(window, len(oil_df), len(transport_df))
-        mean_oil = oil_df["Close"].tail(w).mean()
-        mean_iyt = transport_df["Close"].tail(w).mean()
-        current_ratio = p_oil / (p_iyt + 1e-9)
-        baseline_ratio = mean_oil / (mean_iyt + 1e-9)
-        dev_pct = ((current_ratio - baseline_ratio) / (baseline_ratio + 1e-9)) * 100.0
-        return float(np.clip(dev_pct * 0.12, -2.0, 2.0))
+            return float("nan")
+        aligned = RobustQuantProcessor._safe_align_series(oil_df["Close"], transport_df["Close"])
+        if len(aligned) < 6:
+            return float("nan")
+        ratio = aligned.s1 / aligned.s2
+        baseline = float(ratio.iloc[:-1].tail(window).mean())
+        return float(np.clip((float(ratio.iloc[-1]) / baseline - 1.0) * 12.0, -2.0, 2.0))
 
     @staticmethod
     def compute_yen_carry_shock(usdjpy_df, window=24):
@@ -1088,7 +1088,7 @@ class RobustQuantProcessor:
     @staticmethod
     def compute_ratio_z(df_num, df_denom, window=48):
         if df_num.empty or df_denom.empty:
-            return 0.0
+            return float("nan")
         s1 = df_num["Close"] if "Close" in df_num.columns else df_num.iloc[:, 0]
         # BUGFIX: test the denominator frame itself. The previous implementation
         # checked df_num.columns, which could silently select df_denom.iloc[:, 0]
@@ -1096,7 +1096,7 @@ class RobustQuantProcessor:
         s2 = df_denom["Close"] if "Close" in df_denom.columns else df_denom.iloc[:, 0]
         aligned = RobustQuantProcessor._safe_align_series(s1, s2)
         if len(aligned) < 5:
-            return 0.0
+            return float("nan")
         ratio = aligned.iloc[:, 0] / (aligned.iloc[:, 1] + 1e-9)
         return RobustQuantProcessor.compute_robust_mad_zscore(ratio, window=window)
 

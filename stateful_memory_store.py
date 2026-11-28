@@ -36,7 +36,8 @@ import numpy as np
 
 
 DEFAULT_MEMORY_FILE = "stateful_adaptive_memory.json"
-MEMORY_VERSION = "1.1.0"
+MEMORY_VERSION = "1.2.0"
+EVIDENCE_EPOCH = "EXACT_WINDOW_SIGNED_V1"
 
 DEFAULT_HALF_LIFE_HOURS = 24.0 * 14.0  # 14 days
 MAX_PENDING_OBSERVATIONS = 2500
@@ -102,6 +103,7 @@ def _default_score_direction_bucket() -> Dict[str, Any]:
 def _default_memory() -> Dict[str, Any]:
     return {
         "version": MEMORY_VERSION,
+        "evidence_epoch": EVIDENCE_EPOCH,
         "created_at": _iso(_utc_now()),
         "last_updated": None,
         "last_decay_at": None,
@@ -152,6 +154,15 @@ class StatefulMemoryStore:
                 return _default_memory()
             base = _default_memory()
             base.update(data)
+            if data.get("evidence_epoch") != EVIDENCE_EPOCH:
+                # Preserve incompatible outcomes, but do not learn from them.
+                keys = ("score_memory", "factor_memory", "direction_outcomes", "pending_observations", "score_distribution", "direction_runtime", "score_ema")
+                base["legacy_evidence"] = {k: data.get(k, [] if k == "pending_observations" else {}) for k in keys}
+                for k in keys:
+                    base[k] = [] if k == "pending_observations" else {}
+                base["evidence_epoch"] = EVIDENCE_EPOCH
+                base.setdefault("meta", {})["settled_observations"] = 0
+                base["meta"]["factor_sign_migrated_v34"] = True
             return base
         except (OSError, json.JSONDecodeError, TypeError, ValueError):
             # Never let the next save() silently overwrite months of learned
@@ -279,6 +290,14 @@ class StatefulMemoryStore:
             obs = deepcopy(observation)
             obs.setdefault("created_at", _iso(_utc_now()))
             obs["created_at"] = str(obs["created_at"])
+            # One observation per asset/hour. Repeated refreshes do not add labels.
+            from evidence_windows import utc
+            try:
+                bucket = utc(obs.get("observed_at")).floor("h")
+                if any(r.get("asset")==obs.get("asset") and utc(r.get("observed_at")).floor("h")==bucket for r in pending):
+                    return
+            except (ValueError, TypeError):
+                return
             pending.append(obs)
             if len(pending) > MAX_PENDING_OBSERVATIONS:
                 # Oldest pending observations are the least useful if a remote
@@ -352,6 +371,7 @@ class StatefulMemoryStore:
 
         direction = "long" if score_f > 0 else "short"
         success = ret > 0.0 if direction == "long" else ret < 0.0
+        ret = ret if direction == "long" else -ret
         bucket = self._ensure_score_bucket(asset, regime_id, direction)
         bins = self._ensure_score_bins(asset, regime_id, direction)
         idx = self.score_bin_index(abs(score_f))
@@ -520,47 +540,6 @@ class StatefulMemoryStore:
     # ------------------------------------------------------------------
     # Pending settlement
     # ------------------------------------------------------------------
-    @staticmethod
-    def _frame_series(frame: Any) -> Optional[Any]:
-        try:
-            import pandas as pd
-            if frame is None or not isinstance(frame, pd.DataFrame) or frame.empty:
-                return None
-            if "Close" not in frame.columns:
-                return None
-            x = pd.to_numeric(frame["Close"], errors="coerce").dropna()
-            if x.empty:
-                return None
-            idx = pd.to_datetime(x.index, errors="coerce", utc=True)
-            x = x.copy()
-            x.index = idx
-            x = x[~x.index.isna()]
-            return x.sort_index()
-        except Exception:
-            return None
-
-    def _future_price(
-        self,
-        price_series: Any,
-        observation_time: datetime,
-        horizon_hours: float,
-    ) -> Optional[float]:
-        if price_series is None or len(price_series) == 0:
-            return None
-        target = observation_time + __import__("datetime").timedelta(hours=float(horizon_hours))
-        try:
-            import pandas as pd
-            idx = price_series.index
-            if not isinstance(idx, pd.DatetimeIndex):
-                return None
-            pos = int(idx.searchsorted(pd.Timestamp(target), side="left"))
-            if pos >= len(price_series):
-                return None
-            value = _finite_float(price_series.iloc[pos])
-            return value
-        except Exception:
-            return None
-
     def settle_pending(
         self,
         price_frames: Dict[str, Any],
@@ -573,90 +552,55 @@ class StatefulMemoryStore:
         Returns counts of settled observations and remains safe when historical
         frames do not yet contain the requested future target.
         """
+        from evidence_windows import grade_endpoint, window
         current = now or _utc_now()
-        series_map = {str(k): self._frame_series(v) for k, v in price_frames.items()}
-        pending = self.memory.get("pending_observations", [])
-        remaining: List[Dict[str, Any]] = []
-        settled = 0
-        ignored = 0
-        requested_horizons = tuple(int(x) for x in horizon_hours)
-
+        pending = sorted(self.memory.get("pending_observations", []), key=lambda x: x.get("observed_at", ""))
+        remaining = []
+        settled = ignored = 0
+        reserved = self.memory.setdefault("calibration_windows", {})
         for obs in pending:
-            observed_at = _parse_dt(obs.get("observed_at") or obs.get("created_at"))
+            observed = _parse_dt(obs.get("observed_at"))
             asset = str(obs.get("asset", ""))
-            start_price = _finite_float(obs.get("price"))
-            if observed_at is None or not asset or start_price is None or start_price <= 0:
+            if observed is None or not asset:
                 ignored += 1
                 continue
-
-            frame_series = series_map.get(asset)
-            if frame_series is None:
-                remaining.append(obs)
-                continue
-
-            horizons: Dict[str, float] = {}
-            all_due = True
-            for horizon in requested_horizons:
-                target = observed_at.timestamp() + horizon * 3600.0
-                if current.timestamp() + 60.0 < target:
-                    all_due = False
-                    continue
-                px = self._future_price(frame_series, observed_at, horizon)
-                if px is None:
-                    all_due = False
-                    continue
-                horizons[str(horizon)] = float(px / start_price - 1.0)
-
-            for h_str, ret in horizons.items():
-                obs[f"forward_return_{h_str}h"] = ret
-
-            regime_id = obs.get("active_regime_id", "REJIMSIZ_GECIS")
-            score = obs.get("model_score_adaptive", obs.get("model_score_raw"))
+            regime = obs.get("active_regime_id", "REJIMSIZ_GECIS")
             direction = str(obs.get("direction", "")).upper()
-
-            # Direction learning is allowed to use the shorter 1h outcome.
-            # It is recorded exactly once per pending observation, even though
-            # the observation remains pending until its 4h calibration horizon
-            # is measurable.
-            if direction in ("LONG", "SHORT") and "1" in horizons:
-                if not bool(obs.get("early_outcome_recorded", False)):
-                    self.record_direction_outcome(
-                        asset, regime_id, direction, horizons["1"], "1"
-                    )
-                    obs["forward_return_1h"] = float(horizons["1"])
+            # Reserve a chronological window before looking at the outcome.
+            for h in (1, 4):
+                key = str(h)
+                assignment = "reserved_" + key
+                if assignment not in obs:
+                    start, end = window(observed, h)
+                    previous = reserved.get(asset, {}).get(key)
+                    obs[assignment] = previous is None or start.isoformat() >= previous
+                    if obs[assignment]:
+                        reserved.setdefault(asset, {})[key] = end.isoformat()
+            if not obs.get("early_outcome_recorded"):
+                early = grade_endpoint(price_frames.get(asset), observed, 1, current, contiguous=True)
+                if not obs["reserved_1"] or early["status"] != "PENDING":
+                    if obs["reserved_1"] and early["status"] == "EXACT" and direction in ("LONG", "SHORT"):
+                        self.record_direction_outcome(asset, regime, direction, math.expm1(early["log_return"]), "1")
                     obs["early_outcome_recorded"] = True
-
-            if "4" not in horizons:
-                # Keep the observation pending for final 4h score/factor
-                # calibration. The 1h learning above is already retained.
+            outcome = grade_endpoint(price_frames.get(asset), observed, 4, current, contiguous=True)
+            if (obs["reserved_4"] and outcome["status"] == "PENDING") or not obs.get("early_outcome_recorded"):
                 remaining.append(obs)
                 continue
-
+            if not obs["reserved_4"] or outcome["status"] != "EXACT":
+                ignored += 1
+                continue
+            ret = math.expm1(outcome["log_return"])
             if direction in ("LONG", "SHORT"):
-                self.record_direction_outcome(
-                    asset, regime_id, direction, horizons["4"], "4"
-                )
-
-            # Score threshold calibration continues to use the 4h horizon.
-            calibration_ret = horizons["4"]
-            self.record_score_outcome(asset, regime_id, score, calibration_ret)
-
-            factors = obs.get("factors", {})
-            if isinstance(factors, dict):
-                for factor_id, factor_value in factors.items():
-                    self.record_factor_outcome(asset, factor_id, factor_value, calibration_ret)
-
+                self.record_direction_outcome(asset, regime, direction, ret, "4")
+            self.record_score_outcome(asset, regime, obs.get("model_score_adaptive", obs.get("model_score_raw")), ret)
+            for factor, value in (obs.get("factors") or {}).items():
+                self.record_factor_outcome(asset, factor, value, ret)
             settled += 1
-            self.memory.setdefault("meta", {})["settled_observations"] = int(
-                self.memory.get("meta", {}).get("settled_observations", 0)
-            ) + 1
-
         self.memory["pending_observations"] = remaining
-        return {
-            "settled": settled,
-            "remaining": len(remaining),
-            "ignored": ignored,
-        }
+        meta = self.memory.setdefault("meta", {})
+        meta["settled_observations"] = int(meta.get("settled_observations", 0)) + settled
+        meta["excluded_calibration_windows"] = int(meta.get("excluded_calibration_windows", 0)) + ignored
+        return {"settled": settled, "remaining": len(remaining), "ignored": ignored}
 
     # ------------------------------------------------------------------
     # Direction runtime / outcome memory
@@ -698,7 +642,7 @@ class StatefulMemoryStore:
         success = ret > 0.0 if self._dir_key(direction) == "long" else ret < 0.0
         bucket["n"] = float(bucket.get("n", 0.0)) + 1.0
         bucket["wins"] = float(bucket.get("wins", 0.0)) + (1.0 if success else 0.0)
-        clipped = float(np.clip(ret, -0.20, 0.20))
+        clipped = float(np.clip(ret if self._dir_key(direction) == "long" else -ret, -0.20, 0.20))
         bucket["return_sum"] = float(bucket.get("return_sum", 0.0)) + clipped
         bucket["return_sq_sum"] = float(bucket.get("return_sq_sum", 0.0)) + clipped * clipped
 
@@ -744,7 +688,7 @@ class StatefulMemoryStore:
         best_rank = (-1.0, -1.0, -1.0)
         for threshold, stats in base:
             n = stats.get("effective_n", 0.0)
-            if n < min_effective:
+            if n < max(min_effective,30) or stats.get("wilson_lower",0)<.5 or stats.get("return_mean",0)<=0:
                 continue
             hit = stats.get("hit_rate", 0.0)
             lcb = stats.get("wilson_lower", 0.0)

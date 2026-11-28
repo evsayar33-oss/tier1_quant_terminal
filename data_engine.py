@@ -100,7 +100,7 @@ import concurrent.futures
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 
-from ohlcv_history import load_history, merge_and_persist, DEFAULT_MAX_BARS
+from ohlcv_history import load_history, merge_and_persist, DEFAULT_MAX_BARS, ARCHIVE_MAX_BARS
 
 
 # Every instrument the 1H market grid requests, and the same-instrument
@@ -359,8 +359,16 @@ class ResilientDataEngine:
                 clean = _fill_crypto_volume_from_okx(clean, _OKX_VOLUME_INST[source])
             if len(clean) >= 2:
                 # Only successful DIRECT bars enter persistent history.
-                clean = merge_and_persist(source, clean, max_bars=DEFAULT_MAX_BARS)
-                clean = attach(clean)
+                cutoff = pd.Timestamp(now_utc())
+                ts = pd.to_datetime(clean.index, utc=True)
+                closed = clean[ts + pd.Timedelta(hours=1) <= cutoff]
+                forming = clean[ts + pd.Timedelta(hours=1) > cutoff]
+                if len(closed) < 2:
+                    raise ValueError("Insufficient completed direct bars")
+                archived = merge_and_persist(source, closed, max_bars=ARCHIVE_MAX_BARS)
+                clean = attach(archived.tail(DEFAULT_MAX_BARS))
+                if not forming.empty:
+                    clean.attrs["forming_bar_close"] = float(forming.iloc[-1]["Close"])
                 self._cache[source] = clean.copy()
                 self._cache_fetched_at[source] = time.time()
                 self.data_quality[source] = dict(clean.attrs)
