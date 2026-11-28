@@ -103,3 +103,27 @@ administrators or force-push; protect it with branch rules if desired.
 Future recommendations for a live strategy require untouched OOS, actual
 tradeability and net P&L after execution costs, explicit risk gates and an
 independently reviewed production PR. A 30-day wall clock is never enough alone.
+
+
+### 2026-11-28: V2 label-integrity correction
+
+The frozen V2 FINAL remains byte-for-byte unchanged. Its source hashes and
+nominal counts were reproduced from state commit
+`591f6962ccce70e0f5bc1dc4c87038f92682dccf`. The legacy grader accepted the
+first Close up to 72 hours after its nominal target and recorded no actual
+endpoint timestamp. The selected sample includes 43 Saturday-start futures
+forecasts (SPX 17, NQ 17, XAU 7, XAG 2); repeated identical weekend returns
+are not independent four-hour outcomes. The separate immutable
+`LABEL_INTEGRITY_AUDIT` records this limitation against the exact previous
+FINAL hash, without claiming a corrected historical performance.
+
+New four-hour forecast card records use `NEXT_HOUR_OPEN_TO_OPEN_V1`:
+the precise observation time precedes the next hourly opening; five
+contiguous hourly opening prices including the exact four-hour endpoint
+are necessary. The endpoint bar must have completed before grading.
+Missing intervals are not filled by a later opening. Actual reference
+prices/timestamps and grading time are recorded. Only non-overlapping
+strict labels enter the new four-hour scorecard; existing legacy grades
+are not rewritten or counted as exact. These remain non-executable proxies.
+The V2 study window, active model, 24h range calibration, trade gates,
+and BTC/ETH sampled-flow study remain unchanged.

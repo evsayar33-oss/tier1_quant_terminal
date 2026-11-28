@@ -23,6 +23,7 @@ V2_GRACE_H = 96  # Allow prospective 24h grades and publication delays to settle
 RESEARCH_GRACE_H = 48  # Allow 4h outcome window and delayed publication
 MIN_V2_4H = 100
 MIN_RESEARCH_4H = 100
+V2_INTEGRITY_AUDIT = Path(__file__).resolve().parent / "docs" / "tier1_v2_forward_label_integrity_audit.json"
 
 
 def when(value):
@@ -154,6 +155,20 @@ def v2_decision(start, end):
         reason=("Only preregistered logic-version prospective records considered. "
                 "Direction, proposed trades and paper R cannot authorize live execution."),
     )
+    # V2 was recorded with a 72h subsequent-price tolerance and no actual
+    # grading timestamp. Its historical nominal 4h metrics cannot establish
+    # a verified four-hour advantage even if the nominal statistics pass.
+    # Preserve any previously published FINAL bytes; this guard is for a
+    # future reconstruction if no final exists.
+    result["nominal_legacy_decision"] = result["decision"]
+    if any(x["independent_4h_n"] for x in result["per_asset"].values()):
+        result["decision"] = "EVIDENCE_INTEGRITY_LIMITATION"
+        result["followup_assets"] = []
+        result["reason"] = "Legacy labels have no exact 4h endpoint provenance; no verified advantage or promotion."
+        for stat in result["per_asset"].values():
+            if stat["independent_4h_n"]:
+                stat["nominal_suggested_status"] = stat["suggested_status"]
+                stat["suggested_status"] = "LEGACY_HORIZON_UNVERIFIED"
     return result
 
 
@@ -249,6 +264,23 @@ def stage_record(study, now, stage, assessment):
     }
 
 
+def append_v2_integrity_audit(output, now):
+    """Append a correction to the EXACT frozen final; never edit its bytes."""
+    final = output / "tier1_v2_forward-final.json"
+    target = output / "tier1_v2_forward-label-integrity-audit.json"
+    if target.exists() or not final.exists() or not V2_INTEGRITY_AUDIT.is_file():
+        return None
+    audit = load_json(V2_INTEGRITY_AUDIT)
+    expected = audit["assessment"]["previous_final_sha256"]
+    if hashlib.sha256(final.read_bytes()).hexdigest() != expected:
+        return None
+    if audit.get("stage") != "LABEL_INTEGRITY_AUDIT" or audit.get("live_orders") is not False:
+        raise ValueError("INVALID_V2_INTEGRITY_AUDIT")
+    audit["as_of_utc"] = iso(now)
+    target.write_text(json.dumps(audit, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return target
+
+
 def generate(now, output):
     """Immutable once written. Return newly created decisions only."""
     output = Path(output)
@@ -302,6 +334,9 @@ def generate(now, output):
             final.write_text(json.dumps(stage_record(study, now, "FINAL", a),
                                         indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
             new.append(final)
+    audit = append_v2_integrity_audit(output, now)
+    if audit is not None:
+        new.append(audit)
     return new
 
 

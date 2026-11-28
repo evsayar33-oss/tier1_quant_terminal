@@ -78,7 +78,9 @@ class AutoDecisionTests(unittest.TestCase):
         report = json.loads(Path("decisions/tier1_v2_forward-final.json").read_text())
         self.assertEqual(report["assessment"]["per_asset"]["SPX"]["independent_4h_n"], 112)
         self.assertEqual(report["assessment"]["per_asset"]["XAU"]["independent_4h_n"], 0)
-        self.assertEqual(report["assessment"]["decision"], "REPLICATE_PROSPECTIVELY")
+        self.assertEqual(report["assessment"]["nominal_legacy_decision"], "REPLICATE_PROSPECTIVELY")
+        self.assertEqual(report["assessment"]["decision"], "EVIDENCE_INTEGRITY_LIMITATION")
+        self.assertEqual(report["assessment"]["followup_assets"], [])
         self.assertFalse(report["live_orders"])
         self.assertFalse(report["production_logic_modified"])
         self.assertEqual(ap.generate(z("2026-12-01T00:00:00Z"), "decisions"), [])
@@ -109,6 +111,24 @@ class AutoDecisionTests(unittest.TestCase):
         self.assertEqual(ap.exact_mcnemar_one_sided(4, 0), 0.0625)
         self.assertEqual(ap.exact_mcnemar_one_sided(0, 4), 1.0)
         self.assertEqual(ap.exact_mcnemar_one_sided(0, 0), 1.0)
+
+
+    def test_integrity_correction_never_edits_frozen_final(self):
+        import hashlib
+        root=Path("decisions")
+        root.mkdir()
+        final=root/"tier1_v2_forward-final.json"
+        raw=b'{"frozen":"original"}\n'
+        final.write_bytes(raw)
+        audit=Path("audit.json")
+        audit.write_text(json.dumps({"stage":"LABEL_INTEGRITY_AUDIT","live_orders":False,
+            "assessment":{"previous_final_sha256":hashlib.sha256(raw).hexdigest()}}))
+        with patch.object(ap,"V2_INTEGRITY_AUDIT",audit):
+            p=ap.append_v2_integrity_audit(root,z("2026-11-29T00:00:00Z"))
+            self.assertIsNotNone(p)
+            self.assertIsNone(ap.append_v2_integrity_audit(root,z("2026-11-29T01:00:00Z")))
+        self.assertEqual(final.read_bytes(),raw)
+        self.assertEqual(json.loads(p.read_text())["stage"],"LABEL_INTEGRITY_AUDIT")
 
 
 if __name__ == "__main__":
