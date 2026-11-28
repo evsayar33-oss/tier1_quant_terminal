@@ -1,0 +1,106 @@
+{
+  "schema": 1,
+  "study_id": "tier1_v2_forward",
+  "stage": "FINAL",
+  "as_of_utc": "2026-11-28T07:40:48+00:00",
+  "start_utc": "2026-10-23T00:00:00+00:00",
+  "end_utc": "2026-11-24T00:00:00+00:00",
+  "grace_hours": 96,
+  "auto_applied": "RESEARCH_STATUS_ONLY",
+  "live_orders": false,
+  "production_logic_modified": false,
+  "assessment": {
+    "study": "tier1_v2_forward",
+    "source": "version-locked prospective forecast_ledger.csv",
+    "source_sha256": {
+      "forecast_ledger.csv": "7e91e2718f81115cf991f05b1c8d271e17e32ca2f08acf286abddc30a8307f0f",
+      "trade_ledger.csv": "342011ca5d20c03aa778ecb027fcfb5ea90e5800d226376c2417905b7fc8463c"
+    },
+    "per_asset": {
+      "SPX": {
+        "independent_4h_n": 132,
+        "model_hit": 0.5076,
+        "always_long_hit": 0.6818,
+        "mean_directional_bps_GROSS_NONEXECUTABLE": -5.85,
+        "paired_one_sided_p_bonferroni_6": 1.0,
+        "suggested_status": "NOT_SUPPORTED"
+      },
+      "NQ": {
+        "independent_4h_n": 133,
+        "model_hit": 0.5038,
+        "always_long_hit": 0.6692,
+        "mean_directional_bps_GROSS_NONEXECUTABLE": -13.516,
+        "paired_one_sided_p_bonferroni_6": 1.0,
+        "suggested_status": "NOT_SUPPORTED"
+      },
+      "XAU": {
+        "independent_4h_n": 105,
+        "model_hit": 0.4381,
+        "always_long_hit": 0.4762,
+        "mean_directional_bps_GROSS_NONEXECUTABLE": -11.436,
+        "paired_one_sided_p_bonferroni_6": 1.0,
+        "suggested_status": "NOT_SUPPORTED"
+      },
+      "XAG": {
+        "independent_4h_n": 98,
+        "model_hit": 0.4898,
+        "always_long_hit": 0.4082,
+        "mean_directional_bps_GROSS_NONEXECUTABLE": 1.038,
+        "paired_one_sided_p_bonferroni_6": 1.0,
+        "suggested_status": "INSUFFICIENT"
+      },
+      "BTC": {
+        "independent_4h_n": 129,
+        "model_hit": 0.5194,
+        "always_long_hit": 0.4496,
+        "mean_directional_bps_GROSS_NONEXECUTABLE": 15.821,
+        "paired_one_sided_p_bonferroni_6": 1.0,
+        "suggested_status": "NOT_SUPPORTED"
+      },
+      "ETH": {
+        "independent_4h_n": 128,
+        "model_hit": 0.5469,
+        "always_long_hit": 0.5078,
+        "mean_directional_bps_GROSS_NONEXECUTABLE": 23.487,
+        "paired_one_sided_p_bonferroni_6": 1.0,
+        "suggested_status": "NOT_SUPPORTED"
+      }
+    },
+    "trade_grading": {
+      "SPX": {
+        "proposed": 2,
+        "graded": 1,
+        "note": "Theoretical R records, not verified executable fills or net NAV"
+      },
+      "NQ": {
+        "proposed": 1,
+        "graded": 0,
+        "note": "Theoretical R records, not verified executable fills or net NAV"
+      },
+      "XAU": {
+        "proposed": 9,
+        "graded": 8,
+        "note": "Theoretical R records, not verified executable fills or net NAV"
+      },
+      "XAG": {
+        "proposed": 0,
+        "graded": 0,
+        "note": "Theoretical R records, not verified executable fills or net NAV"
+      },
+      "BTC": {
+        "proposed": 0,
+        "graded": 0,
+        "note": "Theoretical R records, not verified executable fills or net NAV"
+      },
+      "ETH": {
+        "proposed": 0,
+        "graded": 0,
+        "note": "Theoretical R records, not verified executable fills or net NAV"
+      }
+    },
+    "policy": "NO_LIVE_PROMOTION",
+    "decision": "NO_DEMONSTRATED_ADVANTAGE",
+    "followup_assets": [],
+    "reason": "Only preregistered logic-version prospective records considered. Direction, proposed trades and paper R cannot authorize live execution."
+  }
+}
