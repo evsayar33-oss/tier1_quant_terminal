@@ -89,6 +89,7 @@ def run_checks(state: Dict[str, Any], now: Optional[datetime] = None) -> Dict[st
         ("shadow_ledger", state.get("shadow_ledger") or {}),
         ("clone_system", state.get("clone_system") or {}),
         ("trade_scorecard", state.get("trade_scorecard") or {}),
+        ("component_research", state.get("component_research") or {}),
     ) if isinstance(v, dict) and v.get("error")]
     research = state.get("research_30d") or {}
     active = research.get("status") == "COLLECTING"

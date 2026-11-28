@@ -179,9 +179,13 @@ def test_stop_ledger_widens_buffer_when_stops_get_hunted():
             ts = t0 + pd.Timedelta(hours=4 * i)
             led.record("NQ", {"horizon": "kisa", "side": 1, "price": 100.0, "stop": 99.0}, now=ts)
             # each window: dips to 98.9 (stop hit) then closes at 101 (direction right) -> hunted
-            bars += [(ts + pd.Timedelta(hours=k + 1), 99.5, 100.2, 98.9 if k == 0 else 99.5, 101.0 if k == 3 else 99.8)
+            bars += [(ts + pd.Timedelta(hours=k + 1), 99.5, 101.2, 98.9 if k == 0 else 99.5, 101.0 if k == 3 else 99.8)
                      for k in range(4)]
+        bars += [(t0 + pd.Timedelta(hours=161), 101.0, 101.2, 100.8, 101.0)]
         f = pd.DataFrame(bars, columns=["t", "Open", "High", "Low", "Close"]).set_index("t")
+        # Next-hour opens are exact endpoints; create a rising open-to-open sequence with valid lows.
+        f["Open"] = 100 + np.arange(len(f)) * 0.001
+        f.loc[f.index[-1], "Open"] = 101.0
         assert led.grade({"NQ": f}, now=t0 + pd.Timedelta(days=10)) == 40
         st = led.stats("kisa")
         assert st["hunted_rate"] == 1.0 and st["buffer_mult"] == 2.0 and st["verdict"] == "KALİBRE"
@@ -213,7 +217,7 @@ def test_decision_panel_rows():
 
 
 def test_closed_session_shows_market_closed_and_no_short_stop():
-    v = {"NQ": {"current_direction": "🔴 HAFİF AŞAĞI (son 1s %+0.04)", "verdict": "SAT",
+    v = {"NQ": {"current_direction": "🔴 HAFİF AŞAĞI (son 1s %+0.04)", "verdict": "SAT", "learned_model_status": "ACTIVE",
                 "market_structure": {"session": {"phase": "Kapalı"}, "levels": {"price": 100.0}},
                 "stop_suggestion": {"kisa": {"stop": 101.0, "side": -1, "distance_pct": 1.0, "atr_1h_mult": 1.0}}}}
     r = DP.build_rows(v, ["NQ"])[0]

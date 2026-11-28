@@ -158,8 +158,10 @@ def evaluate(path: str, seed: int = 7) -> Dict[str, Any]:
     thr = 0.05 / max(n_tests, 1)
     for v in out.values():
         if "p" in v:
-            v["status"] = "KANITLANDI" if v["p"] < thr else "REDDEDİLDİ"
+            v["status"] = "LEGACY_DESCRIPTIVE_ONLY"
+            v["nominal_significant"] = bool(v["p"] < thr)
     return {"tests": out, "n_tests": n_tests, "p_threshold": round(thr, 5), "rows": int(len(d)),
+            "evidence_scope": "LEGACY_HORIZON_UNVERIFIED; no promotion",
             "head_to_head": head_to_head(d)}
 
 

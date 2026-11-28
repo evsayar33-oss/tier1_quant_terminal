@@ -4,6 +4,20 @@ on:
     paths:
       - 'research_30d*.py'
       - 'forecast_ledger.py'
+      - 'evidence_windows.py'
+      - 'component_research.py'
+      - 'day_direction.py'
+      - 'stop_levels.py'
+      - 'decision_panel.py'
+      - 'performance_ledger.py'
+      - 'shadow_eval.py'
+      - 'test_shadow.py'
+      - 'gatekeeper.py'
+      - 'stateful_adaptive_controller.py'
+      - 'config.py'
+      - 'test_market_structure.py'
+      - 'test_decision_panel_simple.py'
+      - 'tests/test_component_research.py'
       - 'test_forecast_ledger.py'
       - 'trade_plan.py'
       - 'state_sync.py'
@@ -35,7 +49,7 @@ jobs:
       - name: Offline regression tests
         run: |
           python -m unittest discover -s tests -p 'test_research30*.py' -v
-          python -m pytest -q test_forecast_ledger.py
+          python -m pytest -q test_forecast_ledger.py tests/test_component_research.py test_decision_panel_simple.py test_market_structure.py test_clone_system.py test_shock_direction.py test_foundation_v32.py test_entry_xau_eth_v33.py test_walkforward_optimizer.py test_stateful_adaptive.py test_system_health.py test_state_sync.py test_shadow.py
       - name: Report runner capacity
         if: always()
         continue-on-error: true

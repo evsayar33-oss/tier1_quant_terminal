@@ -48,6 +48,10 @@ STRICT_4H_SCHEMA = "NEXT_HOUR_OPEN_TO_OPEN_V1"
 LABEL_4H_COLS = ["observed_at_utc", "label_4h_schema", "label_4h_start_utc",
                  "label_4h_end_utc", "label_4h_reason", "label_4h_graded_at_utc"]
 COLS += LABEL_4H_COLS + ["label_4h_start_price", "label_4h_end_price"]
+from evidence_windows import SCHEMA as EXACT_24H_SCHEMA, grade_endpoint, fresh_frame
+LABEL_24H_COLS = ["label_24h_schema", "label_24h_start_utc", "label_24h_end_utc",
+                  "label_24h_reason", "label_24h_graded_at_utc"]
+COLS += LABEL_24H_COLS + ["label_24h_start_price", "label_24h_end_price"]
 
 
 
@@ -103,7 +107,7 @@ class ForecastLedger:
                 self.df[c] = np.nan
         # Old ledgers retain their exact grades; new string metadata is not
         # silently coerced to float by pandas when the first new row arrives.
-        for c in LABEL_4H_COLS:
+        for c in LABEL_4H_COLS + LABEL_24H_COLS:
             self.df[c] = self.df[c].astype(object)
 
     def record(self, asset: str, v: Dict[str, Any], now: Any = None, logic: str = LOGIC) -> bool:
@@ -125,7 +129,7 @@ class ForecastLedger:
         self.df.loc[len(self.df)] = {
             "ts": ts, "asset": asset, "price": float(price),
             "sigma_pct": float(dr.get("move_raw", dr["move"])) / float(price),
-            "lean4h": evidence_short_side(v) if rm else np.nan,
+            "lean4h": evidence_short_side(v),
             "calm_ratio": (v.get("vol_state") or {}).get("ratio", np.nan),
             "p_up_1d": b1.get("up", np.nan),
             "ret_4h": np.nan, "ret_24h": np.nan, "graded_4h": 0, "graded_24h": 0, "logic": logic,
@@ -134,7 +138,10 @@ class ForecastLedger:
             "label_4h_start_utc": start.isoformat(), "label_4h_end_utc": end.isoformat(),
             "label_4h_reason": "PENDING_EXACT_WINDOW",
             "label_4h_start_price": np.nan, "label_4h_end_price": np.nan,
-            "label_4h_graded_at_utc": ""}
+            "label_4h_graded_at_utc": "",
+            "label_24h_schema": EXACT_24H_SCHEMA, "label_24h_reason": "PENDING",
+            "label_24h_start_utc": start.isoformat(),
+            "label_24h_end_utc": (start + pd.Timedelta(hours=24)).isoformat()}
         return True
 
     def grade(self, frames: Dict[str, pd.DataFrame], now: Any = None) -> int:
@@ -171,27 +178,29 @@ class ForecastLedger:
             self.df.at[i, "graded_4h"] = 1
             self.df.at[i, "label_4h_reason"] = "EXACT_CONTIGUOUS_HOURLY_OPENS"
             n += 1
-        # Existing 24h range calibration is a separate legacy metric; this
-        # change deliberately does not alter it or the production model.
-        for col, hrs in (("24h", 24),):
-            todo = self.df[self.df[f"graded_{col}"].fillna(0) == 0]
-            for i, row in todo.iterrows():
-                t0 = pd.Timestamp(row["ts"])
-                t0 = t0.tz_localize("UTC") if t0.tzinfo is None else t0
-                t1 = t0 + pd.Timedelta(hours=hrs)
-                if now < t1:
-                    continue
-                df = frames.get(row["asset"])
-                if not isinstance(df, pd.DataFrame) or df.empty:
-                    continue
-                p1 = _price_at(df, t1)
-                if p1 is None:
-                    if now > t1 + pd.Timedelta(hours=96):
-                        self.df.at[i, f"graded_{col}"] = -1        # veri yok: kalıcı olarak atla
-                    continue
-                self.df.at[i, f"ret_{col}"] = math.log(p1 / float(row["price"]))
-                self.df.at[i, f"graded_{col}"] = 1
-                n += 1
+        # Legacy 24h grades remain byte-equivalent in value but cannot calibrate
+        # a new forecast. Exact endpoint-to-endpoint labels only for new rows.
+        todo = self.df[(self.df["graded_24h"].fillna(0) == 0) &
+                       self.df["label_24h_schema"].eq(EXACT_24H_SCHEMA)]
+        for i, row in todo.iterrows():
+            try:
+                ev = grade_endpoint(frames.get(row["asset"]), row["observed_at_utc"], 24, now)
+            except (TypeError, ValueError):
+                ev = {"status": "INVALID_WINDOW_PROVENANCE"}
+            if ev["status"] == "PENDING":
+                continue
+            self.df.at[i, "label_24h_reason"] = ev["status"]
+            if ev["status"] != "EXACT":
+                self.df.at[i, "graded_24h"] = -1
+                continue
+            # Simple return is in the same units as the original range width.
+            self.df.at[i, "ret_24h"] = math.expm1(ev["log_return"])
+            for key in ("start", "end", "graded_at"):
+                self.df.at[i, "label_24h_" + (key + "_utc")] = ev[key]
+            self.df.at[i, "label_24h_start_price"] = ev["start_price"]
+            self.df.at[i, "label_24h_end_price"] = ev["end_price"]
+            self.df.at[i, "graded_24h"] = 1
+            n += 1
         return n
 
     def save(self) -> None:
@@ -207,8 +216,18 @@ class ForecastLedger:
         out: Dict[str, Any] = {"n_records": int(len(d)), "logic": logic}
 
         # 1) Aralık kapsama: günde bir bağımsız örnek (her günün ilk kaydı)
-        g = d[d["graded_24h"] == 1].copy()
-        g = g.sort_values("t").groupby(g["t"].dt.date).head(1)
+        out["legacy_24h_unverified"] = int(((d["graded_24h"] == 1) &
+            ~d["label_24h_schema"].eq(EXACT_24H_SCHEMA)).sum())
+        g = d[(d["graded_24h"] == 1) & d["label_24h_schema"].eq(EXACT_24H_SCHEMA) &
+              d["label_24h_reason"].eq("EXACT")].copy()
+        g["start"] = pd.to_datetime(g["label_24h_start_utc"], utc=True, errors="coerce", format="mixed")
+        g["end"] = pd.to_datetime(g["label_24h_end_utc"], utc=True, errors="coerce", format="mixed")
+        keep, last = [], None
+        for i, row in g.sort_values("start").iterrows():
+            if pd.notna(row.start) and row.end == row.start + pd.Timedelta(hours=24) and (last is None or row.start >= last):
+                keep.append(i)
+                last = row.end
+        g = g.loc[keep]
         if len(g):
             z = (g["ret_24h"].abs() / g["sigma_pct"]).replace([np.inf, -np.inf], np.nan).dropna()
             cover = float((z <= 1.0).mean()) if len(z) else None
@@ -277,7 +296,8 @@ def run_cycle(verdicts: Dict[str, Dict[str, Any]], frames: Dict[str, pd.DataFram
             dr["move"] = dr["move"] * float(rng["multiplier"])
             dr["calibration"] = rng["multiplier"]
         v["forecast_card"] = card
-        led.record(a, v, now=now, logic=logic)
+        if v.get("recent_move_quality") is None or fresh_frame(frames.get(a), _utc_stamp(now or now_utc())):
+            led.record(a, v, now=now, logic=logic)
     led.save()
     return cards
 

@@ -1,0 +1,136 @@
+{
+  "schema": 1,
+  "study_id": "tier1_v2_forward",
+  "stage": "SCOPE_AUDIT",
+  "as_of_utc": "2026-11-28T08:32:20+00:00",
+  "start_utc": "2026-10-23T00:00:00+00:00",
+  "end_utc": "2026-11-24T00:00:00+00:00",
+  "grace_hours": 96,
+  "auto_applied": "RESEARCH_STATUS_ONLY",
+  "live_orders": false,
+  "production_logic_modified": false,
+  "assessment": {
+    "decision": "COMPONENT_SCOPE_LIMITATION",
+    "reason": "Eski FINAL yalniz lean4h yon karnesini degerlendirdi; tum Tier-1 sistemini degil. V2 penceresinde 4512 tahmin, 4518 gunluk yon kaydi, 12 teorik islem onerisi (9 notlu). Gunluk kararlar yalniz tarihsel taban veya notr. Gercek islem/model ustunlugu kanitlanmadi. Eski FINAL ve etiket denetimi korunur.",
+    "previous_final_sha256": "5d486a489bf8a2b074f070a17c29f5781d57937fd1f4280023aa93754d34b012",
+    "source_state_commit": "591f6962ccce70e0f5bc1dc4c87038f92682dccf",
+    "source_sha256": {
+      "forecast_ledger_csv": "7e91e2718f81115cf991f05b1c8d271e17e32ca2f08acf286abddc30a8307f0f",
+      "trade_ledger_csv": "342011ca5d20c03aa778ecb027fcfb5ea90e5800d226376c2417905b7fc8463c"
+    },
+    "day_direction_ledger_blob_sha": "efecb79aa4e844afcfc384c02e10cc89674e388a",
+    "forecast_rows": 4512,
+    "day_direction_rows": 4518,
+    "trade_proposals": 12,
+    "trade_graded": 9,
+    "day_direction_per_asset": {
+      "SPX": {
+        "n": 753,
+        "source": {
+          "taban": 753
+        },
+        "side": {
+          "1": 753
+        },
+        "candidates": {
+          "c_taban": 753,
+          "c_mom4h": 418,
+          "c_charm": 177,
+          "c_mom24h": 479,
+          "c_rev24h": 479,
+          "c_gama_rev": 43
+        }
+      },
+      "NQ": {
+        "n": 753,
+        "source": {
+          "taban": 753
+        },
+        "side": {
+          "1": 753
+        },
+        "candidates": {
+          "c_taban": 753,
+          "c_mom4h": 420,
+          "c_charm": 164,
+          "c_mom24h": 456,
+          "c_rev24h": 456,
+          "c_gama_rev": 28
+        }
+      },
+      "XAU": {
+        "n": 753,
+        "source": {
+          "taban": 753
+        },
+        "side": {
+          "1": 753
+        },
+        "candidates": {
+          "c_taban": 753,
+          "c_mom4h": 330,
+          "c_mom24h": 460,
+          "c_rev24h": 460
+        }
+      },
+      "XAG": {
+        "n": 753,
+        "source": {
+          "yok": 753
+        },
+        "side": {
+          "0": 753
+        },
+        "candidates": {
+          "c_mom24h": 401,
+          "c_rev24h": 401,
+          "c_mom4h": 292
+        }
+      },
+      "BTC": {
+        "n": 753,
+        "source": {
+          "yok": 753
+        },
+        "side": {
+          "0": 753
+        },
+        "candidates": {
+          "c_mom4h": 375,
+          "c_mom24h": 385,
+          "c_rev24h": 385,
+          "c_gama_rev": 135
+        }
+      },
+      "ETH": {
+        "n": 753,
+        "source": {
+          "yok": 753
+        },
+        "side": {
+          "0": 753
+        },
+        "candidates": {
+          "c_mom24h": 444,
+          "c_rev24h": 444,
+          "c_gama_rev": 112,
+          "c_mom4h": 369
+        }
+      }
+    },
+    "measured_component": "lean4h short-horizon evidence side vs always-long",
+    "not_measured_by_final": [
+      "raw macro/factor model",
+      "daily direction candidates",
+      "entry timing gate",
+      "stop/target quality",
+      "range calibration",
+      "risk pulse",
+      "cost-adjusted portfolio return"
+    ],
+    "whole_system_verdict": "NOT_EVALUATED_BY_THIS_FINAL",
+    "historical_4h_label_status": "EVIDENCE_INTEGRITY_LIMITATION",
+    "followup_assets": [],
+    "policy": "NO_LIVE_PROMOTION"
+  }
+}

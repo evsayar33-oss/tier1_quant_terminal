@@ -27,6 +27,7 @@ import numpy as np
 import pandas as pd
 
 from system_clock import now_utc
+from evidence_windows import SCHEMA, barrier_path, fresh_frame, utc, window
 
 LEDGER_FILE = "stop_ledger.csv"
 
@@ -89,27 +90,38 @@ def daily_vol(df: Any) -> Optional[Dict[str, float]]:
 PAIRS = {"SPX": "NQ", "NQ": "SPX", "XAU": "XAG", "XAG": "XAU", "BTC": "ETH", "ETH": "BTC"}
 
 
-def recent_move(df: Any, bars: int = 4) -> Optional[Dict[str, float]]:
-    """Son `bars` saatlik getiri ve bunun normal 4 saatlik oynaklığa oranı (z).
-    Başlangıç fiyatı ZAMANA göre alınır (son kayıt − 4 saat). Kaynak bazen yarım
-    bir son bar ekler (ör. 11:04); bar saymak pencereyi 3 saate kısaltırdı."""
+def recent_move(df: Any, bars: int = 4, now: Any = None) -> Optional[Dict[str, float]]:
+    """Exact completed-hour price movement; never bridge a session or feed gap."""
     try:
-        s = pd.to_numeric(df["Close"], errors="coerce")
+        s = pd.to_numeric(df["Close"], errors="coerce").copy()
         s.index = pd.to_datetime(df.index, utc=True)
-        s = s.dropna().sort_index()
-        hourly = s[(s.index.minute == 0) & (s.index.second == 0)]
-        r = np.log(hourly / hourly.shift(1)).dropna().tail(240)
+        s = s[~s.index.duplicated(keep=False)].dropna().sort_index()
+        s = s[(s.index == s.index.floor("h")) & np.isfinite(s) & (s > 0)]
+        if now is not None:
+            current = pd.Timestamp(now)
+            current = current.tz_localize("UTC") if current.tzinfo is None else current.tz_convert("UTC")
+            s = s[s.index + pd.Timedelta(hours=1) <= current]
+            if s.empty or s.index[-1] != current.floor("h") - pd.Timedelta(hours=1):
+                return None
+        if s.empty:
+            return None
+        end = s.index[-1]
+        required = pd.date_range(end - pd.Timedelta(hours=bars), end, freq="h")
+        window = s.reindex(required)
+        if window.isna().any():
+            return None
+        # Exclude overnight/weekend and missing-bar returns from one-hour scale.
+        r = np.log(s / s.shift(1)).where(s.index.to_series().diff() == pd.Timedelta(hours=1)).dropna().tail(240)
         if len(r) < 48:
             return None
-        t_end = s.index[-1]
-        start = s[s.index <= t_end - pd.Timedelta(hours=bars)]
-        if start.empty:
-            return None
-        ret = float(np.log(s.iloc[-1] / start.iloc[-1]))
+        ret = float(np.log(window.iloc[-1] / window.iloc[0]))
         sd = float(r.abs().median() / 0.6745) * math.sqrt(bars)
-        return {"ret_pct": round(100 * (math.exp(ret) - 1), 3), "z": round(ret / sd, 2) if sd > 0 else 0.0,
-                "z_own": round(ret / sd, 2) if sd > 0 else 0.0, "bars": bars, "asof": t_end.isoformat()}
-    except Exception:
+        if not np.isfinite(sd) or sd <= 0:
+            return None
+        z = round(ret / sd, 2)
+        return {"ret_pct": round(100 * (math.exp(ret) - 1), 3), "z": z,
+                "z_own": z, "bars": bars, "asof": end.isoformat()}
+    except (TypeError, ValueError, KeyError, AttributeError, IndexError):
         return None
 
 
@@ -119,7 +131,7 @@ def pair_consistent(moves: Dict[str, Dict[str, Any]]) -> None:
     ikisi de çiftin ortalama z'sini kullanır (ortak hareket). İşaretler zıtsa ve en az biri
     belirginse bu GERÇEK bir ayrışmadır; her varlık kendi z'sini korur ve not düşülür."""
     for a, b in PAIRS.items():
-        if a > b or a not in moves or b not in moves:
+        if a > b or a not in moves or b not in moves or moves[a].get("asof") != moves[b].get("asof"):
             continue
         za, zb = float(moves[a]["z_own"]), float(moves[b]["z_own"])
         if za * zb > 0:
@@ -139,7 +151,7 @@ def _logic_version() -> str:
 
 
 def model_proven(verdict: Dict[str, Any]) -> bool:
-    return "NOT_PROVEN" not in str(verdict.get("learned_model_status", ""))
+    return verdict.get("learned_model_status") == "ACTIVE"
 
 
 def base_rate_side(b: Optional[Dict[str, Any]]) -> int:
@@ -163,6 +175,8 @@ def evidence_short_side(verdict: Dict[str, Any]) -> int:
         return int(sd["side"])               # kanıtlı şok-sonrası 1 günlük kural
     if model_proven(verdict):
         return short_side(verdict)
+    if verdict.get("recent_move_quality") == "UNAVAILABLE":
+        return 0  # Never substitute a stale legacy price_z for missing exact 4h evidence.
     rm = verdict.get("recent_move")
     if isinstance(rm, dict) and rm.get("z") is not None:
         z = float(rm["z"])
@@ -253,7 +267,8 @@ def suggest_stop(side: int, horizon: str, price: float, atr_1h: Optional[float],
 
 
 class StopLedger:
-    COLS = ["ts", "asset", "horizon", "side", "price", "stop", "hours", "stop_hit", "ret_dir", "hunted", "logic"]
+    COLS = ["ts", "asset", "horizon", "side", "price", "stop", "hours", "stop_hit", "ret_dir", "hunted", "logic",
+            "observed_at_utc", "label_schema", "label_reason", "skipped_regular_closure_hours"]
 
     def __init__(self, path: str = LEDGER_FILE):
         self.path = path
@@ -264,59 +279,69 @@ class StopLedger:
         for c in self.COLS:
             if c not in self.df.columns:
                 self.df[c] = np.nan
+        for c in ("observed_at_utc", "label_schema", "label_reason"):
+            self.df[c] = self.df[c].astype(object)
 
     def record(self, asset: str, s: Dict[str, Any], now: Any = None) -> bool:
-        ts = pd.Timestamp(now or now_utc()).floor("h").isoformat()
+        observed = utc(now or now_utc())
+        ts = observed.floor("h").isoformat()
         if ((self.df["ts"] == ts) & (self.df["asset"] == asset) & (self.df["horizon"] == s["horizon"])).any():
             return False
         self.df.loc[len(self.df)] = {"ts": ts, "asset": asset, "horizon": s["horizon"], "side": s["side"],
                                      "price": s["price"], "stop": s["stop"], "hours": HORIZONS[s["horizon"]]["hours"],
                                      "stop_hit": np.nan, "ret_dir": np.nan, "hunted": np.nan,
-                                     "logic": _logic_version()}
+                                     "logic": _logic_version(), "observed_at_utc": observed.isoformat(), "label_schema": SCHEMA, "label_reason": "PENDING"}
         return True
 
     def grade(self, frames: Dict[str, pd.DataFrame], now: Any = None) -> int:
-        now = pd.Timestamp(now or now_utc())
+        now = utc(now or now_utc())
         n = 0
-        for i, row in self.df[self.df["stop_hit"].isna()].iterrows():
-            df = frames.get(row["asset"])
-            if not isinstance(df, pd.DataFrame) or df.empty:
+        todo = self.df[self.df["stop_hit"].isna() & self.df["label_schema"].eq(SCHEMA) &
+                       self.df["label_reason"].eq("PENDING")]
+        for i, row in todo.iterrows():
+            try:
+                ev = barrier_path(frames.get(row["asset"]), row["observed_at_utc"], int(row["hours"]),
+                                  now, int(row["side"]), float(row["stop"]), asset=row["asset"])
+            except (ValueError, TypeError, OverflowError):
+                ev = {"status": "INVALID_BRACKET"}
+            if ev["status"] == "PENDING":
                 continue
-            t0 = pd.Timestamp(row["ts"])
-            t0 = t0.tz_localize("UTC") if t0.tzinfo is None else t0
-            t1 = t0 + pd.Timedelta(hours=float(row["hours"]))
-            if now < t1:
+            self.df.at[i, "label_reason"] = ev["status"]
+            if ev["status"] != "EXACT_PATH":
                 continue
-            idx = pd.to_datetime(df.index, utc=True)
-            w = df[(idx > t0) & (idx <= t1)]
-            if len(w) < max(2, int(row["hours"]) // 4):
-                continue
-            side, stop, p0 = int(row["side"]), float(row["stop"]), float(row["price"])
-            hit = bool((pd.to_numeric(w["Low"]) <= stop).any()) if side > 0 else bool((pd.to_numeric(w["High"]) >= stop).any())
-            ret = side * (float(pd.to_numeric(w["Close"]).iloc[-1]) / p0 - 1.0)
+            self.df.at[i, "skipped_regular_closure_hours"] = ev["skipped_regular_closure_hours"]
+            hit, ret = ev["stop_hit"], ev["direction_return"]
             self.df.at[i, "stop_hit"] = float(hit)
             self.df.at[i, "ret_dir"] = ret
             self.df.at[i, "hunted"] = float(hit and ret > 0)
             n += 1
         return n
 
-    def stats(self, horizon: str) -> Dict[str, Any]:
-        d = self.df[(self.df["horizon"] == horizon) & self.df["stop_hit"].notna()].copy()
-        if d.empty:
+    def stats(self, horizon: str, asset: Optional[str] = None) -> Dict[str, Any]:
+        d = self.df[(self.df["horizon"] == horizon) & self.df["stop_hit"].notna() &
+                    self.df["logic"].eq(_logic_version()) & self.df["label_schema"].eq(SCHEMA) &
+                    self.df["label_reason"].eq("EXACT_PATH")].copy()
+        if asset is not None:
+            d = d[d["asset"] == asset]
+        keep = []
+        for _, group in d.sort_values("observed_at_utc").groupby("asset"):
+            last = None
+            for idx, r in group.iterrows():
+                start, end = window(r["observed_at_utc"], int(r["hours"]))
+                if last is None or start >= last:
+                    keep.append(idx)
+                    last = end
+        g = d.loc[keep]
+        n = len(g)
+        if not n:
             return {"n": 0, "buffer_mult": 1.0, "verdict": "VERİ YOK"}
-        # Bağımsızlık: ufuk başına bir gözlem (çakışan pencereler şişirmesin).
-        step = f"{HORIZONS[horizon]['sample_h']}h"
-        d["slot"] = pd.to_datetime(d["ts"], utc=True).dt.floor(step)
-        g = d.groupby(["slot", "asset"])[["stop_hit", "hunted"]].mean()
-        n = int(len(g))
         hit, hunted = float(g["stop_hit"].mean()), float(g["hunted"].mean())
-        mult = 1.0
-        if n >= STOP_CONFIG["min_n"]:
-            mult = float(np.clip(1.0 + 3.0 * (hunted - STOP_CONFIG["hunted_target"]),
-                                 STOP_CONFIG["mult_min"], STOP_CONFIG["mult_max"]))
+        # Only the same asset can calibrate its own stop buffer.
+        enough = n >= STOP_CONFIG["min_n"] and (asset is not None or g["asset"].nunique() == 1)
+        mult = float(np.clip(1.0 + 3.0 * (hunted - STOP_CONFIG["hunted_target"]),
+                             STOP_CONFIG["mult_min"], STOP_CONFIG["mult_max"])) if enough else 1.0
         return {"n": n, "stop_hit_rate": round(hit, 3), "hunted_rate": round(hunted, 3),
-                "buffer_mult": round(mult, 3),
-                "verdict": "KALİBRE" if n >= STOP_CONFIG["min_n"] else "KANIT TOPLANIYOR"}
+                "buffer_mult": round(mult, 3), "verdict": "KALİBRE" if enough else "KANIT TOPLANIYOR"}
 
     def save(self, max_rows: int = 30000) -> None:
         self.df.tail(max_rows).to_csv(self.path, index=False)
@@ -328,25 +353,33 @@ def run_cycle(verdicts: Dict[str, Dict[str, Any]], contexts: Dict[str, Dict[str,
     led = StopLedger(path)
     led.grade(frames, now=now)
     stats = {h: led.stats(h) for h in HORIZONS}
-    moves = {a: m for a in verdicts if (m := recent_move(frames.get(a)))}
+    observation_time = now or now_utc()
+    moves = {a: m for a in verdicts if (contexts.get(a, {}).get("session") or {}).get("phase") != "Kapalı"
+             and fresh_frame(frames.get(a), utc(observation_time))
+             and (m := recent_move(frames.get(a), now=observation_time))}
     pair_consistent(moves)
     for asset, v in verdicts.items():
         ctx = contexts.get(asset) or {}
+        v["recent_move_quality"] = "EXACT_COMPLETED_4H" if asset in moves else "UNAVAILABLE"
         if asset in moves:
             v["recent_move"] = moves[asset]
+        else:
+            v.pop("recent_move", None)
         lv = ctx.get("levels")
         price = (lv or {}).get("price")
         g = (gamma_snapshots or {}).get(asset)
         out = {}
         closed = (ctx.get("session") or {}).get("phase") == "Kapalı"
+        own_stats = {h: led.stats(h, asset) for h in HORIZONS}
+        v["stop_calibration_asset"] = own_stats
         args = lambda side, h: (side, h, price, ctx.get("atr_1h"), ctx.get("atr_1d"),
-                                (g or {}).get("expected_move_1d"), lv, g, stats[h]["buffer_mult"],
+                                (g or {}).get("expected_move_1d"), lv, g, own_stats[h]["buffer_mult"],
                                 ctx.get("move_factor", 1.0))
         for h, side in (("kisa", 0 if closed else evidence_short_side(v)), ("uzun", evidence_long_side(v))):
             s = suggest_stop(*args(side, h))
             out[h] = s
-            if s:
-                led.record(asset, s, now=now)
+            if s and not closed and fresh_frame(frames.get(asset), utc(observation_time)):
+                led.record(asset, s, now=observation_time)
             elif not (closed and h == "kisa"):
                 # Yön yok: iki senaryonun geçersizlik seviyesi gösterilir (deftere yazılmaz).
                 out[h + "_iki_yon"] = {"al": suggest_stop(*args(1, h)), "sat": suggest_stop(*args(-1, h))}

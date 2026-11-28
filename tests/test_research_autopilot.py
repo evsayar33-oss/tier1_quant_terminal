@@ -131,5 +131,24 @@ class AutoDecisionTests(unittest.TestCase):
         self.assertEqual(json.loads(p.read_text())["stage"],"LABEL_INTEGRITY_AUDIT")
 
 
+    def test_scope_audit_is_bound_to_original_final(self):
+        import hashlib
+        root = Path("decisions")
+        root.mkdir()
+        final = root / "tier1_v2_forward-final.json"
+        raw = b'{"frozen":"original"}\n'
+        final.write_bytes(raw)
+        audit = Path("scope.json")
+        audit.write_text(json.dumps({"stage":"SCOPE_AUDIT","live_orders":False,
+            "assessment":{"previous_final_sha256":hashlib.sha256(raw).hexdigest()}}))
+        with patch.object(ap, "V2_SCOPE_AUDIT", audit):
+            final.write_bytes(b"wrong")
+            self.assertIsNone(ap.append_v2_scope_audit(root,z("2026-11-29T00:00:00Z")))
+            final.write_bytes(raw)
+            self.assertIsNotNone(ap.append_v2_scope_audit(root,z("2026-11-29T00:00:00Z")))
+            self.assertIsNone(ap.append_v2_scope_audit(root,z("2026-11-29T01:00:00Z")))
+        self.assertEqual(final.read_bytes(), raw)
+
+
 if __name__ == "__main__":
     unittest.main()
