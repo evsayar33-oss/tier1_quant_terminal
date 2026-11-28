@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - 'research_30d*.py'
+      - 'forecast_ledger.py'
+      - 'test_forecast_ledger.py'
       - 'trade_plan.py'
       - 'state_sync.py'
       - 'stateful_background_tracker.py'
@@ -27,11 +29,13 @@ jobs:
         with:
           python-version: '3.11'
           cache: pip
-      - run: pip install -r requirements.txt
+      - run: pip install -r requirements.txt pytest
       - name: Compile modules
-        run: python -m py_compile trade_plan.py state_sync.py stateful_background_tracker.py research_30d.py research_30d_enrichment.py research_30d_okx.py research_30d_eval.py research_30d_monitor.py
+        run: python -m py_compile trade_plan.py state_sync.py stateful_background_tracker.py research_30d.py research_30d_enrichment.py research_30d_okx.py research_30d_eval.py research_30d_monitor.py forecast_ledger.py
       - name: Offline regression tests
-        run: python -m unittest discover -s tests -p 'test_research30*.py' -v
+        run: |
+          python -m unittest discover -s tests -p 'test_research30*.py' -v
+          python -m pytest -q test_forecast_ledger.py
       - name: Report runner capacity
         if: always()
         continue-on-error: true

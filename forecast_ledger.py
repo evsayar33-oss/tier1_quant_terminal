@@ -44,6 +44,11 @@ TARGET_COVER = 0.6827
 MIN_DAYS = 30
 MIN_LEAN = 100
 MAX_ROWS = 40000
+STRICT_4H_SCHEMA = "NEXT_HOUR_OPEN_TO_OPEN_V1"
+LABEL_4H_COLS = ["observed_at_utc", "label_4h_schema", "label_4h_start_utc",
+                 "label_4h_end_utc", "label_4h_reason", "label_4h_graded_at_utc"]
+COLS += LABEL_4H_COLS + ["label_4h_start_price", "label_4h_end_price"]
+
 
 
 def _price_at(df: pd.DataFrame, t: pd.Timestamp, max_wait_h: float = 72.0) -> Optional[float]:
@@ -52,6 +57,35 @@ def _price_at(df: pd.DataFrame, t: pd.Timestamp, max_wait_h: float = 72.0) -> Op
     if w.empty:
         return None
     return float(pd.to_numeric(w["Close"]).iloc[0])
+
+
+def _utc_stamp(value):
+    t = pd.Timestamp(value)
+    if pd.isna(t):
+        raise ValueError("timestamp missing")
+    return t.tz_localize("UTC") if t.tzinfo is None else t.tz_convert("UTC")
+
+
+def _strict_4h_return(df, start, end):
+    """Reference open to open, five exact hourly bars, never a later quote.
+
+    The model is recorded before start. The endpoint bar must be observed
+    after completion by the caller. These are market-data proxies, not fills.
+    """
+    if not isinstance(df, pd.DataFrame) or df.empty or "Open" not in df:
+        return None
+    if end != start + pd.Timedelta(hours=4):
+        return None
+    opens = pd.to_numeric(df["Open"], errors="coerce").copy()
+    opens.index = pd.to_datetime(opens.index, utc=True, errors="coerce")
+    if opens.index.has_duplicates:
+        # Duplicate target timestamps have ambiguous provenance.
+        opens = opens.loc[~opens.index.duplicated(keep=False)]
+    required = pd.date_range(start, end, freq="h")
+    values = opens.reindex(required).to_numpy(dtype=float, na_value=np.nan)
+    if not np.isfinite(values).all() or (values <= 0).any():
+        return None
+    return float(values[0]), float(values[-1]), math.log(values[-1] / values[0])
 
 
 class ForecastLedger:
@@ -67,13 +101,22 @@ class ForecastLedger:
         for c in COLS:
             if c not in self.df.columns:
                 self.df[c] = np.nan
+        # Old ledgers retain their exact grades; new string metadata is not
+        # silently coerced to float by pandas when the first new row arrives.
+        for c in LABEL_4H_COLS:
+            self.df[c] = self.df[c].astype(object)
 
     def record(self, asset: str, v: Dict[str, Any], now: Any = None, logic: str = LOGIC) -> bool:
         dr = v.get("day_range") or {}
         price = dr.get("price")
         if not price:
             return False
-        ts = pd.Timestamp(now or now_utc()).floor("h").isoformat()
+        observation = _utc_stamp(now or now_utc())
+        ts = observation.floor("h").isoformat()
+        # The hourly bucket is an id, never the exact observation time.
+        # Use the strictly NEXT hourly open as a prospective reference.
+        start = observation.floor("h") + pd.Timedelta(hours=1)
+        end = start + pd.Timedelta(hours=4)
         if ((self.df["ts"] == ts) & (self.df["asset"] == asset)).any():
             return False
         rm = v.get("recent_move") or {}
@@ -86,14 +129,51 @@ class ForecastLedger:
             "calm_ratio": (v.get("vol_state") or {}).get("ratio", np.nan),
             "p_up_1d": b1.get("up", np.nan),
             "ret_4h": np.nan, "ret_24h": np.nan, "graded_4h": 0, "graded_24h": 0, "logic": logic,
-            "pulse": (v.get("pulse") or {}).get("score", np.nan), "day_dir": (v.get("day_direction") or {}).get("side", np.nan)}
+            "pulse": (v.get("pulse") or {}).get("score", np.nan), "day_dir": (v.get("day_direction") or {}).get("side", np.nan),
+            "observed_at_utc": observation.isoformat(), "label_4h_schema": STRICT_4H_SCHEMA,
+            "label_4h_start_utc": start.isoformat(), "label_4h_end_utc": end.isoformat(),
+            "label_4h_reason": "PENDING_EXACT_WINDOW",
+            "label_4h_start_price": np.nan, "label_4h_end_price": np.nan,
+            "label_4h_graded_at_utc": ""}
         return True
 
     def grade(self, frames: Dict[str, pd.DataFrame], now: Any = None) -> int:
-        now = pd.Timestamp(now or now_utc())
-        now = now.tz_localize("UTC") if now.tzinfo is None else now
+        now = _utc_stamp(now or now_utc())
         n = 0
-        for col, hrs in (("4h", 4), ("24h", 24)):
+        strict = self.df[(self.df["graded_4h"].fillna(0) == 0) &
+                         self.df["label_4h_schema"].eq(STRICT_4H_SCHEMA)]
+        for i, row in strict.iterrows():
+            try:
+                seen = _utc_stamp(row["observed_at_utc"])
+                start = _utc_stamp(row["label_4h_start_utc"])
+                end = _utc_stamp(row["label_4h_end_utc"])
+                if start != seen.floor("h") + pd.Timedelta(hours=1) or end != start + pd.Timedelta(hours=4):
+                    raise ValueError("invalid horizon")
+            except (ValueError, TypeError):
+                self.df.at[i, "graded_4h"] = -1
+                self.df.at[i, "label_4h_reason"] = "INVALID_WINDOW_PROVENANCE"
+                continue
+            # Do not read a still-forming endpoint even if the provider
+            # exposes the bar early. Allow delayed publication of exact bars.
+            if now < end + pd.Timedelta(hours=1):
+                continue
+            evidence = _strict_4h_return(frames.get(row["asset"]), start, end)
+            if evidence is None:
+                if now > end + pd.Timedelta(hours=96):
+                    self.df.at[i, "graded_4h"] = -1
+                    self.df.at[i, "label_4h_reason"] = "MISSING_EXACT_WINDOW"
+                continue
+            p0, p1, ret = evidence
+            self.df.at[i, "ret_4h"] = ret
+            self.df.at[i, "label_4h_start_price"] = p0
+            self.df.at[i, "label_4h_end_price"] = p1
+            self.df.at[i, "label_4h_graded_at_utc"] = now.isoformat()
+            self.df.at[i, "graded_4h"] = 1
+            self.df.at[i, "label_4h_reason"] = "EXACT_CONTIGUOUS_HOURLY_OPENS"
+            n += 1
+        # Existing 24h range calibration is a separate legacy metric; this
+        # change deliberately does not alter it or the production model.
+        for col, hrs in (("24h", 24),):
             todo = self.df[self.df[f"graded_{col}"].fillna(0) == 0]
             for i, row in todo.iterrows():
                 t0 = pd.Timestamp(row["ts"])
@@ -153,19 +233,28 @@ class ForecastLedger:
                                "skill": round(1.0 - brier / 0.25, 4), "hit_up": round(float(y.mean()), 3)}
 
         # 2) Son 4 saat eğilimi: 4 saatte bir bağımsız örnek, sadece yön verilen kayıtlar
-        h = d[(d["graded_4h"] == 1) & (d["lean4h"].fillna(0) != 0)]
-        h = h.sort_values("t")
-        keep, last = [], None
-        for i, t in h["t"].items():                  # en az 4 saat arayla: örtüşmeyen örnekler
-            if last is None or t - last >= pd.Timedelta(hours=4):
+        out["lean4h_legacy_unverified"] = int(((d["graded_4h"] == 1) &
+            ~d["label_4h_schema"].eq(STRICT_4H_SCHEMA)).sum())
+        h = d[(d["graded_4h"] == 1) & d["label_4h_schema"].eq(STRICT_4H_SCHEMA) &
+              d["label_4h_reason"].eq("EXACT_CONTIGUOUS_HOURLY_OPENS") &
+              d["lean4h"].isin([-1,1]) & d["ret_4h"].notna() & d["ret_4h"].ne(0)].copy()
+        h["label_start"] = pd.to_datetime(h["label_4h_start_utc"], utc=True, errors="coerce", format="mixed")
+        h["label_end"] = pd.to_datetime(h["label_4h_end_utc"], utc=True, errors="coerce", format="mixed")
+        h["observed"] = pd.to_datetime(h["observed_at_utc"], utc=True, errors="coerce", format="mixed")
+        h = h[(h.label_start > h.observed) &
+              (h.label_end == h.label_start + pd.Timedelta(hours=4))].sort_values("label_start")
+        keep, last_end = [], None
+        for i, r in h.iterrows():
+            if last_end is None or r.label_start >= last_end:
                 keep.append(i)
-                last = t
+                last_end = r.label_end
         h = h.loc[keep]
         if len(h):
             hit = (np.sign(h["ret_4h"]) == np.sign(h["lean4h"])).astype(float)
             p_hat, n = float(hit.mean()), int(len(hit))
             zb = (p_hat - 0.5) / math.sqrt(0.25 / n)
             out["lean4h"] = {"n": n, "hit": round(p_hat, 3), "z": round(zb, 2),
+                             "label_schema": STRICT_4H_SCHEMA,
                              "mean_bps": round(float((np.sign(h["lean4h"]) * h["ret_4h"]).mean()) * 1e4, 2),
                              "status": "kanıtlı" if (n >= MIN_LEAN and zb >= 2) else
                                        ("ters" if (n >= MIN_LEAN and zb <= -2) else "kanıtsız")}
@@ -213,7 +302,7 @@ KARNE_GUIDE = """
 **Tahmin Karnesi nasıl okunur?**
 - Sistem her tahmini sonuç belli olmadan ÖNCE kaydeder. Süre dolunca gerçek fiyatla notlar. Kayıt sonradan değişmez.
 - **Aralık isabeti:** Fiyat günlerin yaklaşık %68'inde verilen aralıkta kalmalıdır. Daha düşükse aralık dar, daha yüksekse geniştir. 30 günden sonra aralık bu sonuca göre otomatik düzeltilir.
-- **4 saat eğilim isabeti:** %50 yazı-turadır. 100 örnekten sonra %50'nin anlamlı üstündeyse "kanıtlı" olur.
+- **4 saat eğilim isabeti:** Yalnızca tahminden sonraki ilk saat açılışından tam 4 saat sonraki açılışa kadar kesintisiz fiyat pencereleri. Eski doğrulanamayan 4s etiketleri ayrı tutulur. %50 referanstır; işlem kârı veya canlı emir kanıtı değildir.
 - **Sakin/hareketli doğruluğu (IC):** Pozitif olmalıdır. "Hareketli" denen günler gerçekten büyük hareketli geçmelidir.
 - **Yarın olasılığı (Brier beceri):** 0'ın üstü, "%50 yazı-tura" tahmininden iyi demektir.
 """

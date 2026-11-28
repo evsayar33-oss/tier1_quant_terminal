@@ -1,0 +1,122 @@
+{
+  "schema": 1,
+  "study_id": "tier1_v2_forward",
+  "stage": "LABEL_INTEGRITY_AUDIT",
+  "as_of_utc": null,
+  "start_utc": "2026-10-23T00:00:00+00:00",
+  "end_utc": "2026-11-24T00:00:00+00:00",
+  "grace_hours": 96,
+  "auto_applied": "RESEARCH_STATUS_ONLY",
+  "live_orders": false,
+  "production_logic_modified": false,
+  "assessment": {
+    "decision": "EVIDENCE_INTEGRITY_LIMITATION",
+    "reason": "V2 etiketi tam 4 saat degil: eski grader sonraki fiyat icin 72 saat tolerans kullandi. 43 nominal ornek vadeli varliklarda Cumartesi basliyor; eski FINAL korunur fakat kesin 4s kanit sayilamaz. Yeni etiketler kesin ve kesintisiz saatlik pencere ister. Yeni kar veya canli islem onayi YOK.",
+    "previous_final_sha256": "5d486a489bf8a2b074f070a17c29f5781d57937fd1f4280023aa93754d34b012",
+    "previous_final_audit_branch_commit": "4a5086b7c85670f3bf326d697182e32cc966fc7e",
+    "source_state_commit": "591f6962ccce70e0f5bc1dc4c87038f92682dccf",
+    "source_sha256": {
+      "forecast_ledger.csv": "7e91e2718f81115cf991f05b1c8d271e17e32ca2f08acf286abddc30a8307f0f",
+      "trade_ledger.csv": "342011ca5d20c03aa778ecb027fcfb5ea90e5800d226376c2417905b7fc8463c"
+    },
+    "grader_code_commit": "f59754cfa0baceb539b437fc6c0beff2c42574ad",
+    "prior_nominal_decision": "NO_DEMONSTRATED_ADVANTAGE",
+    "prior_final_preserved": true,
+    "strict_4h_historical_reconstruction": "NOT_VERIFIABLE_NO_ACTUAL_LABEL_TIMESTAMPS",
+    "nominal_futures_confirmed_saturday_starts": 43,
+    "per_asset": {
+      "SPX": {
+        "independent_4h_n": 132,
+        "nominal_saturday_start_n": 17,
+        "confirmed_closed_session_start_n": 17,
+        "status": "LEGACY_HORIZON_UNVERIFIED"
+      },
+      "NQ": {
+        "independent_4h_n": 133,
+        "nominal_saturday_start_n": 17,
+        "confirmed_closed_session_start_n": 17,
+        "status": "LEGACY_HORIZON_UNVERIFIED"
+      },
+      "XAU": {
+        "independent_4h_n": 105,
+        "nominal_saturday_start_n": 7,
+        "confirmed_closed_session_start_n": 7,
+        "status": "LEGACY_HORIZON_UNVERIFIED"
+      },
+      "XAG": {
+        "independent_4h_n": 98,
+        "nominal_saturday_start_n": 2,
+        "confirmed_closed_session_start_n": 2,
+        "status": "LEGACY_HORIZON_UNVERIFIED"
+      },
+      "BTC": {
+        "independent_4h_n": 129,
+        "nominal_saturday_start_n": 16,
+        "confirmed_closed_session_start_n": 0,
+        "status": "LEGACY_HORIZON_UNVERIFIED"
+      },
+      "ETH": {
+        "independent_4h_n": 128,
+        "nominal_saturday_start_n": 16,
+        "confirmed_closed_session_start_n": 0,
+        "status": "LEGACY_HORIZON_UNVERIFIED"
+      }
+    },
+    "examples": {
+      "SPX": [
+        {
+          "nominal_start_utc": "2026-10-24T09:00:00+00:00",
+          "legacy_ret_4h": 0.004233982354248603
+        },
+        {
+          "nominal_start_utc": "2026-10-24T13:00:00+00:00",
+          "legacy_ret_4h": 0.004233982354248603
+        },
+        {
+          "nominal_start_utc": "2026-10-24T17:00:00+00:00",
+          "legacy_ret_4h": 0.004233982354248603
+        }
+      ],
+      "NQ": [
+        {
+          "nominal_start_utc": "2026-10-24T09:00:00+00:00",
+          "legacy_ret_4h": 0.006845180787057759
+        },
+        {
+          "nominal_start_utc": "2026-10-24T13:00:00+00:00",
+          "legacy_ret_4h": 0.006845180787057759
+        },
+        {
+          "nominal_start_utc": "2026-10-24T17:00:00+00:00",
+          "legacy_ret_4h": 0.006845180787057759
+        }
+      ],
+      "XAU": [
+        {
+          "nominal_start_utc": "2026-10-31T00:00:00+00:00",
+          "legacy_ret_4h": 0.006107607077494244
+        },
+        {
+          "nominal_start_utc": "2026-10-31T04:00:00+00:00",
+          "legacy_ret_4h": 0.006107607077494244
+        },
+        {
+          "nominal_start_utc": "2026-10-31T08:00:00+00:00",
+          "legacy_ret_4h": 0.006107607077494244
+        }
+      ],
+      "XAG": [
+        {
+          "nominal_start_utc": "2026-10-31T02:00:00+00:00",
+          "legacy_ret_4h": 0.01404567138526254
+        },
+        {
+          "nominal_start_utc": "2026-10-31T06:00:00+00:00",
+          "legacy_ret_4h": 0.01404567138526254
+        }
+      ]
+    },
+    "followup_assets": [],
+    "policy": "NO_LIVE_PROMOTION"
+  }
+}
