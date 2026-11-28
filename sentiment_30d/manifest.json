@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "experiment_id": "tier1-sentiment-20261115T150306Z",
+  "start_utc": "2026-11-15T15:03:06+00:00",
+  "end_utc": "2026-12-15T15:03:06+00:00",
+  "label_grace_hours": 48,
+  "assets": [
+    "SPX",
+    "NQ",
+    "XAU",
+    "XAG",
+    "BTC",
+    "ETH"
+  ],
+  "production_policy": "READ_ONLY",
+  "evaluation": "PRE_REGISTERED_GRID_NOT_LIVE_TRADING",
+  "feature_semantics": {
+    "BTC": "Bitcoin-weighted Alternative.me Crypto Fear & Greed DAILY",
+    "ETH": "Bitcoin-weighted broader crypto sentiment context; NOT ETH-specific",
+    "SPX": "VIX implied volatility stress percentile, NOT CNN Fear and Greed",
+    "NQ": "VXN implied volatility stress percentile, NOT CNN Fear and Greed",
+    "XAU": "GVZ gold ETF implied volatility stress percentile, NOT gold Fear and Greed",
+    "XAG": "VXSLV silver ETF implied volatility stress percentile, NOT silver Fear and Greed"
+  },
+  "label_policy": "prices in post-window 48h are outcome-only; no fabricated backfill"
+}
