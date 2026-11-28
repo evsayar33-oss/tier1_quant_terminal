@@ -30,6 +30,8 @@ def short_label(v: Dict[str, Any]) -> str:
     if model_proven(v) or "VERİ" in lbl:
         return lbl
     side = evidence_short_side(v)
+    if v.get("recent_move_quality") == "UNAVAILABLE" and side == 0:
+        return "⚪ 4s fiyat verisi yetersiz — yön yok"
     rm = v.get("recent_move") or {}
     tag = f" (son 4s %{rm['ret_pct']:+.2f})" if rm.get("ret_pct") is not None else " (fiyat)"
     if rm.get("pair") == "ayrışma":

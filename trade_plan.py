@@ -29,10 +29,11 @@ import numpy as np
 import pandas as pd
 
 from system_clock import now_utc
+from evidence_windows import SCHEMA, barrier_path, fresh_frame
 
 LEDGER = "trade_ledger.csv"
 COLS = ["ts", "asset", "side", "entry", "stop", "target", "confidence", "source", "pulse",
-        "outcome", "r_mult", "exit_ts", "graded", "logic"]
+        "outcome", "r_mult", "exit_ts", "graded", "logic", "label_schema", "label_reason", "entry_proxy", "exit_proxy", "skipped_regular_closure_hours"]
 TARGET_KINDS = {1: {"PDH", "ONH", "PWH", "SWH", "CALL_WALL", "CALL_WALL_0DTE", "GAMMA_FLIP", "VWAP"},
                 -1: {"PDL", "ONL", "PWL", "SWL", "PUT_WALL", "PUT_WALL_0DTE", "GAMMA_FLIP", "VWAP"}}
 
@@ -101,6 +102,8 @@ def plan(asset: str, v: Dict[str, Any], ctx: Dict[str, Any], g: Dict[str, Any]) 
     if ((ctx.get("session") or {}).get("phase")) == "Kapalı":
         return {"action": "none", "text": "⏸️ Piyasa kapalı — işlem yok"}
     p = pulse(v)
+    if p["level"] == 0:
+        return {"action": "none", "text": "⚪ İşlem yok — risk ölçülemedi", "pulse": p}
     dd = v.get("day_direction") or {}
     side = int(dd.get("side") or 0)
     if p["level"] == 4:
@@ -150,7 +153,7 @@ def _load(path: str) -> pd.DataFrame:
             d[c] = np.nan
     # Empty/legacy CSV columns infer float64; grading assigns textual outcomes.
     # Explicit object dtype also covers clone/trade_ledger.csv without a logic change.
-    for c in ("outcome", "exit_ts", "confidence", "source", "logic"):
+    for c in ("outcome", "exit_ts", "confidence", "source", "logic", "label_schema", "label_reason"):
         d[c] = d[c].astype("object")
     for c in ("graded", "r_mult", "side", "entry", "stop", "target"):
         d[c] = pd.to_numeric(d[c], errors="coerce")
@@ -159,6 +162,24 @@ def _load(path: str) -> pd.DataFrame:
 
 def grade(d: pd.DataFrame, frames: Dict[str, Any], now: pd.Timestamp) -> None:
     for i, r in d[d["graded"].fillna(0) == 0].iterrows():
+        if r.get("label_schema") == SCHEMA:
+            try:
+                ev = barrier_path(frames.get(r["asset"]), r["ts"], 24, now,
+                                  int(r["side"]), float(r["stop"]), float(r["target"]), asset=r["asset"])
+            except (ValueError, TypeError, OverflowError):
+                ev = {"status": "INVALID_BRACKET"}
+            if ev["status"] == "PENDING":
+                continue
+            d.at[i, "label_reason"] = ev["status"]
+            if ev["status"] != "EXACT_PATH":
+                d.at[i, "graded"] = -1
+                continue
+            d.at[i, "entry_proxy"], d.at[i, "exit_proxy"] = ev["entry_proxy"], ev["exit_proxy"]
+            d.at[i, "skipped_regular_closure_hours"] = ev["skipped_regular_closure_hours"]
+            d.at[i, "outcome"], d.at[i, "r_mult"], d.at[i, "exit_ts"] = ev["outcome"], round(ev["r"], 3), ev["exit_ts"]
+            d.at[i, "graded"] = 1
+            continue
+        # Legacy grades are retained for descriptive historical compatibility only.
         t0 = pd.Timestamp(r["ts"])
         t0 = t0.tz_localize("UTC") if t0.tzinfo is None else t0
         f = frames.get(r["asset"])
@@ -194,6 +215,8 @@ def scorecard(d: pd.DataFrame, logic: Optional[str] = None) -> Dict[str, Any]:
     g = d[d["graded"] == 1]
     if logic:
         g = g[g["logic"] == logic]
+    if logic and "label_schema" in g:
+        g = g[g["label_schema"].eq(SCHEMA) & g["label_reason"].eq("EXACT_PATH")]
     if g.empty:
         return {"n": 0}
     out = {"n": int(len(g)), "win": round(float((g["r_mult"] > 0).mean()), 3),
@@ -213,18 +236,20 @@ def run_cycle(verdicts: Dict[str, Dict[str, Any]], contexts: Dict[str, Dict[str,
     grade(d, frames, now)
     for a, v in verdicts.items():
         pl = plan(a, v, contexts.get(a) or {}, (snaps or {}).get(a) or {})
+        if pl.get("action") == "trade" and not fresh_frame(frames.get(a), now):
+            pl = {"action": "none", "text": "⚪ İşlem yok — güncel fiyat doğrulanamadı"}
         v["pulse"] = pl.get("pulse") or pulse(v)
         v["trade_plan"] = pl
-        if pl.get("action") != "trade":
+        if pl.get("action") != "trade" or not fresh_frame(frames.get(a), now):
             continue
         today = now.date().isoformat()
         same = d[(d["asset"] == a) & (d["ts"].astype(str).str[:10] == today) & (d["side"] == pl["side"])]
-        open_ = d[(d["asset"] == a) & (d["graded"].fillna(0) == 0)]
+        open_ = d[(d["asset"] == a) & (d["graded"].fillna(0) == 0) & (d["logic"] == logic)]
         if len(same) or len(open_):                      # günde aynı yönde tek öneri; açık öneri varken yenisi yok
             continue
         d.loc[len(d)] = {"ts": now.isoformat(), "asset": a, "side": pl["side"], "entry": pl["entry"], "stop": pl["stop"],
                          "target": pl["target"], "confidence": pl["confidence"], "source": pl["source"],
                          "pulse": (pl.get("pulse") or {}).get("score"), "outcome": None, "r_mult": np.nan,
-                         "exit_ts": None, "graded": 0, "logic": logic}
+                         "exit_ts": None, "graded": 0, "logic": logic, "label_schema": SCHEMA, "label_reason": "PENDING"}
     d.tail(20000).to_csv(path, index=False)
     return scorecard(d, logic)

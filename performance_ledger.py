@@ -291,21 +291,20 @@ class PerformanceLedger:
             n_ind += 1
             w_ind += 1 if x > 0 else 0
         hit = wins / n
-        # Confidence bound: full-sample hit-rate, but only as many
-        # "independent" observations as there are non-overlapping windows
-        # (effective sample size) -- overlapping horizons are not new
-        # evidence and must not make the bound look tighter than it is.
+        # Use the actual wins of the nonoverlapping subsample, not
+        # full-sample accuracy multiplied by the smaller N.
         return {
             "n": n,
             "hit": hit,
             "mean_bps": mean_bps,
             "n_indep": n_ind,
-            "hit_lb95": wilson_lower_bound(hit * n_ind, n_ind),
+            "hit_lb95": wilson_lower_bound(w_ind, n_ind),
         }
 
     def summary(self) -> Dict[str, Any]:
         rows = [r for r in self.data.get("records", []) if r.get("o")]
-        out: Dict[str, Any] = {"generated_at": now_utc().isoformat(), "assets": {}, "overall": {}}
+        out: Dict[str, Any] = {"generated_at": now_utc().isoformat(), "assets": {}, "overall": {},
+                               "evidence_scope": "LEGACY_ASOF_DESCRIPTIVE_ONLY; exact prospective component_research_report.json required"}
         assets = sorted({r["a"] for r in rows})
         model = lambda r: r["d"]
         always_long = lambda r: 1 if r["d"] != 0 else 0          # same timestamps as model calls
@@ -360,6 +359,8 @@ class PerformanceLedger:
     def _edge_line(model: Dict[str, Any], base: Dict[str, Any], trend: Dict[str, Any]) -> str:
         if not model or model.get("n_indep", 0) < MIN_SAMPLES_FOR_VERDICT:
             return f"Karar için henüz yeterli bağımsız örnek yok (gereken: {MIN_SAMPLES_FOR_VERDICT})."
+        if trend and trend.get("n", 0) not in (0, model.get("n", 0)):
+            return "Eski trend örneklemi farklı; kesin üstünlük/başarısızlık kararı verilemez."
         best_base = max(
             [b.get("hit", 0.0) for b in (base, trend) if b and b.get("n", 0) > 0] or [0.5]
         )
@@ -368,7 +369,7 @@ class PerformanceLedger:
             return f"🟡 Yön isabeti betimsel olarak olumlu ({edge:+.1f} puan); eşleştirilmiş üstünlük testi ve maliyet sonrası işlem kanıtı yok."
         if edge > 0:
             return f"🟡 Olumlu ama henüz istatistiksel olarak kanıtlanmadı ({edge:+.1f} puan)."
-        return f"🔴 Model basit yöntemlerin gerisinde ({edge:+.1f} puan) — bu varlık/ufuk için sinyal henüz güvenilir değil."
+        return f"🔴 Model basit yöntemlerin gerisinde ({edge:+.1f} puan) — eski betimsel ölçüm; kesin performans kararı değildir."
 
     def write_report(self, path: str = REPORT_FILE, extra_lines: Optional[Iterable[str]] = None) -> Dict[str, Any]:
         s = self.summary()
@@ -385,6 +386,8 @@ class PerformanceLedger:
                  "(1 bps = %0,01) · *alt sınır* = %95 güvenle gerçek isabetin en az bu kadar olduğu değer. "
                  "Model, **Hep AL** ve **Trend takibi** (fiyatın gidişine bakan reaktif yöntem) ile AYNI anlarda karşılaştırılır.")
         L.append("")
+        L += ["⚠️ Eski as-of ölçüm yaklaşımı; kesin ufuk, eşleşmiş kanıt veya işlem performansı değildir.",
+              "Güncel bileşen kanıtı: component_research_report.json. Pooled alt sınırlar istatistiksel üstünlük kanıtı değildir.", ""]
         L.append("## Genel")
         for h in HORIZONS_H:
             o = s["overall"][str(h)]

@@ -1070,7 +1070,9 @@ class PreTradeGatekeeper:
                 v["atr_ratio"] = round(float(_prof["atr_ratio"]), 2)   # v3.3.3: BTC showed 0.00x
             self._flag_live_vs_model(v)
 
-            if "NOT_PROVEN" in str(v.get("learned_model_status", "")) and "LEGACY" not in str(v.get("learned_model_status", "")):
+            learned_status = str(v.get("learned_model_status", ""))
+            if (learned_status == "NO_MODEL" or
+                    ("NOT_PROVEN" in learned_status and "LEGACY" not in learned_status)):
                 v["entry_allowed"] = False
                 v["entry_grade"] = "-"
                 v["entry_timing"] = "Örneklem dışı kanıt yok; zamanlama değerlendirilmez."

@@ -24,6 +24,7 @@ RESEARCH_GRACE_H = 48  # Allow 4h outcome window and delayed publication
 MIN_V2_4H = 100
 MIN_RESEARCH_4H = 100
 V2_INTEGRITY_AUDIT = Path(__file__).resolve().parent / "docs" / "tier1_v2_forward_label_integrity_audit.json"
+V2_SCOPE_AUDIT = Path(__file__).resolve().parent / "docs" / "tier1_v2_forward_scope_audit.json"
 
 
 def when(value):
@@ -81,6 +82,7 @@ def v2_decision(start, end):
     rows = load_csv(path)
     trades = load_csv("trade_ledger.csv")
     result = {"study": "tier1_v2_forward", "source": "version-locked prospective forecast_ledger.csv",
+              "measured_component": "lean4h direction only", "whole_system_verdict": "NOT_EVALUATED",
               "source_sha256": digest([path, "trade_ledger.csv"]),
               "per_asset": {}, "trade_grading": {}, "policy": "NO_LIVE_PROMOTION"}
     if rows is None:
@@ -281,6 +283,22 @@ def append_v2_integrity_audit(output, now):
     return target
 
 
+def append_v2_scope_audit(output, now):
+    """Attach a scope limitation to the frozen result, without rewriting it."""
+    final = output / "tier1_v2_forward-final.json"
+    target = output / "tier1_v2_forward-scope-audit.json"
+    if target.exists() or not final.exists() or not V2_SCOPE_AUDIT.is_file():
+        return None
+    audit = load_json(V2_SCOPE_AUDIT)
+    if hashlib.sha256(final.read_bytes()).hexdigest() != audit["assessment"]["previous_final_sha256"]:
+        return None
+    if audit.get("stage") != "SCOPE_AUDIT" or audit.get("live_orders") is not False:
+        raise ValueError("INVALID_V2_SCOPE_AUDIT")
+    audit["as_of_utc"] = iso(now)
+    target.write_text(json.dumps(audit, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return target
+
+
 def generate(now, output):
     """Immutable once written. Return newly created decisions only."""
     output = Path(output)
@@ -337,6 +355,9 @@ def generate(now, output):
     audit = append_v2_integrity_audit(output, now)
     if audit is not None:
         new.append(audit)
+    scope = append_v2_scope_audit(output, now)
+    if scope is not None:
+        new.append(scope)
     return new
 
 

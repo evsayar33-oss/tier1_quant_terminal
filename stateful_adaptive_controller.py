@@ -303,7 +303,7 @@ class StatefulAdaptiveController:
             **learned_info,
         })
         _ls = str(learned_info.get("learned_model_status", ""))
-        if _ls in ("NOT_PROVEN_ABSTAIN", "NOT_PROVEN_ADVISORY"):
+        if _ls in ("NOT_PROVEN_ABSTAIN", "NOT_PROVEN_ADVISORY", "NO_MODEL"):
             _o = learned_info.get("learned_model_oos") or {}
             out["entry_allowed"] = False
             out["entry_status"] = "⛔ GİRİŞ KAPALI (KANITSIZ SİNYAL)"

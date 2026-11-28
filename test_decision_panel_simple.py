@@ -29,7 +29,7 @@ def test_day_direction_falls_back_to_significant_base_rate():
     assert pick["side"] == 1 and pick["strength"] == "zayıf"
     weak = _v(base_rates={"1": {"up": 0.5166, "n": 2890}})
     assert DD.choose("ETH", weak, DD.candidates("ETH", weak, None, {}, now, {}), {})["side"] == 0
-    stats = {"mom4h": {"proven": True, "z": 3.0, "hit": 0.6, "n": 80, "per_asset": {"NQ": 0.6}}}
+    stats = {"mom4h": {"asset_evidence": {"NQ": {"proven": True, "z": 3.0, "hit": 0.6, "n": 80}}}}
     v = _v(recent_move={"z": -1.2})
     pick = DD.choose("NQ", v, DD.candidates("NQ", v, None, {}, now, {}), stats)
     assert pick["side"] == -1 and pick["source"] == "mom4h"              # kanıtlı canlı aday önceliklidir

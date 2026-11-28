@@ -21,6 +21,8 @@ def render(item):
             + item["study_id"] + " | " + item["stage"] + "\n"
             + "Sonuc: " + str(a["decision"]) + "\n"
             + "Pencere bitisi (UTC): " + str(item.get("end_utc")) + "\n")
+    if item["study_id"] == "tier1_v2_forward" and item["stage"] == "FINAL":
+        head += "Kapsam: yalniz 4s yon gostergesi; tum sistem veya islem performansi degil.\n"
     if a.get("reason"):
         head += str(a["reason"])[:500] + "\n"
     if a.get("followup_assets"):

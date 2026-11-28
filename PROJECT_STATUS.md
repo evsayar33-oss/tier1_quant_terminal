@@ -66,3 +66,5 @@ Sonra şu dosyaları okur:
 * 2026-10-23: Basit Özet düzeltmesi: XAU/XAG sahte ayrışması giderildi. Kısa vade eğilimi kanıtsız modelden değil fiyattan; taban oran yönü sadece z ≥ 2 ise.
 * 2026-10-23: Arayüze "🟢 Basit Özet" tablosu eklendi (yeni başlayanlar için sade dil).
 * 2026-10-23: `system_health.py` eklendi. Sistem kendi hatalarını `health_log.csv` dosyasına yazar.
+
+* 2026-11-28: V2 kapsam/etiket denetimi. Eski FINAL korunur; yalnız 4s yön göstergesini ölçtüğü, tüm terminali ölçmediği ayrı SHA-bağlı denetimde kaydedildi. Yeni mantık etiketi `2026.11.28-v2.1-integrity`: eksik model kanıt sayılmaz, fiyat pencereleri kesin, gün yönü/stop kalibrasyonu varlık bazında ve örtüşmesiz. Yeni bileşen karnesi `state/component_research_report.json` (araştırma, terfi yok). 14 Kasım BTC/ETH gözlem manifestosu ve araştırma yöntemi değiştirilmedi. Ayrıntı: RESEARCH_AUTOPILOT.md.

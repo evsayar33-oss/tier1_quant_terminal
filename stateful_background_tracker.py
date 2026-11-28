@@ -358,6 +358,13 @@ def run_background_cycle() -> Dict[str, Any]:
         "day_direction_stats": day_dir_stats,
         "trade_scorecard": trade_card,
     }
+    # Component-by-component observer: no decisions or gates are changed here.
+    try:
+        import component_research as CR
+        payload["component_research"] = CR.run_cycle(verdicts, frames, contexts)
+    except Exception as exc:
+        payload["component_research"] = {"status": "ERROR", "error": str(exc)[:200]}
+        print(f"[component_research] {exc}", flush=True)
     # Isolated evidence-only research: never changes verdicts, weights or stops.
     try:
         import research_30d as R30
